@@ -1,9 +1,10 @@
 export type Suit = 'C' | 'D' | 'H' | 'S'
-export type Rank = 'A' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K'
+export type Rank = 'A' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K' | 'Jo'
 
 export interface Card {
   suit: Suit
   rank: Rank
+  id: string
 }
 
 export interface Enemy {
@@ -11,7 +12,8 @@ export interface Enemy {
   hp: number
   maxHp: number
   attack: number
-  shieldThisTurn: number
+  shield: number
+  immunityNullified: boolean
 }
 
 export interface ServerPlayer {
@@ -22,29 +24,29 @@ export interface ServerPlayer {
 }
 
 export type GamePhase = 'lobby' | 'playing' | 'won' | 'lost'
-export type TurnPhase = 'play' | 'discard'
+export type TurnPhase = 'play' | 'discard' | 'choose_next'
 
 export interface GameState {
   phase: GamePhase
   turnPhase: TurnPhase
   players: ServerPlayer[]
   currentPlayerIndex: number
-  enemyDeck: Card[]
+  nextPlayerIndex: number
+  enemyDeck: Card[]       // castle deck (face cards not yet revealed)
   currentEnemy: Enemy | null
   defeatedEnemies: Card[]
-  tavern: Card[]
-  drawPile: Card[]
-  discardNeeded: number
+  discard: Card[]         // played player cards (Hearts recovers from here)
+  tavern: Card[]          // the draw deck players draw from
+  discardNeeded: number   // minimum total value player must pay as damage
   log: string[]
   lastPlayed: Card[]
 }
 
-// What each client receives — their hand visible, others' hand sizes only
 export interface ClientPlayer {
   id: string
   name: string
   handSize: number
-  hand?: Card[]    // only populated for the receiving client
+  hand?: Card[]
   isCurrentPlayer: boolean
   connected: boolean
 }
@@ -54,11 +56,12 @@ export interface ClientGameState {
   turnPhase: TurnPhase
   players: ClientPlayer[]
   currentPlayerIndex: number
+  nextPlayerIndex: number
   enemiesRemaining: number
   currentEnemy: Enemy | null
   defeatedCount: number
-  tavernCount: number
-  drawCount: number
+  discardCount: number    // discard pile size
+  tavernCount: number     // draw deck size
   discardNeeded: number
   log: string[]
   lastPlayed: Card[]

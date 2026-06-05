@@ -1,5 +1,6 @@
 import type { GameState, ClientGameState, RoomInfo } from './types'
-import { createGame, applyPlayCard, applyDiscard, applyYield } from './game'
+import { createGame, applyPlayCards, applyDiscard, applyYield, applyChooseNext } from './game'
+import { handSize } from './deck'
 
 interface Room {
   code: string
@@ -32,11 +33,12 @@ export function buildClientState(state: GameState, forPlayerId: string): ClientG
       connected: p.connected,
     })),
     currentPlayerIndex: state.currentPlayerIndex,
+    nextPlayerIndex: state.nextPlayerIndex,
     enemiesRemaining: state.enemyDeck.length,
     currentEnemy: state.currentEnemy,
     defeatedCount: state.defeatedEnemies.length,
+    discardCount: state.discard.length,
     tavernCount: state.tavern.length,
-    drawCount: state.drawPile.length,
     discardNeeded: state.discardNeeded,
     log: state.log,
     lastPlayed: state.lastPlayed,
@@ -46,12 +48,7 @@ export function buildClientState(state: GameState, forPlayerId: string): ClientG
 
 export function createRoom(hostId: string, hostName: string): RoomInfo {
   const code = genCode()
-  rooms.set(code, {
-    code,
-    hostId,
-    players: [{ id: hostId, name: hostName, ready: false }],
-    state: null,
-  })
+  rooms.set(code, { code, hostId, players: [{ id: hostId, name: hostName, ready: false }], state: null })
   return roomInfo(code)!
 }
 
@@ -60,7 +57,7 @@ export function joinRoom(code: string, playerId: string, playerName: string): { 
   if (!room) return { error: 'Room not found.' }
   if (room.state) return { error: 'Game already in progress.' }
   if (room.players.length >= 4) return { error: 'Room is full.' }
-  if (room.players.find(p => p.id === playerId)) return { room: roomInfo(code)! } // reconnect
+  if (room.players.find(p => p.id === playerId)) return { room: roomInfo(code)! }
   room.players.push({ id: playerId, name: playerName, ready: false })
   return { room: roomInfo(code)! }
 }
@@ -76,22 +73,16 @@ export function setReady(code: string, playerId: string, ready: boolean): RoomIn
 export function startGame(code: string, requesterId: string): { states?: Map<string, ClientGameState>; error?: string } {
   const room = rooms.get(code)
   if (!room) return { error: 'Room not found.' }
-  if (room.hostId !== requesterId) return { error: 'Only the host can start the game.' }
-  if (room.players.length < 1) return { error: 'Need at least 1 player.' }
-
+  if (room.hostId !== requesterId) return { error: 'Only the host can start.' }
   room.state = createGame(room.players.map(p => ({ id: p.id, name: p.name })))
-
-  const states = new Map<string, ClientGameState>()
-  for (const p of room.players)
-    states.set(p.id, buildClientState(room.state, p.id))
-  return { states }
+  return { states: buildAllStates(room) }
 }
 
-export function playCard(code: string, playerId: string, cardIndex: number): { states?: Map<string, ClientGameState>; error?: string } {
+export function playCards(code: string, playerId: string, cardIndices: number[]): { states?: Map<string, ClientGameState>; error?: string } {
   const room = rooms.get(code)
   if (!room?.state) return { error: 'No active game.' }
-  const playerIndex = room.state.players.findIndex(p => p.id === playerId)
-  const result = applyPlayCard(room.state, playerIndex, cardIndex)
+  const pi = room.state.players.findIndex(p => p.id === playerId)
+  const result = applyPlayCards(room.state, pi, cardIndices)
   if (result.error) return { error: result.error }
   room.state = result.state
   return { states: buildAllStates(room) }
@@ -100,8 +91,8 @@ export function playCard(code: string, playerId: string, cardIndex: number): { s
 export function discardDamage(code: string, playerId: string, cardIndices: number[]): { states?: Map<string, ClientGameState>; error?: string } {
   const room = rooms.get(code)
   if (!room?.state) return { error: 'No active game.' }
-  const playerIndex = room.state.players.findIndex(p => p.id === playerId)
-  const result = applyDiscard(room.state, playerIndex, cardIndices)
+  const pi = room.state.players.findIndex(p => p.id === playerId)
+  const result = applyDiscard(room.state, pi, cardIndices)
   if (result.error) return { error: result.error }
   room.state = result.state
   return { states: buildAllStates(room) }
@@ -110,27 +101,42 @@ export function discardDamage(code: string, playerId: string, cardIndices: numbe
 export function yieldTurn(code: string, playerId: string): { states?: Map<string, ClientGameState>; error?: string } {
   const room = rooms.get(code)
   if (!room?.state) return { error: 'No active game.' }
-  const playerIndex = room.state.players.findIndex(p => p.id === playerId)
-  const result = applyYield(room.state, playerIndex)
+  const pi = room.state.players.findIndex(p => p.id === playerId)
+  const result = applyYield(room.state, pi)
   if (result.error) return { error: result.error }
   room.state = result.state
   return { states: buildAllStates(room) }
 }
 
-export function playerDisconnect(playerId: string): string[] {
-  const affected: string[] = []
+export function chooseNext(code: string, playerId: string, targetIndex: number): { states?: Map<string, ClientGameState>; error?: string } {
+  const room = rooms.get(code)
+  if (!room?.state) return { error: 'No active game.' }
+  const pi = room.state.players.findIndex(p => p.id === playerId)
+  const result = applyChooseNext(room.state, pi, targetIndex)
+  if (result.error) return { error: result.error }
+  room.state = result.state
+  return { states: buildAllStates(room) }
+}
+
+export function restartGame(code: string): { room?: RoomInfo; error?: string } {
+  const room = rooms.get(code)
+  if (!room) return { error: 'Room not found.' }
+  room.state = null
+  for (const p of room.players) p.ready = false
+  return { room: roomInfo(code)! }
+}
+
+export function playerDisconnect(playerId: string) {
   for (const [code, room] of rooms) {
-    const p = room.state?.players.find(p => p.id === playerId)
-    if (p) { p.connected = false; affected.push(code) }
+    const sp = room.state?.players.find(p => p.id === playerId)
+    if (sp) sp.connected = false
     const rp = room.players.find(p => p.id === playerId)
     if (rp && !room.state) {
       room.players = room.players.filter(p => p.id !== playerId)
       if (room.players.length === 0) rooms.delete(code)
       else if (room.hostId === playerId) room.hostId = room.players[0]!.id
-      affected.push(code)
     }
   }
-  return affected
 }
 
 export function roomInfo(code: string): RoomInfo | null {
@@ -139,16 +145,10 @@ export function roomInfo(code: string): RoomInfo | null {
   return { code, hostId: room.hostId, players: room.players }
 }
 
-export function getRoomForPlayer(playerId: string): Room | null {
-  for (const room of rooms.values())
-    if (room.players.find(p => p.id === playerId)) return room
-  return null
-}
-
 function buildAllStates(room: Room): Map<string, ClientGameState> {
-  const states = new Map<string, ClientGameState>()
-  if (!room.state) return states
+  const map = new Map<string, ClientGameState>()
+  if (!room.state) return map
   for (const p of room.players)
-    states.set(p.id, buildClientState(room.state, p.id))
-  return states
+    map.set(p.id, buildClientState(room.state, p.id))
+  return map
 }

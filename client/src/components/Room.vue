@@ -15,6 +15,9 @@ const copied = ref(false)
 socket.on('room_update', (r: RoomInfo) => { room.value = r })
 socket.on('game_state',  (s: ClientGameState) => { game.value = s })
 socket.on('error',       (msg: string) => { error.value = msg })
+socket.on('game_reset',  () => { game.value = null })
+
+onMounted(() => socket.emit('get_room', { code }))
 
 const isHost = computed(() => room.value?.hostId === socket.id)
 const allReady = computed(() => room.value?.players.every(p => p.ready) ?? false)
