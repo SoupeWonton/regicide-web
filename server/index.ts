@@ -3,9 +3,9 @@ import { createServer } from 'http'
 import { Server } from 'socket.io'
 import { createRoom, joinRoom, setReady, startGame, playCards, discardDamage, yieldTurn, chooseNext, restartGame, playerDisconnect, roomInfo } from './rooms'
 
-const app  = express()
+const app = express()
 const http = createServer(app)
-const io   = new Server(http, { cors: { origin: '*' } })
+const io = new Server(http, { cors: { origin: '*' } })
 
 app.get('/health', (_, res) => res.json({ ok: true }))
 
