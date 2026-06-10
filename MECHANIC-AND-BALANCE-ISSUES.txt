@@ -1,0 +1,149 @@
+MECHANIC AND BALANCE ISSUES
+===========================
+Found while implementing the campaign MVP. Grouped by severity:
+(A) rules that cannot work as written, (B) ambiguities resolved with an MVP
+decision that needs Jerome's confirmation, (C) deliberate simplifications,
+(D) not yet implemented, (E) balance observations.
+
+
+A. RULES THAT DON'T WORK AS WRITTEN
+-----------------------------------
+
+A1. Discard-recovery preparations are dead rules.
+    Reserve Kits ("recover 2 cards from discard into Tavern before first
+    turn") and Full Logistics fire at the start of the next encounter after
+    camp. But the camp rest itself shuffles the discard into the Tavern, so
+    the first post-camp encounter ALWAYS starts with an empty discard. The
+    preps can never do anything. Options: make them persist until an
+    encounter where the discard is non-empty, turn them into mid-encounter
+    spells (Refit / Full Recycle already cover that space), or redesign.
+    -> Currently omitted from the item pool.
+
+A2. Oracle's Omen cost is not detectable by the game.
+    "If the party uses this information to force a route commitment change,
+    gain one Omen." The game cannot know whether players changed their route
+    *because of* the peek — intent isn't observable. Needs an objective
+    trigger (e.g. "gain 1 Omen each time the Oracle peeks more than N times
+    per chapter" or "each time the party backtracks").
+    -> Omen system not implemented; Oracle peek is currently free.
+
+A3. Shrine standard reward was a dead rule under the old reading, and is odd
+    under the correct one. "Shuffle up to 5 discard cards into Tavern, then
+    one player draws 2" resolves at a road landmark — fine now that the deck
+    persists, BUT it's strictly worse than camping and is on the same map
+    layer as camps in some layouts. Reworked for MVP as a blessing: next
+    encounter, everyone draws 1 and the hand cap is +1. Confirm or revert.
+
+
+B. AMBIGUITIES — MVP DECISIONS THAT NEED CONFIRMATION
+-----------------------------------------------------
+
+B1. "Encounter reset rule" scope (resolved with Gab 2026-06-10): the fresh
+    Tavern state applies ONLY to encounters entered from camp/interlude.
+    Deck, discard and hands persist across road encounters. Implemented.
+
+B2. Class triggers — team-wide or owner-only? Quartermaster ("the first
+    Diamond trigger each enemy draws +1") and Surgeon (same for Hearts) are
+    written without an owner. Implemented as TEAM-WIDE (any hero's first
+    Diamond/Heart per enemy) while the class is alive. If intended as
+    owner-only, both classes get noticeably weaker.
+
+B3. Executioner "once per enemy, if damage leaves enemy at 1-2 HP, deal +2
+    finishing damage" — implemented as applying to ANY hero's attack while
+    the Executioner lives (text has no owner). Same question as B2.
+
+B4. What is a "round"? Several modifiers (Shieldbreaker Line, Iron Rain
+    File, plus unimplemented ones like Triage Delay) reference rounds.
+    Implemented as: one full cycle of living heroes' turns. Counterattack-
+    counting approximations used for Iron Rain (+1 on every 2nd
+    counterattack) and Garrison Crusher (+2 on every 2nd counterattack).
+
+B5. Death vote tiebreak (open question in the docs): implemented as
+    majority, host's vote breaks ties. Timeout deliberation not implemented.
+
+B6. Exile Burden ("each Burden makes the next hero death fork harsher,
+    -1 option choice"): implemented as one fewer REPLACEMENT class offer per
+    Burden. If it was meant to remove a vote option (e.g. lose Retreat),
+    that's a much harsher and very different effect.
+
+B7. Gambler wager success ("choose next player") overrides the base rule
+    that the killer plays again. Implemented that way; confirm.
+
+B8. Relic rewards from the Forge auto-equip to the first living hero
+    without a relic (else the first hero swaps). The docs don't say who
+    receives a relic reward — a "give to whom?" picker is probably wanted.
+
+B9. Commander's handoff is offered on EVERY kill while alive ("once per
+    enemy" is automatically satisfied since the enemy changes after a
+    kill). If a per-encounter cap was intended, say so.
+
+
+C. DELIBERATE SIMPLIFICATIONS (work, but not as written)
+--------------------------------------------------------
+
+C1. Hand Brief prep: "+2 cards then discard 1" -> draws 2, no discard.
+C2. Quick Muster spell: "draw 2, discard 1" -> draws 2.
+C3. Starved Caravan: "two heroes trigger draw in one round removes the cap"
+    -> every second Diamond trigger ignores the cap.
+C4. Wrong Relay: "+1 random discard if the same hero acts next" -> applies
+    on the first kill when the killer keeps the turn.
+C5. Memory M-01 First Blood Ledger: "reward reroll at next landmark" ->
+    reroll system doesn't exist; first exact kill draws 1 card instead.
+C6. Forge card upgrade ("upgrade one card by +1 for this chapter") ->
+    replaced with a relic choice. NOTE: with the persistent deck this is now
+    implementable as written (cards keep identity within a chapter) — needs
+    a card-picker UI and per-card value override.
+C7. Market value-adjust tokens -> deferred (needs played-card adjust UI).
+    Market currently offers preparations.
+C8. Setup peeks don't stack: priority Route Intel > Oracle > Scry Band >
+    Court Recon; only the best one fires per encounter.
+
+D. NOT YET IMPLEMENTED
+----------------------
+
+D1. 15 of the 30 Chapter-1 encounter modifiers (the most digital-friendly
+    half is in). Out: Fog Marker partial-reveal variant beyond peek-hiding,
+    Triage Delay, Locked Cache, Choke Relay, Miscount Ledger, Counterfeit
+    Charts, Exhaustion Spiral, Split Convoy, Priority Collapse, Distorted
+    Mirror, Quarterline Saboteurs, Glass Archivist, Sealed Arsenal, Chain of
+    Command Ruin, Carrion Procession, Uncertain Witness.
+D2. Specializations (canon defers them past Chapter 1 anyway; the Kingdom
+    unlock flag exists, effects don't).
+D3. Immediate (mid-road) replacement join with reduced bonuses — replacement
+    is camp-only in the MVP.
+D4. Meta currency (listed as optional/open for v0).
+D5. Map variants: 1 authored map per chapter (target ~10) + seeded in-layer
+    permutation.
+D6. Chapter 2 boss modifier pool is a 3-entry placeholder (Iron Court +5 HP,
+    Cruel Court +2 ATK, Starving Court -1 hand size), one picked per seed.
+D7. TC/DV scaling by player count (values are static; CT is logged per node
+    but not yet used to scale anything).
+D8. Memory pool is 8 designs (target ~15).
+D9. Mid-session reconnection (must resume from save).
+
+E. BALANCE OBSERVATIONS
+-----------------------
+
+E1. Deck starvation spiral: with no auto-recycle (correct per the design),
+    a party that burns its Tavern on a long road segment between camps can
+    hit fights where nobody can draw. Hearts/Surgeon become mandatory in a
+    way that may be intended ("access under attrition") — but a 4-player
+    party with no Hearts access can soft-lock into chip deaths. Watch this
+    in playtests; Ch.2's camp placement (mid-map camp fork) may need to be
+    guaranteed rather than optional.
+E2. Exact-kill royals are now real rewards (J=10/Q=15/K=20 cards enter the
+    persistent deck and survive until the next camp shuffle puts them in the
+    draw pool). Strong, fun, untested.
+E3. Jester counts come from player count (1-2p = 0 jesters): jester-
+    dependent tools (Gambler Fate Broker spec, immunity nullification) are
+    dead at 1-2 players.
+E4. Two-player parties can't cover all four CT categories — by design? The
+    class CT bands assume 4 x 0.75; a duo runs at ~1.5-2.0 party CT against
+    pressures budgeted for ~3.0 (chapter budgets in catastrophe-tolerance.md
+    don't currently scale by player count).
+E5. Boss Ch.2 "Starving Court" (-1 hand size) stacks badly with attrition —
+    likely the hardest of the three placeholder modifiers by a wide margin.
+E6. Bot playtests (greedy single-card bot, scripts/smoke.ts Test 5) lose
+    Chapter 1 consistently — expected since base Regicide is hard and the
+    bot is dumb, but real-table calibration data is needed before touching
+    any numbers.
