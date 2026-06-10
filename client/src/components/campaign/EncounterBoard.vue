@@ -2,7 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { socket } from '../../socket'
 import type { ClientCampaignState, Card } from '../../types'
-import { cardValue, suitSymbol, suitColor, cardLabel, CLASS_ICONS } from './cards'
+import { cardValue, suitSymbol, CLASS_ICONS } from './cards'
 
 const props = defineProps<{ state: ClientCampaignState; code: string }>()
 
@@ -12,7 +12,17 @@ const showSpells = ref(false)
 const peekOrder = ref<number[]>([])
 const whistleMode = ref(false)
 
-// ── Juice: floating damage numbers + hit shake ───────────────────────────────
+const enc = computed(() => props.state.encounter!)
+const me = computed(() => props.state.heroes[props.state.myHeroIndex])
+const isMyTurn = computed(() => props.state.myHeroIndex === enc.value.currentPlayerIndex && enc.value.outcome === 'active')
+const inPlay = computed(() => enc.value.turnPhase === 'play' && isMyTurn.value)
+const inDiscard = computed(() => enc.value.turnPhase === 'discard' && isMyTurn.value)
+const inChoose = computed(() => enc.value.turnPhase === 'choose_next' && isMyTurn.value)
+const myPeek = computed(() => enc.value.turnPhase === 'setup' && enc.value.setupPeek?.mine)
+
+const hand = computed(() => enc.value.myHand)
+
+// ── Juice: floating combat numbers + hit shake ───────────────────────────────
 const floats = ref<{ id: number; text: string; kind: 'dmg' | 'shield' | 'death' }[]>([])
 let floatId = 0
 function spawnFloat(text: string, kind: 'dmg' | 'shield' | 'death') {
@@ -35,7 +45,7 @@ watch(
     if (!now || !was) return
     const [idA, hpA, shA] = was.split(':')
     const [idB, hpB, shB] = now.split(':')
-    if (idA !== idB) return                       // new enemy, no numbers
+    if (idA !== idB) return
     const dmg = Number(hpA) - Number(hpB)
     const sh = Number(shB) - Number(shA)
     if (dmg > 0) spawnFloat(`−${dmg}`, 'dmg')
@@ -43,7 +53,6 @@ watch(
   },
 )
 
-// counterattack lands on us → shake the board
 watch(() => props.state.encounter?.discardNeeded ?? 0, (now, was) => {
   if (now > 0 && (was ?? 0) === 0) shake()
 })
@@ -51,16 +60,39 @@ watch(() => props.state.heroes.filter(h => !h.alive).length, (now, was) => {
   if ((was ?? 0) < now) { shake(); spawnFloat('💀', 'death') }
 })
 
-const enc = computed(() => props.state.encounter!)
-const me = computed(() => props.state.heroes[props.state.myHeroIndex])
-const isMyTurn = computed(() => props.state.myHeroIndex === enc.value.currentPlayerIndex && enc.value.outcome === 'active')
-const inPlay = computed(() => enc.value.turnPhase === 'play' && isMyTurn.value)
-const inDiscard = computed(() => enc.value.turnPhase === 'discard' && isMyTurn.value)
-const inChoose = computed(() => enc.value.turnPhase === 'choose_next' && isMyTurn.value)
-const myPeek = computed(() => enc.value.turnPhase === 'setup' && enc.value.setupPeek?.mine)
+// ── HP counter that counts down instead of snapping ──────────────────────────
+const hpShown = ref(0)
+watch(
+  () => enc.value.currentEnemy ? ([enc.value.currentEnemy.card.id, Math.max(0, enc.value.currentEnemy.hp)] as const) : null,
+  (now, was) => {
+    if (!now) return
+    const target = now[1]
+    if (!was || was[0] !== now[0]) { hpShown.value = target; return }
+    if (was[1] === target) return
+    const from = hpShown.value
+    const start = performance.now()
+    const dur = 450
+    const tick = (t: number) => {
+      const k = Math.min(1, (t - start) / dur)
+      hpShown.value = Math.round(from + (target - from) * (1 - Math.pow(1 - k, 3)))
+      if (k < 1) requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  },
+  { immediate: true },
+)
 
-const hand = computed(() => enc.value.myHand)
+// ── Hand fan geometry ────────────────────────────────────────────────────────
+function fanStyle(i: number, n: number) {
+  const mid = (n - 1) / 2
+  const off = i - mid
+  const per = Math.min(5, 40 / Math.max(n, 1))
+  const rot = off * per
+  const sink = Math.pow(Math.abs(off), 1.6) * 2.4
+  return { transform: `rotate(${rot}deg) translateY(${sink}px)`, zIndex: 10 + i }
+}
 
+// ── Rules helpers (mirror server validation for instant feedback) ────────────
 const comboError = computed(() => {
   const cards = selected.value.map(i => hand.value[i]!).filter(Boolean)
   if (cards.length <= 1) return null
@@ -84,6 +116,11 @@ function isImmuneSuit(suit: string) {
   return enemy.card.suit === suit
 }
 
+function suitClass(suit: string) {
+  return suit === 'H' || suit === 'D' ? 'suit-red' : 'suit-black'
+}
+
+// ── Actions ──────────────────────────────────────────────────────────────────
 function act(action: Record<string, unknown>) {
   socket.emit('campaign_action', { code: props.code, action })
   selected.value = []
@@ -141,9 +178,6 @@ function togglePeekCard(i: number) {
 
 socket.on('error', (msg: string) => { errorMsg.value = msg })
 
-const rankNames: Record<string, string> = { J: 'Jack', Q: 'Queen', K: 'King' }
-const tierLabels: Record<string, string> = { skirmish: 'Skirmish', veteran: 'Veteran patrol', elite: 'Elite warband', boss: 'THE CASTLE' }
-
 function heroTooltip(h: (typeof props.state.heroes)[number]): string {
   const lines = [`${h.className} — ${h.abilityText}`]
   if (h.relic) lines.push(`🏺 ${h.relic.name}: ${h.relic.text}`)
@@ -151,18 +185,25 @@ function heroTooltip(h: (typeof props.state.heroes)[number]): string {
   if (!h.alive) lines.push('💀 Fallen — can be replaced at camp.')
   return lines.join('\n')
 }
+
+const rankNames: Record<string, string> = { J: 'Jack', Q: 'Queen', K: 'King' }
+const tierLabels: Record<string, string> = { skirmish: 'Skirmish', veteran: 'Veteran patrol', elite: 'Elite warband', boss: 'THE CASTLE' }
+const netAttack = computed(() => {
+  const e = enc.value.currentEnemy
+  return e ? Math.max(0, e.attack - e.shield) : 0
+})
 </script>
 
 <template>
-  <div class="flex flex-col gap-3 p-3 max-w-lg mx-auto pb-6">
+  <div class="flex flex-col gap-2 p-3 max-w-lg mx-auto pb-4 w-full">
 
     <!-- Encounter banner -->
-    <div class="card bg-base-100">
-      <div class="card-body py-2 px-4">
+    <div class="card bg-base-100/80 border border-base-content/10">
+      <div class="card-body py-2 px-4 gap-0.5">
         <div class="flex items-center justify-between">
-          <span class="font-bold text-sm" :class="enc.tier === 'boss' ? 'text-warning' : ''">
+          <span class="font-display font-bold text-sm tracking-wide" :class="enc.tier === 'boss' ? 'text-error' : 'text-primary/90'">
             {{ tierLabels[enc.tier] }}
-            <span v-if="enc.modifier"> — {{ enc.modifier.name }}</span>
+            <span v-if="enc.modifier" class="text-base-content/80"> — {{ enc.modifier.name }}</span>
           </span>
           <span class="text-xs text-base-content/50">⚔️ {{ enc.defeatedCount }}/{{ enc.totalEnemies }}</span>
         </div>
@@ -176,6 +217,20 @@ function heroTooltip(h: (typeof props.state.heroes)[number]): string {
       </div>
     </div>
 
+    <!-- Heroes -->
+    <div class="flex gap-2">
+      <div
+        v-for="h in state.heroes" :key="h.playerId"
+        :title="heroTooltip(h)"
+        :class="['flex-1 rounded-lg px-2 py-1.5 text-center text-xs border transition-all duration-300 cursor-help',
+          !h.alive ? 'border-error/40 bg-error/5 opacity-50' :
+          h.isCurrentPlayer ? 'border-primary bg-primary/10 text-primary turn-beacon' : 'border-base-content/10 bg-base-100 text-base-content/60']"
+      >
+        <div class="font-semibold truncate">{{ h.alive ? CLASS_ICONS[h.classId] : '💀' }} {{ h.playerName }}</div>
+        <div class="text-base-content/40">{{ h.alive ? h.handSize + ' cards' : 'fallen' }}</div>
+      </div>
+    </div>
+
     <!-- Setup peek -->
     <div v-if="enc.turnPhase === 'setup'" class="card bg-base-100 border border-primary/40">
       <div class="card-body py-3 px-4 gap-2">
@@ -184,94 +239,126 @@ function heroTooltip(h: (typeof props.state.heroes)[number]): string {
           <div class="flex gap-2 justify-center">
             <button
               v-for="(card, i) in enc.setupPeek!.cards" :key="card.id"
-              class="btn btn-outline font-mono flex-col gap-0 w-14 h-20 relative"
-              :class="peekOrder.includes(i) ? 'btn-primary' : ''"
+              class="card-face w-14 h-20 font-mono flex flex-col items-center justify-center relative transition-transform hover:-translate-y-1"
+              :class="peekOrder.includes(i) ? 'ring-2 ring-primary' : ''"
               @click="togglePeekCard(i)"
             >
-              <span :class="['text-xl', suitColor(card.suit)]">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
-              <span :class="suitColor(card.suit)">{{ card.rank !== 'Jo' ? suitSymbol(card.suit) : '' }}</span>
-              <span v-if="peekOrder.includes(i)" class="absolute -top-1 -right-1 badge badge-primary badge-xs">{{ peekOrder.indexOf(i) + 1 }}</span>
+              <span class="text-xl font-bold" :class="suitClass(card.suit)">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
+              <span class="text-base" :class="suitClass(card.suit)">{{ card.rank !== 'Jo' ? suitSymbol(card.suit) : '' }}</span>
+              <span v-if="peekOrder.includes(i)" class="absolute -top-1.5 -right-1.5 badge badge-primary badge-xs">{{ peekOrder.indexOf(i) + 1 }}</span>
             </button>
           </div>
           <button class="btn btn-primary btn-sm" @click="confirmPeek">
             {{ enc.setupPeek!.canReorder ? 'Confirm order' : 'Got it' }}
           </button>
         </template>
-        <p v-else class="text-sm text-center text-base-content/50">
+        <p v-else class="text-sm text-center text-base-content/50 soft-pulse">
           🔮 Someone is consulting the cards…
         </p>
       </div>
     </div>
 
-    <!-- Enemy -->
-    <Transition name="enemy-flip" mode="out-in">
+    <!-- ═══ STAGE ═══ -->
     <div
-      v-if="enc.currentEnemy"
-      :key="enc.currentEnemy.card.id"
-      class="card bg-base-100 shadow-xl relative border"
-      :class="[shaking ? 'hit-shake hurt-flash' : '', enc.tier === 'boss' ? 'border-error/30' : 'border-base-content/10']"
+      class="stage-swirl rounded-2xl border border-base-content/10 bg-base-300/60 px-3 pt-4 pb-3"
+      :class="shaking ? 'hit-shake hurt-flash' : ''"
     >
-      <!-- floating combat numbers -->
-      <div class="absolute right-5 top-1 z-10 pointer-events-none select-none" aria-hidden="true">
-        <div v-for="f in floats" :key="f.id"
-          class="dmg-float absolute right-0 font-display font-black whitespace-nowrap"
-          :class="f.kind === 'dmg' ? 'text-error text-2xl' : f.kind === 'shield' ? 'text-info text-lg' : 'text-3xl'"
-        >{{ f.text }}</div>
-      </div>
+      <div class="relative flex items-start justify-center gap-3 min-h-[11rem]">
 
-      <div class="card-body py-4 px-5">
-        <div class="flex items-center gap-4">
-          <div :class="['text-5xl font-black w-16 text-center shrink-0 font-display', suitColor(enc.currentEnemy.card.suit)]">
-            {{ enc.currentEnemy.card.rank }}{{ suitSymbol(enc.currentEnemy.card.suit) }}
+        <!-- Tavern pile -->
+        <div class="flex flex-col items-center gap-1 mt-6 shrink-0" :title="`Tavern — the draw pile. Empty? Only ♥ Hearts or a camp rest refill it.`">
+          <div class="pile" :class="enc.tavernCount === 0 ? 'pile-empty' : ''">
+            <div class="pile-layer" /><div class="pile-layer" /><div class="pile-layer" />
+            <span class="absolute inset-0 flex items-center justify-center font-display font-bold text-primary/90 z-10">{{ enc.tavernCount }}</span>
           </div>
-          <div class="flex-1 min-w-0">
-            <div class="flex justify-between text-sm mb-1">
-              <span class="font-semibold font-display tracking-wide">
-                {{ rankNames[enc.currentEnemy.card.rank] ?? enc.currentEnemy.card.rank }}
-                of {{ { C: 'Clubs', D: 'Diamonds', H: 'Hearts', S: 'Spades' }[enc.currentEnemy.card.suit] }}
-                <span v-if="enc.currentEnemy.immunityNullified" class="badge badge-xs badge-warning ml-1">immunity off</span>
-              </span>
-              <span class="text-base-content/50 text-xs">{{ Math.max(0, enc.currentEnemy.hp) }}/{{ enc.currentEnemy.maxHp }} HP</span>
+          <span class="text-[9px] uppercase tracking-widest text-base-content/40">Tavern</span>
+        </div>
+
+        <!-- Enemy royal card -->
+        <Transition name="enemy-flip" mode="out-in">
+        <div v-if="enc.currentEnemy" :key="enc.currentEnemy.card.id" class="relative flex flex-col items-center">
+          <!-- floating combat numbers -->
+          <div class="absolute -right-7 top-2 z-20 pointer-events-none select-none" aria-hidden="true">
+            <div v-for="f in floats" :key="f.id"
+              class="dmg-float absolute right-0 font-display font-black whitespace-nowrap drop-shadow"
+              :class="f.kind === 'dmg' ? 'text-error text-3xl' : f.kind === 'shield' ? 'text-info text-xl' : 'text-4xl'"
+            >{{ f.text }}</div>
+          </div>
+
+          <div class="royal-card w-28 h-40 flex flex-col items-center justify-between py-2 px-2 relative"
+            :class="enc.tier === 'boss' ? 'royal-boss' : ''">
+            <span class="self-start text-sm font-display font-black leading-none" :class="suitClass(enc.currentEnemy.card.suit)">
+              {{ enc.currentEnemy.card.rank }}<br>{{ suitSymbol(enc.currentEnemy.card.suit) }}
+            </span>
+            <span class="text-5xl font-black font-display" :class="suitClass(enc.currentEnemy.card.suit)">
+              {{ suitSymbol(enc.currentEnemy.card.suit) }}
+            </span>
+            <span class="self-end text-sm font-display font-black leading-none rotate-180" :class="suitClass(enc.currentEnemy.card.suit)">
+              {{ enc.currentEnemy.card.rank }}<br>{{ suitSymbol(enc.currentEnemy.card.suit) }}
+            </span>
+            <span v-if="!enc.currentEnemy.immunityNullified"
+              class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-warning text-warning-content text-xs flex items-center justify-center font-bold shadow"
+              :title="`Immune to ${suitSymbol(enc.currentEnemy.card.suit)} power`"
+            >{{ suitSymbol(enc.currentEnemy.card.suit) }}</span>
+          </div>
+
+          <p class="font-display text-xs mt-1.5 text-base-content/80 tracking-wide">
+            {{ rankNames[enc.currentEnemy.card.rank] ?? enc.currentEnemy.card.rank }}
+            of {{ { C: 'Clubs', D: 'Diamonds', H: 'Hearts', S: 'Spades' }[enc.currentEnemy.card.suit] }}
+            <span v-if="enc.currentEnemy.immunityNullified" class="text-warning">· immunity off</span>
+          </p>
+
+          <!-- HP -->
+          <div class="w-36 mt-1">
+            <div class="flex justify-between text-[10px] text-base-content/50 mb-0.5">
+              <span class="font-display font-bold text-sm text-base-content/90">{{ hpShown }} <span class="text-[10px] font-normal text-base-content/40">/ {{ enc.currentEnemy.maxHp }}</span></span>
+              <span class="self-end">{{ enc.enemiesRemaining }} behind</span>
             </div>
-            <div class="w-full h-3 rounded-full bg-base-300 overflow-hidden">
+            <div class="w-full h-2.5 rounded-full bg-base-300 overflow-hidden border border-base-content/10">
               <div class="hp-bar h-full rounded-full bg-gradient-to-r from-error to-secondary"
                 :style="{ width: `${Math.max(0, enc.currentEnemy.hp) / enc.currentEnemy.maxHp * 100}%` }" />
             </div>
-            <div class="flex gap-3 mt-2 text-xs text-base-content/60 flex-wrap">
-              <span>⚔️ ATK {{ enc.currentEnemy.attack }}</span>
-              <span v-if="enc.currentEnemy.shield > 0" class="text-info">🛡 Shield {{ enc.currentEnemy.shield }} (net {{ Math.max(0, enc.currentEnemy.attack - enc.currentEnemy.shield) }})</span>
-              <span>{{ enc.enemiesRemaining }} behind</span>
-            </div>
-            <div v-if="!enc.currentEnemy.immunityNullified" class="mt-1 text-xs text-warning/70">
-              Immune to {{ suitSymbol(enc.currentEnemy.card.suit) }} power
-            </div>
+          </div>
+
+          <!-- stat chips -->
+          <div class="flex gap-2 mt-1.5 text-xs">
+            <span class="px-2 py-0.5 rounded-full bg-error/15 border border-error/30 text-error font-semibold">⚔️ {{ enc.currentEnemy.attack }}</span>
+            <span v-if="enc.currentEnemy.shield > 0" :key="enc.currentEnemy.shield" class="chip-pop px-2 py-0.5 rounded-full bg-info/15 border border-info/30 text-info font-semibold">
+              🛡 {{ enc.currentEnemy.shield }} → {{ netAttack }}
+            </span>
           </div>
         </div>
-      </div>
-    </div>
-    </Transition>
+        </Transition>
 
-    <!-- Heroes -->
-    <div class="flex gap-2">
-      <div
-        v-for="h in state.heroes" :key="h.playerId"
-        :title="heroTooltip(h)"
-        :class="['flex-1 rounded-lg px-2 py-2 text-center text-xs border transition-all duration-300 cursor-help',
-          !h.alive ? 'border-error/40 bg-error/5 opacity-50' :
-          h.isCurrentPlayer ? 'border-primary bg-primary/10 text-primary turn-beacon' : 'border-base-content/10 bg-base-100 text-base-content/60']"
-      >
-        <div class="font-semibold truncate">{{ h.alive ? CLASS_ICONS[h.classId] : '💀' }} {{ h.playerName }}</div>
-        <div class="text-base-content/40 mt-0.5">{{ h.alive ? h.handSize + ' cards' : 'fallen' }}</div>
+        <!-- Discard pile -->
+        <div class="flex flex-col items-center gap-1 mt-6 shrink-0" title="Discard — played and lost cards. ♥ Hearts recover from here.">
+          <div class="pile" :class="enc.discardCount === 0 ? 'pile-empty' : ''">
+            <div class="pile-layer" /><div class="pile-layer" /><div class="pile-layer" />
+            <span class="absolute inset-0 flex items-center justify-center font-display font-bold text-base-content/70 z-10">{{ enc.discardCount }}</span>
+          </div>
+          <span class="text-[9px] uppercase tracking-widest text-base-content/40">Discard</span>
+        </div>
+      </div>
+
+      <!-- last played, on the stage felt -->
+      <div class="flex justify-center items-end gap-1 min-h-[3.2rem] mt-1">
+        <TransitionGroup name="played">
+          <div v-for="card in enc.lastPlayed" :key="card.id"
+            class="card-face w-9 h-12 flex flex-col items-center justify-center font-mono text-xs shadow-lg">
+            <span class="font-bold" :class="suitClass(card.suit)">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
+            <span :class="suitClass(card.suit)">{{ card.rank !== 'Jo' ? suitSymbol(card.suit) : '' }}</span>
+          </div>
+        </TransitionGroup>
       </div>
     </div>
 
     <!-- Turn / choose-next -->
     <div class="text-center">
-      <div v-if="inChoose" class="space-y-2">
+      <div v-if="inChoose" class="space-y-1.5">
         <div class="badge badge-warning badge-lg">
           {{ enc.pendingChooseNext ? 'Kill secured — hand off the initiative?' : 'Choose who goes next' }}
         </div>
-        <div class="flex gap-2 justify-center flex-wrap mt-2">
+        <div class="flex gap-2 justify-center flex-wrap">
           <button
             v-if="enc.pendingChooseNext"
             class="btn btn-sm btn-warning"
@@ -296,47 +383,57 @@ function heroTooltip(h: (typeof props.state.heroes)[number]): string {
       </div>
     </div>
 
-    <!-- Combo hint -->
-    <div v-if="inPlay && selected.length > 0" class="text-center text-xs">
+    <!-- Combo hint / error -->
+    <div v-if="inPlay && selected.length > 0" class="text-center text-xs -mt-1">
       <span v-if="comboError" class="text-error">{{ comboError }}</span>
-      <span v-else class="text-success">Valid · Total {{ selectedTotal }}</span>
+      <span v-else class="chip-pop inline-block px-2 py-0.5 rounded-full bg-primary/15 border border-primary/30 text-primary font-semibold" :key="selectedTotal">
+        ⚔️ {{ selectedTotal }} damage
+      </span>
     </div>
+    <div v-if="inDiscard" class="text-center text-xs -mt-1">
+      <span class="inline-block px-2 py-0.5 rounded-full border font-semibold"
+        :class="selectedTotal >= enc.discardNeeded ? 'bg-success/15 border-success/30 text-success' : 'bg-error/10 border-error/30 text-error'">
+        {{ selectedTotal }} / {{ enc.discardNeeded }}
+      </span>
+    </div>
+    <div v-if="errorMsg" class="alert alert-error text-sm py-2" @click="errorMsg = ''">{{ errorMsg }}</div>
 
-    <div v-if="errorMsg" class="alert alert-error text-sm py-2">{{ errorMsg }}</div>
-
-    <!-- Hand -->
-    <div class="mt-auto">
-      <div class="flex items-center justify-between mb-2 px-1">
-        <p class="text-xs text-base-content/40">Your hand ({{ hand.length }})</p>
-        <p v-if="inDiscard" class="text-xs" :class="selectedTotal >= enc.discardNeeded ? 'text-success' : 'text-error'">
-          {{ selectedTotal }} / {{ enc.discardNeeded }}
-        </p>
-      </div>
-
-      <div class="flex flex-wrap gap-2 justify-center">
-        <button
+    <!-- ═══ HAND FAN ═══ -->
+    <div class="mt-auto pt-3">
+      <div class="flex justify-center items-end pb-2" :class="(!inPlay && !inDiscard) ? 'opacity-50' : ''">
+        <div
           v-for="(card, i) in hand" :key="card.id"
-          :style="{ animationDelay: `${i * 40}ms` }"
-          :class="['btn font-mono flex-col gap-0 leading-none w-14 h-20 relative hand-card card-deal',
-            selected.includes(i) ? 'btn-primary ring-2 ring-primary ring-offset-1 hand-card-selected' : 'btn-outline btn-neutral',
-            (!inPlay && !inDiscard) ? 'opacity-40 pointer-events-none' : '']"
-          @click="toggleSelect(i)"
+          class="fan-slot first:ml-0 -ml-4 relative"
+          :style="fanStyle(i, hand.length)"
         >
-          <span :class="['text-xl', suitColor(card.suit)]">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
-          <span :class="['text-base', suitColor(card.suit)]">{{ card.rank !== 'Jo' ? suitSymbol(card.suit) : '' }}</span>
-          <span
-            v-if="inPlay && card.rank !== 'Jo' && isImmuneSuit(card.suit)"
-            class="absolute -top-1 -right-1 text-[9px] bg-warning text-warning-content rounded-full w-4 h-4 flex items-center justify-center font-bold"
-          >!</span>
-        </button>
+          <button
+            class="fan-card card-face w-14 h-20 flex flex-col items-center justify-center font-mono relative block"
+            :class="[
+              selected.includes(i) ? (inDiscard ? 'fan-card-selected fan-card-discard' : 'fan-card-selected') : '',
+              (!inPlay && !inDiscard) ? 'pointer-events-none' : '',
+            ]"
+            @click="toggleSelect(i)"
+          >
+            <span class="card-sway flex flex-col items-center" :style="{ animationDelay: `${(i * 0.45) % 3}s` }">
+              <span class="text-xl font-bold" :class="suitClass(card.suit)">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
+              <span class="text-base" :class="suitClass(card.suit)">{{ card.rank !== 'Jo' ? suitSymbol(card.suit) : '' }}</span>
+            </span>
+            <span
+              v-if="inPlay && card.rank !== 'Jo' && isImmuneSuit(card.suit)"
+              class="absolute -top-1 -right-1 text-[9px] bg-warning text-warning-content rounded-full w-4 h-4 flex items-center justify-center font-bold"
+              title="Power blocked by enemy immunity"
+            >!</span>
+          </button>
+        </div>
+        <p v-if="hand.length === 0" class="text-xs text-base-content/40 py-6">No cards — yield and pray.</p>
       </div>
 
       <!-- Actions -->
-      <div class="flex gap-2 mt-4 flex-wrap">
+      <div class="flex gap-2 mt-1">
         <button v-if="inPlay" class="btn btn-primary flex-1" :disabled="selected.length === 0 || !!comboError" @click="playSelected">
           Play {{ selected.length > 1 ? 'combo' : 'card' }}
         </button>
-        <button v-if="inPlay" class="btn btn-ghost btn-sm" @click="act({ type: 'yield_turn' })">Yield</button>
+        <button v-if="inPlay" class="btn btn-ghost btn-sm self-center" @click="act({ type: 'yield_turn' })">Yield</button>
         <button v-if="inDiscard" class="btn btn-error flex-1" :disabled="selectedTotal < enc.discardNeeded" @click="confirmDiscard">
           Discard ({{ selectedTotal }}/{{ enc.discardNeeded }})
         </button>
@@ -379,7 +476,7 @@ function heroTooltip(h: (typeof props.state.heroes)[number]): string {
         >{{ h.playerName }}</button>
       </div>
 
-      <div v-if="showSpells" class="card bg-base-100 mt-2">
+      <div v-if="showSpells" class="card bg-base-100 mt-2 border border-secondary/30">
         <div class="card-body p-3 gap-2">
           <button
             v-for="sp in state.spells" :key="sp.id"
@@ -391,18 +488,6 @@ function heroTooltip(h: (typeof props.state.heroes)[number]): string {
           </button>
         </div>
       </div>
-    </div>
-
-    <!-- Status -->
-    <div class="flex items-center justify-between text-xs text-base-content/40 px-1">
-      <span>🃏 Tavern {{ enc.tavernCount }}</span>
-      <TransitionGroup name="played" tag="span" class="flex gap-1 items-center">
-        <span v-for="card in enc.lastPlayed" :key="card.id"
-          class="px-1.5 py-0.5 rounded border border-base-content/15 bg-base-100 font-mono font-bold"
-          :class="suitColor(card.suit)"
-        >{{ cardLabel(card) }}</span>
-      </TransitionGroup>
-      <span>🗑 Discard {{ enc.discardCount }}</span>
     </div>
   </div>
 </template>
