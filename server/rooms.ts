@@ -126,12 +126,12 @@ export function restartGame(code: string): { room?: RoomInfo; error?: string } {
   return { room: roomInfo(code)! }
 }
 
-export function playerDisconnect(playerId: string) {
+export function playerDisconnect(playerId: string, keepRoom?: (code: string) => boolean) {
   for (const [code, room] of rooms) {
     const sp = room.state?.players.find(p => p.id === playerId)
     if (sp) sp.connected = false
     const rp = room.players.find(p => p.id === playerId)
-    if (rp && !room.state) {
+    if (rp && !room.state && !keepRoom?.(code)) {
       room.players = room.players.filter(p => p.id !== playerId)
       if (room.players.length === 0) rooms.delete(code)
       else if (room.hostId === playerId) room.hostId = room.players[0]!.id

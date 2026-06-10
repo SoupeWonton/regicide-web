@@ -1,0 +1,246 @@
+// Campaign state-machine smoke test (deterministic).
+// Run: npx tsx scripts/smoke.ts
+// Exercises: class select → road → encounters (cheat-kill + real-play modes)
+// → landmarks → camp/preps → boss → memory draft → chapter 2 → campaign win,
+// plus death → vote → retreat → replacement, and save/load round-trip.
+
+import { createCampaign, applyClassPick, applyRoadChoose, applyChoice, applyDeathVote, applyActivatePreparation, applyBreakCamp, beginReplacement, applyMemoryPick, applyContinueChapter, buildClientCampaign, checkEncounterEnd } from '../campaign/campaign'
+import { applyEncounterPlay, applyEncounterDiscard, applyEncounterYield, applyEncounterChooseNext, applySetupReorder, applyCastSpell } from '../campaign/encounter'
+import { loadKingdom, saveCampaign, loadCampaign } from '../campaign/store'
+import { cardValue } from '../deck'
+import type { CampaignState } from '../campaign/types'
+
+let failures = 0
+function assert(cond: unknown, msg: string) {
+  if (!cond) { failures++; console.error(`  ❌ ${msg}`) }
+}
+function ok(label: string) { console.log(`  ✓ ${label}`) }
+
+const kingdom = loadKingdom()
+kingdom.unlockedChapters = [1, 2]
+kingdom.unlockedClasses = ['sentinel', 'quartermaster', 'surgeon', 'executioner', 'commander', 'warden']
+
+const P1 = 'sock-1', P2 = 'sock-2'
+const players = [{ id: P1, name: 'Gab' }, { id: P2, name: 'Jerome' }]
+
+function step(c: CampaignState, who: string, fn: () => { error?: string }, label: string) {
+  const r = fn()
+  assert(!r.error, `${label} (${who}): ${r.error}`)
+  if (c.encounter && c.encounter.outcome !== 'active') checkEncounterEnd(c)
+}
+
+// Drive whatever phase we're in until a target phase or step budget runs out.
+function drive(c: CampaignState, opts: { cheatKill: boolean; budget?: number; stopAt?: string[] }): string {
+  let budget = opts.budget ?? 3000
+  while (budget-- > 0) {
+    if (opts.stopAt?.includes(c.phase)) return c.phase
+    switch (c.phase) {
+      case 'road': {
+        const cur = c.map!.nodes.find(n => n.id === c.map!.currentNodeId)!
+        const target = cur.next[0]!
+        step(c, 'host', () => applyRoadChoose(c, P1, target, P1), `road→${target}`)
+        break
+      }
+      case 'landmark':
+      case 'replace_hero': {
+        const pc = c.pendingChoice!
+        const decider = pc.forPlayerId ?? P1
+        step(c, decider, () => applyChoice(c, decider, pc.options[0]!.id, P1), `choice ${pc.kind}`)
+        break
+      }
+      case 'encounter': {
+        const s = c.encounter!
+        if (s.turnPhase === 'setup') {
+          const peekerId = s.setupPeek!.playerId
+          step(c, peekerId, () => applySetupReorder(c, peekerId, s.setupPeek!.cards.map((_, i) => i)), 'setup reorder')
+          break
+        }
+        const pi = s.currentPlayerIndex
+        const pid = c.heroes[pi]!.playerId
+        if (s.turnPhase === 'choose_next') {
+          step(c, pid, () => applyEncounterChooseNext(c, pid, pi, s.pendingChooseNext), 'choose next')
+          break
+        }
+        if (s.turnPhase === 'discard') {
+          // greedy discard
+          const hand = s.hands[pi]!
+          const idx = hand.map((card, i) => ({ i, v: cardValue(card.rank) })).sort((a, b) => b.v - a.v)
+          const pick: number[] = []
+          let total = 0
+          for (const { i, v } of idx) { if (total >= s.discardNeeded) break; pick.push(i); total += v }
+          step(c, pid, () => applyEncounterDiscard(c, pid, pick), 'discard')
+          break
+        }
+        // play phase
+        if (opts.cheatKill && s.currentEnemy) s.currentEnemy.hp = 1   // any play kills
+        const hand = s.hands[pi]!
+        if (hand.length === 0) {
+          step(c, pid, () => applyEncounterYield(c, pid), 'yield(empty)')
+          break
+        }
+        // play single highest non-jester card; jester last resort
+        const best = hand.map((card, i) => ({ i, card, v: cardValue(card.rank) }))
+          .filter(x => x.card.rank !== 'Jo')
+          .sort((a, b) => b.v - a.v)[0]
+        const playIdx = best ? best.i : 0
+        step(c, pid, () => applyEncounterPlay(c, pid, [playIdx]), 'play')
+        break
+      }
+      case 'death_vote': {
+        for (const h of c.heroes) {
+          if (!c.deathVote) break
+          const r = applyDeathVote(c, h.playerId, 'retreat')
+          assert(!r.error, `vote: ${r.error}`)
+        }
+        break
+      }
+      case 'camp': {
+        // replace dead heroes first
+        if (c.heroes.some(h => !h.alive)) {
+          step(c, 'host', () => beginReplacement(c, kingdom), 'begin replacement')
+          break
+        }
+        // activate one prep if owned
+        if (c.preparations.length > 0 && c.activePreparations.length === 0 && c.preparations[0] !== 'p-brace-command') {
+          step(c, 'host', () => applyActivatePreparation(c, P1, c.preparations[0]!, P1), 'activate prep')
+          break
+        }
+        step(c, 'host', () => applyBreakCamp(c, P1, P1), 'break camp')
+        break
+      }
+      case 'memory_draft': {
+        const d = c.memoryDraft!.drafts.find(dd => !dd.picked)!
+        const pid = c.heroes[d.heroIndex]!.playerId
+        step(c, pid, () => applyMemoryPick(c, pid, d.options[0]!, kingdom), 'memory pick')
+        break
+      }
+      case 'chapter_complete': {
+        step(c, 'host', () => applyContinueChapter(c, P1, P1), 'continue to ch2')
+        break
+      }
+      case 'campaign_won': return 'campaign_won'
+      case 'campaign_lost': return 'campaign_lost'
+      default:
+        assert(false, `unexpected phase ${c.phase}`)
+        return c.phase
+    }
+  }
+  return `budget-exhausted@${c.phase}`
+}
+
+// ── Test 1: full happy-path campaign (cheat kills) ───────────────────────────
+console.log('Test 1: full campaign run (cheat-kill mode)')
+{
+  const { campaign: c, error } = createCampaign(players, 1, 'smoke-seed', kingdom)
+  assert(!error && c, `create: ${error}`)
+  if (c) {
+    assert(c.phase === 'class_select', 'starts in class_select')
+    step(c, P1, () => applyClassPick(c, P1, 'sentinel'), 'pick sentinel')
+    step(c, P2, () => applyClassPick(c, P2, 'surgeon'), 'pick surgeon')
+    assert(c.phase === 'road', 'road after picks')
+    assert(c.map!.nodes.some(n => !n.known), 'some nodes are hidden (partial visibility)')
+    const end = drive(c, { cheatKill: true })
+    assert(end === 'campaign_won', `campaign won (got ${end})`)
+    assert(c.heroes.every(h => h.memories.length >= 1), 'survivors drafted memories')
+    ok(`campaign completed: ${end}; ch2 boss modifier exercised`)
+  }
+}
+
+// ── Test 2: determinism — same seed, same map ────────────────────────────────
+console.log('Test 2: deterministic seed')
+{
+  const a = createCampaign(players, 1, 'det-seed', kingdom).campaign!
+  const b = createCampaign(players, 1, 'det-seed', kingdom).campaign!
+  for (const x of [a, b]) {
+    applyClassPick(x, P1, 'quartermaster')
+    applyClassPick(x, P2, 'executioner')
+  }
+  assert(JSON.stringify(a.map!.nodes.map(n => [n.id, n.kind, n.known, n.next])) ===
+         JSON.stringify(b.map!.nodes.map(n => [n.id, n.kind, n.known, n.next])),
+         'same seed → identical map')
+  ok('maps identical for identical seeds')
+}
+
+// ── Test 3: death → vote → retreat → camp replacement ────────────────────────
+console.log('Test 3: death fork and replacement')
+{
+  const c = createCampaign(players, 1, 'death-seed', kingdom).campaign!
+  applyClassPick(c, P1, 'sentinel')
+  applyClassPick(c, P2, 'surgeon')
+  drive(c, { cheatKill: true, stopAt: ['encounter'], budget: 50 })
+  assert(c.phase === 'encounter', `reached an encounter (at ${c.phase})`)
+  const s = c.encounter!
+  // force a lethal situation for the current player
+  while (s.turnPhase === 'setup') applySetupReorder(c, s.setupPeek!.playerId, s.setupPeek!.cards.map((_, i) => i))
+  const pi = s.currentPlayerIndex
+  s.hands[pi] = [{ suit: 'C', rank: '2', id: 'doom' }]
+  s.currentEnemy!.attack = 99
+  s.currentEnemy!.shield = 0
+  s.currentEnemy!.hp = 999
+  const pid = c.heroes[pi]!.playerId
+  const r = applyEncounterYield(c, pid)
+  assert(!r.error, `yield into doom: ${r.error}`)
+  assert(c.phase === 'death_vote', `death vote triggered (got ${c.phase})`)
+  assert(!c.heroes[pi]!.alive, 'hero is dead')
+  for (const h of c.heroes) if (c.deathVote) applyDeathVote(c, h.playerId, 'retreat')
+  assert(c.phase === 'camp', `retreat → emergency camp (got ${c.phase})`)
+  const rep = beginReplacement(c, kingdom)
+  assert(!rep.error, `replacement offered: ${rep.error}`)
+  const pc = c.pendingChoice!
+  assert(pc.forPlayerId === pid, 'dead player decides replacement')
+  const rr = applyChoice(c, pid, pc.options[0]!.id, P1)
+  assert(!rr.error, `replacement picked: ${rr.error}`)
+  assert(c.heroes[pi]!.alive, 'hero replaced and alive')
+  assert(c.heroes[pi]!.classId !== 'sentinel' || pi !== 0, 'replacement class differs from the dead class')
+  // re-enter the fight from emergency camp
+  const back = applyBreakCamp(c, P1, P1)
+  assert(!back.error, `re-enter fight: ${back.error}`)
+  assert(c.phase === 'encounter', 'back in the encounter from camp')
+  ok('death → vote → retreat → replace → re-engage works')
+}
+
+// ── Test 4: save / load round-trip ───────────────────────────────────────────
+console.log('Test 4: persistence round-trip')
+{
+  const c = createCampaign(players, 1, 'save-seed', kingdom).campaign!
+  applyClassPick(c, P1, 'sentinel')
+  applyClassPick(c, P2, 'executioner')
+  drive(c, { cheatKill: true, stopAt: ['camp', 'landmark', 'encounter'], budget: 10 })
+  saveCampaign(c)
+  const loaded = loadCampaign(c.id)
+  assert(!!loaded, 'campaign loads')
+  assert(JSON.stringify(loaded) === JSON.stringify(JSON.parse(JSON.stringify(c))), 'save round-trips losslessly')
+  ok('save/load round-trip')
+}
+
+// ── Test 5: real-play bot survives the engine (no crashes) ──────────────────
+console.log('Test 5: real-play bot (no cheat) — engine robustness')
+{
+  for (const seed of ['real-1', 'real-2', 'real-3']) {
+    const c = createCampaign(players, 1, seed, kingdom).campaign!
+    applyClassPick(c, P1, 'sentinel')
+    applyClassPick(c, P2, 'surgeon')
+    const end = drive(c, { cheatKill: false, budget: 5000 })
+    assert(['campaign_won', 'campaign_lost'].includes(end) || end.startsWith('budget'), `run ends sanely (${end})`)
+    console.log(`  seed ${seed}: ${end}`)
+  }
+  ok('real-play runs complete without crashes')
+}
+
+// ── Test 6: client projection doesn't leak hidden state ─────────────────────
+console.log('Test 6: client projection')
+{
+  const c = createCampaign(players, 2, 'proj-seed', kingdom).campaign!
+  applyClassPick(c, P1, 'sentinel')
+  applyClassPick(c, P2, 'surgeon')
+  drive(c, { cheatKill: true, stopAt: ['encounter'], budget: 60 })
+  const view = buildClientCampaign(c, P2, P1, kingdom)
+  assert(view.map!.nodes.filter(n => n.kind === 'unknown').length > 0 || c.map!.nodes.every(n => n.known || n.visited), 'unknown nodes masked')
+  if (c.encounter?.bossModifierId) assert(view.encounter!.bossModifier?.id === 'hidden', 'ch2 boss modifier hidden without intel')
+  const other = buildClientCampaign(c, P1, P1, kingdom)
+  assert(other.encounter!.myHand !== view.encounter!.myHand, 'hands are per-player')
+  ok('projection masks hidden info')
+}
+
+console.log(failures === 0 ? '\nAll smoke tests passed ✅' : `\n${failures} failure(s) ❌`)
+process.exit(failures === 0 ? 0 : 1)

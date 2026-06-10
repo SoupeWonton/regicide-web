@@ -157,6 +157,30 @@ Players do not draw at the start of their turn. Cards are drawn via the ♦ Diam
 
 ---
 
+## Campaign Mode (MVP — this branch)
+
+The `campaign` branch implements a playable MVP of the campaign design in `campaign/`, `classes/`, `systems/` and `items/`. The campaign bible is canon; this is the v0 scope (Chapter 1 + Chapter 2).
+
+**Loop:** Kingdom → Chapter → Team → road commitment → encounters → camp/interlude → mandatory pre-boss camp → boss → memory draft → next chapter.
+
+From the room lobby the host can start a **Quick Game** (base Regicide, unchanged) or a **Campaign** (chapter + optional deterministic seed), or **resume** a saved campaign.
+
+What's in:
+
+- **Road:** handcrafted Ch.1/Ch.2 maps, seeded deterministic permutation, ~45% landmark visibility, one-way commitment. Per-node CT (reward/pressure/net) is logged server-side, never shown to players.
+- **Encounters:** skirmish/veteran/elite fights with 15 modifier rules adapted from the Chapter 1 encounter pack. Fresh Tavern state on every encounter (reset canon). Ch.1 boss = literal 12-royal castle, no modifier. Ch.2 boss = castle + hidden modifier (Tower intel can reveal it).
+- **Classes:** all 9 (4 core + Commander/Warden/Gambler/Exile/Oracle) with their core abilities. Campaigns start core-only; Tier 2/3 enter via the death/replacement flow once unlocked. Specializations are deferred (canon: post-Ch.1 unlock — flag exists, effects not implemented).
+- **Death:** hero death → Retreat / Last Stand vote (dead player votes; majority, host tiebreak). Warden adds Defiant Stand once per run. No retreat at bosses. Replacement at camp from a randomized subset, class must differ.
+- **Items:** relics (one slot per hero), team spells, camp preparations (cap 2 active), chapter-end Memory drafts (3 choices, hero-bound, lost on death).
+- **Persistence:** Kingdom unlocks (`server/data/kingdom.json`) and per-campaign saves survive restarts. Manual abandon keeps Kingdom unlocks.
+- **Playtest controls:** deterministic seed input at campaign creation; `debug_force` socket action to force next encounter/reward; CT logging per node.
+
+Known MVP simplifications (flagged for iteration): discard-recovery preparations are dropped (dead under fresh-Tavern resets), Forge grants relics instead of card upgrades, value-adjust token items deferred, single map variant per chapter (target ~10), meta currency not shipped.
+
+Tests: `cd server && npx tsx scripts/smoke.ts` (engine) and `npx tsx scripts/e2e.ts` against a running server (protocol).
+
+---
+
 ## Tech Stack
 
 - **Server:** Node.js, Express, Socket.IO, TypeScript

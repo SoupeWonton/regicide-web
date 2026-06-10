@@ -46,3 +46,98 @@ export interface RoomInfo {
   hostId: string
   players: { id: string; name: string; ready: boolean }[]
 }
+
+// ── Campaign mode ────────────────────────────────────────────────────────────
+
+export type CampaignPhase =
+  | 'class_select' | 'road' | 'landmark' | 'encounter' | 'death_vote'
+  | 'camp' | 'replace_hero' | 'memory_draft' | 'chapter_complete'
+  | 'campaign_won' | 'campaign_lost'
+
+export interface ItemView { id: string; name: string; text: string; tier: 'standard' | 'rare' }
+
+export interface ClientHero {
+  playerId: string
+  playerName: string
+  classId: string
+  picked: boolean
+  className: string
+  abilityText: string
+  alive: boolean
+  memories: { id: string; name: string; text: string }[]
+  relic: ItemView | null
+  handSize: number
+  isCurrentPlayer: boolean
+}
+
+export interface ClientRoadNode {
+  id: string
+  kind: string
+  layer: number
+  next: string[]
+  visited: boolean
+  current: boolean
+  reachable: boolean
+}
+
+export interface ClientEncounterState {
+  tier: 'skirmish' | 'veteran' | 'elite' | 'boss'
+  modifier: { id: string; name: string; text: string } | null
+  bossModifier: { id: string; name: string; text: string } | null
+  turnPhase: string
+  currentPlayerIndex: number
+  enemiesRemaining: number
+  totalEnemies: number
+  defeatedCount: number
+  currentEnemy: Enemy | null
+  discardCount: number
+  tavernCount: number
+  discardNeeded: number
+  lastPlayed: Card[]
+  outcome: string
+  myHand: Card[]
+  setupPeek: { mine: boolean; cards: Card[]; canReorder: boolean; source: string } | null
+  pendingChooseNext: boolean
+  wagerArmed: boolean
+  canWager: boolean
+  myRelicActivatable: boolean
+}
+
+export interface PendingChoiceView {
+  kind: string
+  forPlayerId: string | null
+  prompt: string
+  options: { id: string; label: string; detail?: string }[]
+  mine: boolean
+}
+
+export interface ClientCampaignState {
+  id: string
+  name: string
+  seed: string
+  phase: CampaignPhase
+  chapter: number
+  heroes: ClientHero[]
+  myHeroIndex: number
+  isHost: boolean
+  map: { nodes: ClientRoadNode[]; currentNodeId: string } | null
+  encounter: ClientEncounterState | null
+  spells: ItemView[]
+  preparations: ItemView[]
+  activePreparations: ItemView[]
+  pendingChoice: PendingChoiceView | null
+  deathVote: { deadHeroName: string; options: string[]; votes: Record<string, string>; myVote: string | null; isBoss: boolean } | null
+  memoryDraft: { myOptions: ItemView[] | null; waitingOn: string[] } | null
+  exileAvailable: boolean
+  kingdom: { unlockedChapters: number[]; unlockedClasses: string[]; specializationsUnlocked: boolean }
+  log: string[]
+}
+
+export interface SaveSummary {
+  id: string
+  name: string
+  chapter: number
+  phase: string
+  heroes: { name: string; classId: string; alive: boolean }[]
+  createdAt: string
+}

@@ -2,6 +2,11 @@ import express from 'express'
 import { createServer } from 'http'
 import { Server } from 'socket.io'
 import { createRoom, joinRoom, setReady, startGame, playCards, discardDamage, yieldTurn, chooseNext, restartGame, playerDisconnect, roomInfo } from './rooms'
+import {
+  startCampaignSession, resumeCampaignSession, dispatchCampaignAction,
+  buildCampaignStates, getSaves, getKingdom, getSession, endSession,
+} from './campaign/sessions'
+import type { CampaignAction } from './campaign/sessions'
 
 const app = express()
 const http = createServer(app)
@@ -19,6 +24,7 @@ io.on('connection', socket => {
   })
 
   socket.on('join_room', ({ code, name }: { code: string; name: string }) => {
+    if (getSession(code.toUpperCase())) { socket.emit('error', 'A campaign is already in progress in that room.'); return }
     const { room, error } = joinRoom(code.toUpperCase(), socket.id, name)
     if (error) { socket.emit('error', error); return }
     socket.join(code.toUpperCase())
@@ -72,9 +78,65 @@ io.on('connection', socket => {
     broadcast(states!)
   })
 
+  // ── Campaign mode ──────────────────────────────────────────────────────────
+
+  socket.on('list_campaigns', () => {
+    socket.emit('campaign_saves', { saves: getSaves(), kingdom: getKingdom() })
+  })
+
+  socket.on('start_campaign', ({ code, chapter, seed }: { code: string; chapter: number; seed?: string }) => {
+    const info = roomInfo(code)
+    if (!info) { socket.emit('error', 'Room not found.'); return }
+    if (info.hostId !== socket.id) { socket.emit('error', 'Only the host can start a campaign.'); return }
+    const { error } = startCampaignSession(code, info.players.map(p => ({ id: p.id, name: p.name })), (chapter === 2 ? 2 : 1), seed)
+    if (error) { socket.emit('error', error); return }
+    broadcastCampaign(code)
+  })
+
+  socket.on('resume_campaign', ({ code, campaignId }: { code: string; campaignId: string }) => {
+    const info = roomInfo(code)
+    if (!info) { socket.emit('error', 'Room not found.'); return }
+    if (info.hostId !== socket.id) { socket.emit('error', 'Only the host can resume a campaign.'); return }
+    const { error } = resumeCampaignSession(code, campaignId, info.players.map(p => ({ id: p.id, name: p.name })))
+    if (error) { socket.emit('error', error); return }
+    broadcastCampaign(code)
+  })
+
+  socket.on('campaign_action', ({ code, action }: { code: string; action: CampaignAction }) => {
+    const info = roomInfo(code)
+    if (!info) { socket.emit('error', 'Room not found.'); return }
+    const { error } = dispatchCampaignAction(code, socket.id, info.hostId, action)
+    if (error) { socket.emit('error', error); return }
+    if (action.type === 'abandon_campaign') {
+      io.to(code).emit('campaign_ended')
+      io.to(code).emit('room_update', roomInfo(code))
+      return
+    }
+    broadcastCampaign(code)
+  })
+
+  socket.on('end_campaign_session', ({ code }: { code: string }) => {
+    const info = roomInfo(code)
+    if (info?.hostId === socket.id) {
+      endSession(code)
+      io.to(code).emit('campaign_ended')
+      io.to(code).emit('room_update', roomInfo(code))
+    }
+  })
+
+  function broadcastCampaign(code: string) {
+    const info = roomInfo(code)
+    if (!info) return
+    const states = buildCampaignStates(code, info.players, info.hostId)
+    states.forEach((state, playerId) => {
+      const s = io.sockets.sockets.get(playerId)
+      s?.emit('campaign_state', state)
+    })
+  }
+
   socket.on('disconnect', () => {
     console.log(`- ${socket.id}`)
-    playerDisconnect(socket.id)
+    playerDisconnect(socket.id, code => !!getSession(code))
   })
 
   function broadcast(states: Map<string, import('./types').ClientGameState>) {

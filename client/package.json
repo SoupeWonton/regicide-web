@@ -8,6 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "regicide-web": "file:..",
     "socket.io-client": "^4.7.4",
     "vue": "^3.4.15",
     "vue-router": "^4.3.0"
@@ -19,6 +20,7 @@
     "postcss": "^8.4.33",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.3.3",
-    "vite": "^5.0.12"
+    "vite": "^5.0.12",
+    "vue-tsc": "^2.2.12"
   }
 }
