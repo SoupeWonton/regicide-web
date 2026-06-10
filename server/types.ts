@@ -30,6 +30,10 @@ export interface GameState {
   phase: GamePhase
   turnPhase: TurnPhase
   players: ServerPlayer[]
+  // optional class layer (balance-testing): campaign tier-1 core abilities in
+  // the quick game. Undefined → pure base rules (quick game is unchanged).
+  classIds?: (string | null)[]      // parallel to players
+  abilityFlags?: Record<string, boolean>  // once-per-enemy trackers, reset on reveal
   currentPlayerIndex: number
   nextPlayerIndex: number
   enemyDeck: Card[]       // castle deck (face cards not yet revealed)

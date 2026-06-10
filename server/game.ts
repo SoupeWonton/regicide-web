@@ -11,14 +11,11 @@ function log(state: GameState, msg: string) {
 function maxHand(state: GameState): number { return handSize(state.players.length) }
 
 function drawCards(state: GameState, player: ServerPlayer, n: number): number {
+  // official rules: an empty Tavern is never reshuffled — only ♥ Hearts
+  // return discard cards to it. Draws simply fizzle.
   let drawn = 0
   for (let i = 0; i < n; i++) {
-    if (state.tavern.length === 0) {
-      if (state.discard.length === 0) break
-      state.tavern = shuffle([...state.discard])
-      state.discard = []
-      log(state, '🔄 Discard shuffled into tavern.')
-    }
+    if (state.tavern.length === 0) break
     player.hand.push(state.tavern.pop()!)
     drawn++
   }
@@ -35,6 +32,7 @@ function revealNextEnemy(state: GameState) {
   const rank = card.rank as 'J' | 'Q' | 'K'
   const { hp, attack } = enemyStats(rank)
   state.currentEnemy = { card, hp, maxHp: hp, attack, shield: 0, immunityNullified: false }
+  if (state.classIds) state.abilityFlags = {}   // class abilities are once per enemy
   log(state, `⚔️  New enemy: ${cardLabel(card)} — ${hp} HP / ${attack} ATK`)
 }
 
@@ -46,7 +44,7 @@ function advanceTurn(state: GameState) {
   log(state, `👉 ${state.players[state.currentPlayerIndex]!.name}'s turn.`)
 }
 
-export function createGame(players: { id: string; name: string }[]): GameState {
+export function createGame(players: { id: string; name: string }[], classIds?: (string | null)[]): GameState {
   const count   = players.length
   const hSize   = handSize(count)
   const jCount  = jesterCount(count)
@@ -72,6 +70,10 @@ export function createGame(players: { id: string; name: string }[]): GameState {
     discardNeeded: 0,
     log: [],
     lastPlayed: [],
+  }
+  if (classIds) {
+    state.classIds = classIds
+    state.abilityFlags = {}
   }
 
   revealNextEnemy(state)
@@ -121,6 +123,12 @@ export function applyPlayCards(
   if (cards.some(c => c.suit === immuneSuit))
     log(s, `   ${suitSymbol(enemy.card.suit)} power blocked by enemy immunity.`)
 
+  // class layer (balance-testing): tier-1 core abilities, once per enemy,
+  // mirroring the campaign implementations (B2/B3: QM/Surgeon/Exec team-wide)
+  const classes = s.classIds ?? []
+  const flags = (s.abilityFlags ??= {})
+  const onceAbility = (k: string) => (flags[k] ? false : (flags[k] = true))
+
   // ── ♣ Clubs: double damage ─────────────────────────────────────────────────
   let damage = baseAttack
   if (activeSuits.has('C')) {
@@ -130,13 +138,23 @@ export function applyPlayCards(
 
   // ── ♠ Spades: cumulative shield ────────────────────────────────────────────
   if (activeSuits.has('S')) {
-    enemy.shield += baseAttack
-    log(s, `   ♠ Shield +${baseAttack} (total: ${enemy.shield}, net ATK: ${Math.max(0, enemy.attack - enemy.shield)}).`)
+    let gain = baseAttack
+    if (classes[playerIndex] === 'sentinel' && onceAbility('sentinelSpade')) {
+      gain += 2
+      log(s, `   🛡 Sentinel: +2 shield.`)
+    }
+    enemy.shield += gain
+    log(s, `   ♠ Shield +${gain} (total: ${enemy.shield}, net ATK: ${Math.max(0, enemy.attack - enemy.shield)}).`)
   }
 
   // ── ♥ Hearts: recover cards from discard into tavern ──────────────────────
   if (activeSuits.has('H')) {
-    const toRecover = Math.min(baseAttack, s.discard.length)
+    let amount = baseAttack
+    if (classes.includes('surgeon') && onceAbility('surgeonHeart')) {
+      amount += 1
+      log(s, `   ⚕️ Surgeon: +1 recovery.`)
+    }
+    const toRecover = Math.min(amount, s.discard.length)
     const recovered = s.discard.splice(0, toRecover)
     // Place under the tavern (bottom of draw deck)
     s.tavern.unshift(...shuffle(recovered))
@@ -146,7 +164,12 @@ export function applyPlayCards(
   // ── ♦ Diamonds: all players draw clockwise ─────────────────────────────────
   if (activeSuits.has('D')) {
     const max = maxHand(s)
-    let remaining = baseAttack
+    let drawTotal = baseAttack
+    if (classes.includes('quartermaster') && onceAbility('qmDiamond')) {
+      drawTotal += 1
+      log(s, `   📦 Quartermaster: +1 draw.`)
+    }
+    let remaining = drawTotal
     let idx = playerIndex
     let passes = 0
     const drawn: string[] = []
@@ -162,11 +185,15 @@ export function applyPlayCards(
       }
       idx = (idx + 1) % s.players.length
     }
-    log(s, `   ♦ Drew ${baseAttack - remaining} card${baseAttack - remaining !== 1 ? 's' : ''} (${drawn.join(', ') || 'nobody at max hand'}).`)
+    log(s, `   ♦ Drew ${drawTotal - remaining} card${drawTotal - remaining !== 1 ? 's' : ''} (${drawn.join(', ') || 'nobody at max hand'}).`)
   }
 
   // ── Deal damage ────────────────────────────────────────────────────────────
   enemy.hp -= damage
+  if ((enemy.hp === 1 || enemy.hp === 2) && classes.includes('executioner') && onceAbility('execFinish')) {
+    enemy.hp -= 2
+    log(s, `   🪓 Executioner: +2 finishing damage.`)
+  }
   log(s, `   💥 ${damage} damage → ${cardLabel(enemy.card)} has ${Math.max(0, enemy.hp)} HP left.`)
   s.discard.push(...cards)
 

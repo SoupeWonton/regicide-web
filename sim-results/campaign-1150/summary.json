@@ -13,8 +13,8 @@
       "wins": 1,
       "losses": 290,
       "stalled": 9,
-      "deaths": 727,
-      "retreats": 125
+      "deaths": 728,
+      "retreats": 126
     },
     "3p": {
       "runs": 300,
@@ -29,8 +29,8 @@
       "wins": 4,
       "losses": 287,
       "stalled": 9,
-      "deaths": 1678,
-      "retreats": 290
+      "deaths": 1676,
+      "retreats": 288
     }
   },
   "byLineup": {
@@ -116,11 +116,11 @@
       "wins": 0,
       "losses": 49,
       "stalled": 1,
-      "deaths": 291,
-      "retreats": 71,
+      "deaths": 288,
+      "retreats": 69,
       "reachedBoss1": 49,
-      "beatCh1": 7,
-      "reachedBoss2": 7
+      "beatCh1": 6,
+      "reachedBoss2": 6
     },
     "hoarder-1p": {
       "runs": 50,
@@ -138,11 +138,11 @@
       "wins": 1,
       "losses": 49,
       "stalled": 0,
-      "deaths": 131,
-      "retreats": 30,
+      "deaths": 132,
+      "retreats": 31,
       "reachedBoss1": 38,
       "beatCh1": 6,
-      "reachedBoss2": 5
+      "reachedBoss2": 4
     },
     "hoarder-3p": {
       "runs": 50,
@@ -152,8 +152,8 @@
       "deaths": 208,
       "retreats": 52,
       "reachedBoss1": 47,
-      "beatCh1": 15,
-      "reachedBoss2": 12
+      "beatCh1": 14,
+      "reachedBoss2": 11
     },
     "hoarder-4p": {
       "runs": 50,
@@ -163,7 +163,7 @@
       "deaths": 280,
       "retreats": 51,
       "reachedBoss1": 49,
-      "beatCh1": 14,
+      "beatCh1": 15,
       "reachedBoss2": 12
     },
     "sniper-1p": {
@@ -281,7 +281,7 @@
       "wins": 0,
       "losses": 47,
       "stalled": 3,
-      "deaths": 283,
+      "deaths": 284,
       "retreats": 47,
       "reachedBoss1": 44,
       "beatCh1": 8,
@@ -291,12 +291,12 @@
   "mixedDeaths": {
     "bulwark": 193,
     "slayer": 213,
-    "hoarder": 130,
+    "hoarder": 131,
     "sniper": 65
   },
   "lossLocations": {
-    "boss ch1": 867,
-    "boss (starving-court) ch2": 28,
+    "boss ch1": 868,
+    "boss (starving-court) ch2": 29,
     "veteran (rot-ward) ch1": 15,
     "lair (banner-of-knives) ch1": 15,
     "lair (garrison-crusher) ch1": 16,
@@ -306,10 +306,11 @@
     "skirmish (hooked-blades) ch1": 2,
     "veteran (command-fracture) ch1": 13,
     "veteran (shieldbreaker-line) ch1": 12,
-    "boss (cruel-court) ch2": 30,
+    "boss (cruel-court) ch2": 27,
     "skirmish (bleeder-patrol) ch2": 1,
-    "boss (iron-court) ch2": 22,
+    "boss (iron-court) ch2": 21,
     "elite (garrison-crusher) ch2": 4,
+    "elite (banner-of-knives) ch2": 5,
     "elite (blackwall-captain) ch2": 3,
     "lair (pale-bell-matron) ch1": 9,
     "veteran (shieldbreaker-line) ch2": 2,
@@ -319,7 +320,6 @@
     "veteran (command-fracture) ch2": 3,
     "veteran (rot-ward) ch2": 3,
     "skirmish (wrong-relay) ch2": 1,
-    "elite (banner-of-knives) ch2": 3,
     "lair (pale-bell-matron) ch2": 1,
     "skirmish (fog-marker) ch1": 1,
     "veteran (starved-caravan) ch2": 1
@@ -333,11 +333,11 @@
       "deaths": 124
     },
     "ch1-veteran": {
-      "fights": 2399,
+      "fights": 2400,
       "won": 1776,
-      "retreated": 550,
+      "retreated": 551,
       "wiped": 73,
-      "deaths": 903
+      "deaths": 904
     },
     "ch1-elite": {
       "fights": 581,
@@ -348,38 +348,38 @@
     },
     "ch1-boss": {
       "fights": 990,
-      "won": 123,
+      "won": 122,
       "retreated": 0,
-      "wiped": 867,
-      "deaths": 2215
+      "wiped": 868,
+      "deaths": 2219
     },
     "ch2-skirmish": {
-      "fights": 44,
-      "won": 42,
+      "fights": 45,
+      "won": 43,
       "retreated": 0,
       "wiped": 2,
       "deaths": 2
     },
     "ch2-veteran": {
-      "fights": 199,
-      "won": 158,
+      "fights": 197,
+      "won": 156,
       "retreated": 31,
       "wiped": 10,
-      "deaths": 65
+      "deaths": 66
     },
     "ch2-elite": {
-      "fights": 295,
-      "won": 172,
-      "retreated": 108,
-      "wiped": 15,
-      "deaths": 189
+      "fights": 288,
+      "won": 165,
+      "retreated": 106,
+      "wiped": 17,
+      "deaths": 191
     },
     "ch2-boss": {
-      "fights": 91,
+      "fights": 88,
       "won": 11,
       "retreated": 0,
-      "wiped": 80,
-      "deaths": 276
+      "wiped": 77,
+      "deaths": 267
     }
   },
   "byModifier": {
@@ -390,22 +390,22 @@
       "winRate": 258
     },
     "starved-caravan": {
-      "fights": 489,
-      "deaths": 243,
+      "fights": 490,
+      "deaths": 244,
       "retreats": 152,
-      "winRate": 320
+      "winRate": 321
     },
     "shieldbreaker-line": {
-      "fights": 532,
+      "fights": 531,
       "deaths": 167,
       "retreats": 120,
-      "winRate": 398
+      "winRate": 397
     },
     "rot-ward": {
-      "fights": 508,
+      "fights": 506,
       "deaths": 176,
       "retreats": 92,
-      "winRate": 398
+      "winRate": 396
     },
     "hooked-blades": {
       "fights": 281,
@@ -420,10 +420,10 @@
       "winRate": 247
     },
     "iron-rain-file": {
-      "fights": 547,
+      "fights": 546,
       "deaths": 193,
       "retreats": 107,
-      "winRate": 422
+      "winRate": 421
     },
     "bleeder-patrol": {
       "fights": 269,
@@ -432,40 +432,40 @@
       "winRate": 258
     },
     "pale-bell-matron": {
-      "fights": 216,
-      "deaths": 137,
-      "retreats": 79,
-      "winRate": 123
+      "fights": 213,
+      "deaths": 135,
+      "retreats": 77,
+      "winRate": 122
     },
     "banner-of-knives": {
-      "fights": 224,
-      "deaths": 184,
+      "fights": 225,
+      "deaths": 188,
       "retreats": 96,
-      "winRate": 110
+      "winRate": 109
     },
     "garrison-crusher": {
-      "fights": 228,
+      "fights": 225,
       "deaths": 136,
       "retreats": 80,
-      "winRate": 128
+      "winRate": 125
     },
     "blackwall-captain": {
-      "fights": 208,
+      "fights": 206,
       "deaths": 118,
       "retreats": 64,
-      "winRate": 132
+      "winRate": 130
     },
     "command-fracture": {
-      "fights": 522,
-      "deaths": 189,
-      "retreats": 110,
-      "winRate": 396
+      "fights": 524,
+      "deaths": 190,
+      "retreats": 111,
+      "winRate": 397
     },
     "wrong-relay": {
-      "fights": 308,
+      "fights": 309,
       "deaths": 30,
       "retreats": 18,
-      "winRate": 286
+      "winRate": 287
     },
     "fog-marker": {
       "fights": 225,
@@ -476,19 +476,19 @@
   },
   "byBossModifier": {
     "starving-court": {
-      "fights": 30,
+      "fights": 31,
       "won": 2,
-      "deaths": 92
+      "deaths": 97
     },
     "cruel-court": {
-      "fights": 35,
+      "fights": 32,
       "won": 5,
-      "deaths": 104
+      "deaths": 94
     },
     "iron-court": {
-      "fights": 26,
+      "fights": 25,
       "won": 4,
-      "deaths": 80
+      "deaths": 76
     }
   }
 }

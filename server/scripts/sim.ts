@@ -27,79 +27,10 @@ import type { Card, Suit } from '../types'
 import type { CampaignState, ClassId, CtCategory, EncounterState, KingdomState } from '../campaign/types'
 
 // ── Personas ─────────────────────────────────────────────────────────────────
-// Each persona is a weight profile over the same decision logic. Weights are
-// the experiment variable: same engine, same seeds, different values.
+// Weight profiles shared with sim-base.ts — same values, same decision logic;
+// the game mode is the experiment variable.
 
-interface Persona {
-  id: string
-  // play-phase scoring (per unit)
-  aggression: number       // per point of damage dealt (capped near lethal)
-  killBonus: number        // flat for landing a kill (tempo: no counterattack)
-  exactBonus: number       // flat for an exact kill (card refund + procs)
-  shieldWeight: number     // per point of shield added while enemy survives
-  drawWeight: number       // per card drawn (Diamonds)
-  recoverWeight: number    // per card recovered to Tavern (Hearts)
-  conserve: number         // penalty per point of card value spent
-  riskAversion: number     // multiplier on expected counterattack cost
-  yieldBias: number        // additive bonus on the yield option
-  // strategy
-  routeGreed: number       // appetite for high-reward nodes
-  routeFight: number       // appetite for combat in general
-  routeSafety: number      // appetite for camps/landmarks, scaled by fatigue
-  catPrefs: Record<CtCategory, number>
-  rarePref: number
-  spellEagerness: number   // 0..1 gate for burning spells/relics/wagers
-  lastStandBase: number    // 0..1 base desire to fight on after a death
-  classPref: ClassId[]     // pick order (start + replacements)
-}
-
-const CATS = (s: number, a: number, r: number, i: number, c: number): Record<CtCategory, number> =>
-  ({ Shield: s, Access: a, Recovery: r, Initiative: i, Consistency: c })
-
-const PERSONAS: Record<string, Persona> = {
-  // damage above all: biggest plays, greedy routes, fights to the end
-  slayer: {
-    id: 'slayer', aggression: 1.6, killBonus: 10, exactBonus: 3, shieldWeight: 0.4,
-    drawWeight: 0.6, recoverWeight: 0.3, conserve: 0.15, riskAversion: 0.6, yieldBias: -4,
-    routeGreed: 1.4, routeFight: 1.2, routeSafety: 0.4,
-    catPrefs: CATS(0.3, 0.8, 0.3, 1.5, 0.4), rarePref: 1.0, spellEagerness: 0.85, lastStandBase: 0.75,
-    classPref: ['executioner', 'sentinel', 'quartermaster', 'surgeon', 'commander', 'gambler', 'warden', 'oracle', 'exile'],
-  },
-  // survival above all: shields, safe routes, retreats early
-  bulwark: {
-    id: 'bulwark', aggression: 0.8, killBonus: 7, exactBonus: 2, shieldWeight: 1.6,
-    drawWeight: 0.7, recoverWeight: 0.6, conserve: 0.4, riskAversion: 1.8, yieldBias: 1,
-    routeGreed: 0.5, routeFight: 0.5, routeSafety: 1.5,
-    catPrefs: CATS(1.6, 0.6, 0.9, 0.3, 0.6), rarePref: 0.6, spellEagerness: 0.4, lastStandBase: 0.2,
-    classPref: ['sentinel', 'surgeon', 'quartermaster', 'executioner', 'warden', 'commander', 'oracle', 'exile', 'gambler'],
-  },
-  // card economy above all: draws, recovery, minimal-waste spending
-  hoarder: {
-    id: 'hoarder', aggression: 0.9, killBonus: 7, exactBonus: 4, shieldWeight: 0.8,
-    drawWeight: 1.5, recoverWeight: 1.3, conserve: 0.7, riskAversion: 1.1, yieldBias: 0,
-    routeGreed: 0.9, routeFight: 0.6, routeSafety: 1.2,
-    catPrefs: CATS(0.5, 1.6, 1.3, 0.3, 0.7), rarePref: 0.9, spellEagerness: 0.25, lastStandBase: 0.4,
-    classPref: ['quartermaster', 'surgeon', 'sentinel', 'executioner', 'oracle', 'commander', 'warden', 'exile', 'gambler'],
-  },
-  // precision: hunts exact kills and tempo, spends as little as possible
-  sniper: {
-    id: 'sniper', aggression: 1.0, killBonus: 9, exactBonus: 9, shieldWeight: 0.7,
-    drawWeight: 0.8, recoverWeight: 0.5, conserve: 0.5, riskAversion: 1.0, yieldBias: -1,
-    routeGreed: 1.0, routeFight: 0.8, routeSafety: 0.8,
-    catPrefs: CATS(0.5, 0.7, 0.5, 1.3, 1.2), rarePref: 1.0, spellEagerness: 0.6, lastStandBase: 0.5,
-    classPref: ['executioner', 'quartermaster', 'sentinel', 'surgeon', 'oracle', 'commander', 'gambler', 'warden', 'exile'],
-  },
-  // control group: middle of the road everywhere
-  steady: {
-    id: 'steady', aggression: 1.1, killBonus: 8, exactBonus: 4, shieldWeight: 1.0,
-    drawWeight: 1.0, recoverWeight: 0.8, conserve: 0.35, riskAversion: 1.0, yieldBias: -1,
-    routeGreed: 1.0, routeFight: 0.8, routeSafety: 1.0,
-    catPrefs: CATS(1.0, 1.0, 1.0, 1.0, 1.0), rarePref: 0.8, spellEagerness: 0.55, lastStandBase: 0.45,
-    classPref: ['sentinel', 'executioner', 'quartermaster', 'surgeon', 'commander', 'warden', 'oracle', 'gambler', 'exile'],
-  },
-}
-
-const MIXED_ORDER = ['slayer', 'bulwark', 'hoarder', 'sniper']
+import { PERSONAS, MIXED_ORDER, type Persona } from './sim-personas'
 
 // ── Small helpers ────────────────────────────────────────────────────────────
 
@@ -219,7 +150,9 @@ function evalYield(c: CampaignState, s: EncounterState, pi: number, p: Persona):
   const enemy = s.currentEnemy!
   const net = Math.max(0, enemy.attack - enemy.shield)
   const dies = handVal(s.hands[pi]!) < net
-  const score = p.yieldBias + p.conserve * 3 - p.riskAversion * net - (dies ? 200 * p.riskAversion + 120 : 0)
+  // fully-shielded yields are pure stalling — attacking costs nothing extra
+  const score = p.yieldBias + p.conserve * 3 - p.riskAversion * net -
+    (net === 0 ? 8 : 0) - (dies ? 200 * p.riskAversion + 120 : 0)
   return { kind: 'yield', idxs: [], score, kills: false, dies }
 }
 

@@ -122,7 +122,7 @@ r120,sim-hoarder-1p-19,1,hoarder,hoarder,lost,1,45,4,3,0,1,3,2,0,4,boss,,1,0,0,h
 r121,sim-hoarder-1p-20,1,hoarder,hoarder,lost,1,68,8,4,3,4,4,0,3,4,boss,,1,0,0,hoarder:4
 r122,sim-hoarder-1p-21,1,hoarder,hoarder,lost,1,59,6,4,1,2,6,2,3,4,boss,,1,0,0,hoarder:2
 r123,sim-hoarder-1p-22,1,hoarder,hoarder,lost,2,180,13,9,3,4,15,8,2,7,boss,starving-court,1,1,1,hoarder:4
-r124,sim-hoarder-1p-23,1,hoarder,hoarder,stalled,1,8000,6,3,2,2,4,3,7928,4,encounter,,1,0,0,hoarder:2
+r124,sim-hoarder-1p-23,1,hoarder,hoarder,stalled,1,8000,6,3,2,2,4,3,7927,4,encounter,,1,0,0,hoarder:2
 r125,sim-hoarder-1p-24,1,hoarder,hoarder,lost,1,59,5,3,1,2,5,1,4,3,boss,,1,0,0,hoarder:2
 r126,sim-hoarder-1p-25,1,hoarder,hoarder,lost,1,71,5,3,1,2,5,2,1,4,boss,,1,0,0,hoarder:2
 r127,sim-hoarder-1p-26,1,hoarder,hoarder,lost,1,66,7,4,2,3,4,1,1,5,boss,,1,0,0,hoarder:3
@@ -348,7 +348,7 @@ r346,sim-bulwark-2p-45,2,bulwark,bulwark+bulwark,lost,1,76,4,3,0,2,4,2,4,4,boss,
 r347,sim-bulwark-2p-46,2,bulwark,bulwark+bulwark,lost,1,97,5,3,1,3,4,2,2,3,boss,,1,0,0,bulwark:3
 r348,sim-bulwark-2p-47,2,bulwark,bulwark+bulwark,lost,1,86,5,3,1,3,0,2,1,4,boss,,1,0,0,bulwark:3
 r349,sim-bulwark-2p-48,2,bulwark,bulwark+bulwark,lost,1,53,4,3,0,2,4,2,3,3,boss,,1,0,0,bulwark:2
-r350,sim-bulwark-2p-49,2,bulwark,bulwark+bulwark,lost,1,81,5,3,1,3,6,1,2,4,boss,,1,0,0,bulwark:3
+r350,sim-bulwark-2p-49,2,bulwark,bulwark+bulwark,lost,1,83,5,3,1,3,6,2,5,4,boss,,1,0,0,bulwark:3
 r351,sim-hoarder-2p-0,2,hoarder,hoarder+hoarder,lost,1,73,5,3,1,3,8,1,3,4,boss,,1,0,0,hoarder:3
 r352,sim-hoarder-2p-1,2,hoarder,hoarder+hoarder,lost,1,91,6,4,1,3,7,2,4,4,boss,,1,0,0,hoarder:3
 r353,sim-hoarder-2p-2,2,hoarder,hoarder+hoarder,lost,1,78,5,3,1,3,8,3,2,4,boss,,1,0,0,hoarder:3
@@ -391,7 +391,7 @@ r389,sim-hoarder-2p-38,2,hoarder,hoarder+hoarder,lost,1,70,4,3,0,2,6,2,0,3,boss,
 r390,sim-hoarder-2p-39,2,hoarder,hoarder+hoarder,lost,1,89,6,4,1,3,9,1,2,4,boss,,1,0,0,hoarder:3
 r391,sim-hoarder-2p-40,2,hoarder,hoarder+hoarder,lost,1,30,3,2,0,2,2,1,1,2,veteran,command-fracture,0,0,0,hoarder:2
 r392,sim-hoarder-2p-41,2,hoarder,hoarder+hoarder,lost,1,54,4,3,0,2,5,1,2,3,boss,,1,0,0,hoarder:2
-r393,sim-hoarder-2p-42,2,hoarder,hoarder+hoarder,lost,2,212,9,7,1,4,14,4,7,8,boss,cruel-court,1,1,1,hoarder:4
+r393,sim-hoarder-2p-42,2,hoarder,hoarder+hoarder,lost,2,172,9,6,2,5,10,2,3,8,elite,banner-of-knives,1,1,0,hoarder:5
 r394,sim-hoarder-2p-43,2,hoarder,hoarder+hoarder,lost,1,101,6,4,1,4,7,2,5,4,boss,,1,0,0,hoarder:4
 r395,sim-hoarder-2p-44,2,hoarder,hoarder+hoarder,lost,1,76,6,4,1,3,10,1,4,4,boss,,1,0,0,hoarder:3
 r396,sim-hoarder-2p-45,2,hoarder,hoarder+hoarder,lost,1,33,3,2,0,2,3,1,2,3,lair,banner-of-knives,0,0,0,hoarder:2
@@ -600,12 +600,12 @@ r598,sim-slayer-3p-47,3,slayer,slayer+slayer+slayer,lost,1,59,4,3,0,3,8,1,1,4,bo
 r599,sim-slayer-3p-48,3,slayer,slayer+slayer+slayer,lost,1,82,4,3,0,5,3,1,3,5,boss,,1,0,0,slayer:5
 r600,sim-slayer-3p-49,3,slayer,slayer+slayer+slayer,lost,1,69,5,3,1,4,5,1,2,4,boss,,1,0,0,slayer:4
 r601,sim-bulwark-3p-0,3,bulwark,bulwark+bulwark+bulwark,lost,1,113,8,4,3,6,9,3,2,6,boss,,1,0,0,bulwark:6
-r602,sim-bulwark-3p-1,3,bulwark,bulwark+bulwark+bulwark,lost,1,104,6,4,1,4,12,3,3,5,boss,,1,0,0,bulwark:4
+r602,sim-bulwark-3p-1,3,bulwark,bulwark+bulwark+bulwark,lost,1,104,7,4,2,5,6,1,4,6,boss,,1,0,0,bulwark:5
 r603,sim-bulwark-3p-2,3,bulwark,bulwark+bulwark+bulwark,lost,1,68,4,3,0,3,5,0,3,4,boss,,1,0,0,bulwark:3
 r604,sim-bulwark-3p-3,3,bulwark,bulwark+bulwark+bulwark,lost,1,121,6,4,1,4,7,3,5,6,boss,,1,0,0,bulwark:4
 r605,sim-bulwark-3p-4,3,bulwark,bulwark+bulwark+bulwark,lost,2,259,11,8,2,5,14,4,2,12,boss,iron-court,1,1,1,bulwark:5
 r606,sim-bulwark-3p-5,3,bulwark,bulwark+bulwark+bulwark,lost,1,89,5,3,1,4,5,1,3,5,boss,,1,0,0,bulwark:4
-r607,sim-bulwark-3p-6,3,bulwark,bulwark+bulwark+bulwark,lost,1,110,7,4,2,5,7,3,5,6,boss,,1,0,0,bulwark:5
+r607,sim-bulwark-3p-6,3,bulwark,bulwark+bulwark+bulwark,lost,1,103,7,4,2,5,6,3,7,6,boss,,1,0,0,bulwark:5
 r608,sim-bulwark-3p-7,3,bulwark,bulwark+bulwark+bulwark,lost,1,76,4,3,0,3,3,2,3,4,boss,,1,0,0,bulwark:3
 r609,sim-bulwark-3p-8,3,bulwark,bulwark+bulwark+bulwark,lost,1,98,5,3,1,4,4,3,0,4,boss,,1,0,0,bulwark:4
 r610,sim-bulwark-3p-9,3,bulwark,bulwark+bulwark+bulwark,lost,1,155,8,4,3,6,7,3,3,6,boss,,1,0,0,bulwark:6
@@ -614,7 +614,7 @@ r612,sim-bulwark-3p-11,3,bulwark,bulwark+bulwark+bulwark,lost,1,111,6,4,1,4,8,1,
 r613,sim-bulwark-3p-12,3,bulwark,bulwark+bulwark+bulwark,lost,1,97,5,3,1,4,8,3,4,5,boss,,1,0,0,bulwark:4
 r614,sim-bulwark-3p-13,3,bulwark,bulwark+bulwark+bulwark,lost,1,71,4,3,0,3,3,1,3,4,boss,,1,0,0,bulwark:3
 r615,sim-bulwark-3p-14,3,bulwark,bulwark+bulwark+bulwark,lost,1,93,4,3,0,3,5,2,3,4,boss,,1,0,0,bulwark:3
-r616,sim-bulwark-3p-15,3,bulwark,bulwark+bulwark+bulwark,lost,1,69,4,3,0,3,3,1,5,4,boss,,1,0,0,bulwark:3
+r616,sim-bulwark-3p-15,3,bulwark,bulwark+bulwark+bulwark,lost,1,74,4,3,0,3,3,1,7,4,boss,,1,0,0,bulwark:3
 r617,sim-bulwark-3p-16,3,bulwark,bulwark+bulwark+bulwark,lost,1,112,6,4,1,4,5,3,1,5,boss,,1,0,0,bulwark:4
 r618,sim-bulwark-3p-17,3,bulwark,bulwark+bulwark+bulwark,lost,1,70,4,3,0,3,3,2,5,4,boss,,1,0,0,bulwark:3
 r619,sim-bulwark-3p-18,3,bulwark,bulwark+bulwark+bulwark,lost,2,125,5,4,0,3,3,2,7,5,skirmish,wrong-relay,1,1,0,bulwark:3
@@ -625,10 +625,10 @@ r623,sim-bulwark-3p-22,3,bulwark,bulwark+bulwark+bulwark,lost,1,62,4,3,0,3,6,1,3
 r624,sim-bulwark-3p-23,3,bulwark,bulwark+bulwark+bulwark,lost,1,91,6,4,1,4,4,2,5,6,boss,,1,0,0,bulwark:4
 r625,sim-bulwark-3p-24,3,bulwark,bulwark+bulwark+bulwark,lost,1,123,5,3,1,4,6,2,1,5,boss,,1,0,0,bulwark:4
 r626,sim-bulwark-3p-25,3,bulwark,bulwark+bulwark+bulwark,lost,1,80,4,3,0,3,3,1,2,4,boss,,1,0,0,bulwark:3
-r627,sim-bulwark-3p-26,3,bulwark,bulwark+bulwark+bulwark,lost,1,123,6,3,2,5,9,3,7,5,boss,,1,0,0,bulwark:5
+r627,sim-bulwark-3p-26,3,bulwark,bulwark+bulwark+bulwark,lost,1,123,6,3,2,5,9,3,6,5,boss,,1,0,0,bulwark:5
 r628,sim-bulwark-3p-27,3,bulwark,bulwark+bulwark+bulwark,lost,2,243,12,9,2,5,12,4,2,13,boss,cruel-court,1,1,1,bulwark:5
 r629,sim-bulwark-3p-28,3,bulwark,bulwark+bulwark+bulwark,lost,1,105,5,3,1,4,5,2,3,5,boss,,1,0,0,bulwark:4
-r630,sim-bulwark-3p-29,3,bulwark,bulwark+bulwark+bulwark,lost,1,97,5,3,1,4,7,1,4,5,boss,,1,0,0,bulwark:4
+r630,sim-bulwark-3p-29,3,bulwark,bulwark+bulwark+bulwark,lost,1,77,4,3,0,3,2,1,4,4,boss,,1,0,0,bulwark:3
 r631,sim-bulwark-3p-30,3,bulwark,bulwark+bulwark+bulwark,lost,1,78,4,3,0,4,5,2,2,5,boss,,1,0,0,bulwark:4
 r632,sim-bulwark-3p-31,3,bulwark,bulwark+bulwark+bulwark,lost,2,220,10,7,2,6,18,3,0,12,boss,cruel-court,1,1,1,bulwark:6
 r633,sim-bulwark-3p-32,3,bulwark,bulwark+bulwark+bulwark,lost,1,103,6,3,2,6,6,2,3,5,boss,,1,0,0,bulwark:6
@@ -659,7 +659,7 @@ r657,sim-hoarder-3p-6,3,hoarder,hoarder+hoarder+hoarder,lost,1,133,7,4,2,5,9,2,2
 r658,sim-hoarder-3p-7,3,hoarder,hoarder+hoarder+hoarder,lost,1,67,4,3,0,3,8,1,3,4,boss,,1,0,0,hoarder:3
 r659,sim-hoarder-3p-8,3,hoarder,hoarder+hoarder+hoarder,lost,1,92,4,3,0,3,5,4,4,4,boss,,1,0,0,hoarder:3
 r660,sim-hoarder-3p-9,3,hoarder,hoarder+hoarder+hoarder,lost,1,97,5,3,1,4,10,1,5,5,boss,,1,0,0,hoarder:4
-r661,sim-hoarder-3p-10,3,hoarder,hoarder+hoarder+hoarder,stalled,2,8004,10,8,1,3,15,5,7772,12,encounter,,1,1,1,hoarder:3
+r661,sim-hoarder-3p-10,3,hoarder,hoarder+hoarder+hoarder,stalled,2,8004,10,8,1,3,15,5,7771,12,encounter,,1,1,1,hoarder:3
 r662,sim-hoarder-3p-11,3,hoarder,hoarder+hoarder+hoarder,lost,2,267,13,8,4,8,21,3,7,14,boss,starving-court,1,1,1,hoarder:8
 r663,sim-hoarder-3p-12,3,hoarder,hoarder+hoarder+hoarder,lost,2,179,9,7,1,5,11,5,5,11,elite,pale-bell-matron,1,1,0,hoarder:5
 r664,sim-hoarder-3p-13,3,hoarder,hoarder+hoarder+hoarder,lost,1,93,5,4,0,3,6,3,4,5,boss,,1,0,0,hoarder:3
@@ -672,7 +672,7 @@ r670,sim-hoarder-3p-19,3,hoarder,hoarder+hoarder+hoarder,lost,1,118,7,4,2,6,15,3
 r671,sim-hoarder-3p-20,3,hoarder,hoarder+hoarder+hoarder,lost,2,115,7,5,1,4,12,2,3,6,veteran,rot-ward,1,1,0,hoarder:4
 r672,sim-hoarder-3p-21,3,hoarder,hoarder+hoarder+hoarder,lost,1,52,4,3,0,3,3,0,1,4,boss,,1,0,0,hoarder:3
 r673,sim-hoarder-3p-22,3,hoarder,hoarder+hoarder+hoarder,lost,1,26,2,1,0,3,2,0,2,2,veteran,command-fracture,0,0,0,hoarder:3
-r674,sim-hoarder-3p-23,3,hoarder,hoarder+hoarder+hoarder,lost,2,252,12,9,2,5,20,5,8,14,boss,starving-court,1,1,1,hoarder:5
+r674,sim-hoarder-3p-23,3,hoarder,hoarder+hoarder+hoarder,lost,1,95,7,4,2,5,4,3,6,6,boss,,1,0,0,hoarder:5
 r675,sim-hoarder-3p-24,3,hoarder,hoarder+hoarder+hoarder,won,2,244,10,8,2,3,13,7,1,14,,,1,1,1,hoarder:3
 r676,sim-hoarder-3p-25,3,hoarder,hoarder+hoarder+hoarder,lost,1,84,4,3,0,3,3,4,0,4,boss,,1,0,0,hoarder:3
 r677,sim-hoarder-3p-26,3,hoarder,hoarder+hoarder+hoarder,lost,1,91,5,3,1,4,7,1,6,5,boss,,1,0,0,hoarder:4
@@ -811,7 +811,7 @@ r809,sim-mixed-3p-8,3,mixed,slayer+bulwark+hoarder,lost,1,74,4,3,0,3,7,1,1,4,bos
 r810,sim-mixed-3p-9,3,mixed,slayer+bulwark+hoarder,lost,1,36,3,2,0,3,1,1,3,3,veteran,command-fracture,0,0,0,slayer:1|bulwark:1|hoarder:1
 r811,sim-mixed-3p-10,3,mixed,slayer+bulwark+hoarder,lost,1,91,4,3,0,4,4,1,3,4,boss,,1,0,0,slayer:2|hoarder:1|bulwark:1
 r812,sim-mixed-3p-11,3,mixed,slayer+bulwark+hoarder,lost,1,80,4,3,0,3,5,1,4,4,boss,,1,0,0,slayer:1|bulwark:1|hoarder:1
-r813,sim-mixed-3p-12,3,mixed,slayer+bulwark+hoarder,stalled,1,8000,3,2,0,0,3,0,7972,3,encounter,,0,0,0,
+r813,sim-mixed-3p-12,3,mixed,slayer+bulwark+hoarder,stalled,1,8000,3,2,0,0,3,1,7970,3,encounter,,0,0,0,
 r814,sim-mixed-3p-13,3,mixed,slayer+bulwark+hoarder,lost,2,138,8,6,1,4,12,2,4,8,elite,garrison-crusher,1,1,0,slayer:2|bulwark:1|hoarder:1
 r815,sim-mixed-3p-14,3,mixed,slayer+bulwark+hoarder,lost,1,59,4,3,0,3,4,2,3,4,boss,,1,0,0,bulwark:1|hoarder:1|slayer:1
 r816,sim-mixed-3p-15,3,mixed,slayer+bulwark+hoarder,lost,1,115,8,4,3,6,11,1,3,8,boss,,1,0,0,hoarder:2|slayer:2|bulwark:2
@@ -822,7 +822,7 @@ r820,sim-mixed-3p-19,3,mixed,slayer+bulwark+hoarder,lost,2,182,9,8,0,3,19,3,0,12
 r821,sim-mixed-3p-20,3,mixed,slayer+bulwark+hoarder,lost,1,109,7,4,2,5,9,2,2,6,boss,,1,0,0,bulwark:3|hoarder:1|slayer:1
 r822,sim-mixed-3p-21,3,mixed,slayer+bulwark+hoarder,lost,1,73,4,3,0,3,7,1,4,4,boss,,1,0,0,hoarder:1|slayer:1|bulwark:1
 r823,sim-mixed-3p-22,3,mixed,slayer+bulwark+hoarder,lost,1,65,4,3,0,3,6,1,0,4,boss,,1,0,0,slayer:1|bulwark:1|hoarder:1
-r824,sim-mixed-3p-23,3,mixed,slayer+bulwark+hoarder,lost,1,91,4,3,0,3,3,2,3,4,boss,,1,0,0,slayer:1|bulwark:1|hoarder:1
+r824,sim-mixed-3p-23,3,mixed,slayer+bulwark+hoarder,lost,1,88,4,3,0,3,7,1,4,4,boss,,1,0,0,hoarder:1|slayer:1|bulwark:1
 r825,sim-mixed-3p-24,3,mixed,slayer+bulwark+hoarder,lost,1,95,4,3,0,4,11,1,1,5,boss,,1,0,0,hoarder:2|slayer:1|bulwark:1
 r826,sim-mixed-3p-25,3,mixed,slayer+bulwark+hoarder,lost,1,81,5,4,0,3,7,2,2,5,boss,,1,0,0,hoarder:1|slayer:1|bulwark:1
 r827,sim-mixed-3p-26,3,mixed,slayer+bulwark+hoarder,lost,1,60,4,3,0,3,5,1,5,4,boss,,1,0,0,hoarder:1|slayer:1|bulwark:1
@@ -901,14 +901,14 @@ r899,sim-slayer-4p-48,4,slayer,slayer+slayer+slayer+slayer,lost,1,91,5,3,1,5,6,1
 r900,sim-slayer-4p-49,4,slayer,slayer+slayer+slayer+slayer,lost,1,134,6,4,1,11,9,3,8,8,boss,,1,0,0,slayer:11
 r901,sim-bulwark-4p-0,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,155,8,4,3,8,9,5,4,7,boss,,1,0,0,bulwark:8
 r902,sim-bulwark-4p-1,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,106,5,3,1,5,7,4,4,5,boss,,1,0,0,bulwark:5
-r903,sim-bulwark-4p-2,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,62,4,3,0,4,6,2,5,4,boss,,1,0,0,bulwark:4
+r903,sim-bulwark-4p-2,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,72,4,3,0,4,8,2,3,4,boss,,1,0,0,bulwark:4
 r904,sim-bulwark-4p-3,4,bulwark,bulwark+bulwark+bulwark+bulwark,stalled,1,8000,4,3,0,3,3,4,7908,4,encounter,,1,0,0,bulwark:3
 r905,sim-bulwark-4p-4,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,74,4,3,0,4,10,2,1,4,boss,,1,0,0,bulwark:4
 r906,sim-bulwark-4p-5,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,134,6,3,2,6,8,3,1,6,boss,,1,0,0,bulwark:6
-r907,sim-bulwark-4p-6,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,2,298,15,9,5,11,22,11,9,13,boss,cruel-court,1,1,1,bulwark:11
+r907,sim-bulwark-4p-6,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,2,296,15,9,5,11,20,10,11,13,boss,starving-court,1,1,1,bulwark:11
 r908,sim-bulwark-4p-7,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,100,5,4,0,4,8,5,3,5,boss,,1,0,0,bulwark:4
 r909,sim-bulwark-4p-8,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,63,4,3,0,4,5,3,2,4,boss,,1,0,0,bulwark:4
-r910,sim-bulwark-4p-9,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,129,8,4,3,7,10,4,10,8,boss,,1,0,0,bulwark:7
+r910,sim-bulwark-4p-9,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,133,8,4,3,7,10,4,8,8,boss,,1,0,0,bulwark:7
 r911,sim-bulwark-4p-10,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,96,6,3,2,6,9,2,4,6,boss,,1,0,0,bulwark:6
 r912,sim-bulwark-4p-11,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,93,5,3,1,5,10,4,4,5,boss,,1,0,0,bulwark:5
 r913,sim-bulwark-4p-12,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,104,5,3,1,5,5,6,6,5,boss,,1,0,0,bulwark:5
@@ -929,7 +929,7 @@ r927,sim-bulwark-4p-26,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,115,5,3,
 r928,sim-bulwark-4p-27,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,85,4,3,0,4,9,3,3,4,boss,,1,0,0,bulwark:4
 r929,sim-bulwark-4p-28,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,78,5,3,1,5,6,3,4,5,boss,,1,0,0,bulwark:5
 r930,sim-bulwark-4p-29,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,78,5,3,1,5,4,1,5,5,boss,,1,0,0,bulwark:5
-r931,sim-bulwark-4p-30,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,84,5,3,1,5,6,2,8,5,boss,,1,0,0,bulwark:5
+r931,sim-bulwark-4p-30,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,84,5,3,1,5,6,2,7,5,boss,,1,0,0,bulwark:5
 r932,sim-bulwark-4p-31,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,65,4,3,0,4,4,3,3,4,boss,,1,0,0,bulwark:4
 r933,sim-bulwark-4p-32,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,81,5,3,1,5,6,3,7,5,boss,,1,0,0,bulwark:5
 r934,sim-bulwark-4p-33,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,120,8,4,3,7,6,3,2,6,boss,,1,0,0,bulwark:7
@@ -944,10 +944,10 @@ r942,sim-bulwark-4p-41,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,99,5,3,1
 r943,sim-bulwark-4p-42,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,67,4,3,0,4,5,3,5,4,boss,,1,0,0,bulwark:4
 r944,sim-bulwark-4p-43,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,134,8,4,3,7,11,4,4,7,boss,,1,0,0,bulwark:7
 r945,sim-bulwark-4p-44,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,82,5,2,2,7,4,3,5,5,lair,pale-bell-matron,0,0,0,bulwark:7
-r946,sim-bulwark-4p-45,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,95,5,3,1,5,12,4,10,5,boss,,1,0,0,bulwark:5
+r946,sim-bulwark-4p-45,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,92,5,3,1,5,12,4,7,5,boss,,1,0,0,bulwark:5
 r947,sim-bulwark-4p-46,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,90,4,3,0,4,9,5,4,4,boss,,1,0,0,bulwark:4
 r948,sim-bulwark-4p-47,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,103,6,3,2,6,5,2,1,5,boss,,1,0,0,bulwark:6
-r949,sim-bulwark-4p-48,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,2,310,15,9,5,10,15,14,8,13,boss,cruel-court,1,1,1,bulwark:10
+r949,sim-bulwark-4p-48,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,119,8,4,3,7,8,2,1,5,boss,,1,0,0,bulwark:7
 r950,sim-bulwark-4p-49,4,bulwark,bulwark+bulwark+bulwark+bulwark,lost,1,101,5,3,1,6,6,2,2,6,boss,,1,0,0,bulwark:6
 r951,sim-hoarder-4p-0,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,82,4,3,0,4,10,4,2,4,boss,,1,0,0,hoarder:4
 r952,sim-hoarder-4p-1,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,103,4,3,0,4,8,5,4,4,boss,,1,0,0,hoarder:4
@@ -955,7 +955,7 @@ r953,sim-hoarder-4p-2,4,hoarder,hoarder+hoarder+hoarder+hoarder,stalled,1,8003,3
 r954,sim-hoarder-4p-3,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,2,241,9,7,1,6,16,6,7,15,boss,starving-court,1,1,1,hoarder:6
 r955,sim-hoarder-4p-4,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,109,4,3,0,5,7,4,4,5,boss,,1,0,0,hoarder:5
 r956,sim-hoarder-4p-5,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,117,5,3,1,5,9,5,3,5,boss,,1,0,0,hoarder:5
-r957,sim-hoarder-4p-6,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,2,265,11,8,2,8,15,12,7,16,boss,cruel-court,1,1,1,hoarder:8
+r957,sim-hoarder-4p-6,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,2,253,11,8,2,8,13,12,3,16,boss,cruel-court,1,1,1,hoarder:8
 r958,sim-hoarder-4p-7,4,hoarder,hoarder+hoarder+hoarder+hoarder,won,2,275,11,9,2,4,16,10,1,16,,,1,1,1,hoarder:4
 r959,sim-hoarder-4p-8,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,2,126,6,5,0,4,11,5,5,7,veteran,shieldbreaker-line,1,1,0,hoarder:4
 r960,sim-hoarder-4p-9,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,75,5,4,0,4,11,2,2,5,boss,,1,0,0,hoarder:4
@@ -971,7 +971,7 @@ r969,sim-hoarder-4p-18,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,2,181,8,5,
 r970,sim-hoarder-4p-19,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,81,4,3,0,5,9,2,4,5,boss,,1,0,0,hoarder:5
 r971,sim-hoarder-4p-20,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,99,4,3,0,5,9,3,2,5,boss,,1,0,0,hoarder:5
 r972,sim-hoarder-4p-21,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,99,4,3,0,4,14,5,4,4,boss,,1,0,0,hoarder:4
-r973,sim-hoarder-4p-22,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,174,8,4,3,7,13,9,6,8,boss,,1,0,0,hoarder:7
+r973,sim-hoarder-4p-22,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,168,8,4,3,7,12,9,3,8,boss,,1,0,0,hoarder:7
 r974,sim-hoarder-4p-23,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,91,4,3,0,4,9,4,1,4,boss,,1,0,0,hoarder:4
 r975,sim-hoarder-4p-24,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,2,239,14,9,4,8,19,6,9,14,boss,iron-court,1,1,1,hoarder:8
 r976,sim-hoarder-4p-25,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,84,4,3,0,4,9,5,2,4,boss,,1,0,0,hoarder:4
@@ -980,7 +980,7 @@ r978,sim-hoarder-4p-27,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,101,5,3,
 r979,sim-hoarder-4p-28,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,83,5,4,0,5,9,4,5,6,boss,,1,0,0,hoarder:5
 r980,sim-hoarder-4p-29,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,99,4,3,0,4,9,4,3,4,boss,,1,0,0,hoarder:4
 r981,sim-hoarder-4p-30,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,88,5,3,1,5,13,2,3,5,boss,,1,0,0,hoarder:5
-r982,sim-hoarder-4p-31,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,109,6,4,1,6,6,3,7,7,boss,,1,0,0,hoarder:6
+r982,sim-hoarder-4p-31,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,2,150,8,6,1,6,11,3,5,10,elite,banner-of-knives,1,1,0,hoarder:6
 r983,sim-hoarder-4p-32,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,2,198,8,7,0,5,14,7,5,13,boss,iron-court,1,1,1,hoarder:5
 r984,sim-hoarder-4p-33,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,97,4,3,0,5,13,5,3,5,boss,,1,0,0,hoarder:5
 r985,sim-hoarder-4p-34,4,hoarder,hoarder+hoarder+hoarder+hoarder,lost,1,109,5,3,1,5,8,3,3,5,boss,,1,0,0,hoarder:5
@@ -1123,7 +1123,7 @@ r1121,sim-mixed-4p-20,4,mixed,slayer+bulwark+hoarder+sniper,lost,1,136,5,3,1,6,8
 r1122,sim-mixed-4p-21,4,mixed,slayer+bulwark+hoarder+sniper,stalled,1,8006,2,1,0,2,1,0,7975,2,encounter,,0,0,0,slayer:1|bulwark:1
 r1123,sim-mixed-4p-22,4,mixed,slayer+bulwark+hoarder+sniper,lost,1,123,6,4,1,5,7,5,2,5,boss,,1,0,0,slayer:2|hoarder:1|sniper:1|bulwark:1
 r1124,sim-mixed-4p-23,4,mixed,slayer+bulwark+hoarder+sniper,stalled,1,8003,4,3,0,3,1,4,7926,5,encounter,,1,0,0,slayer:1|hoarder:1|sniper:1
-r1125,sim-mixed-4p-24,4,mixed,slayer+bulwark+hoarder+sniper,lost,2,272,11,8,2,8,20,10,12,14,boss,iron-court,1,1,1,bulwark:2|slayer:3|sniper:2|hoarder:1
+r1125,sim-mixed-4p-24,4,mixed,slayer+bulwark+hoarder+sniper,lost,2,265,11,8,2,9,18,11,6,15,boss,starving-court,1,1,1,bulwark:2|slayer:3|sniper:2|hoarder:2
 r1126,sim-mixed-4p-25,4,mixed,slayer+bulwark+hoarder+sniper,lost,1,89,5,3,1,6,6,3,3,6,boss,,1,0,0,slayer:2|bulwark:2|hoarder:1|sniper:1
 r1127,sim-mixed-4p-26,4,mixed,slayer+bulwark+hoarder+sniper,lost,1,104,5,3,1,6,8,4,3,5,boss,,1,0,0,slayer:2|hoarder:2|bulwark:1|sniper:1
 r1128,sim-mixed-4p-27,4,mixed,slayer+bulwark+hoarder+sniper,lost,1,138,7,4,2,6,11,5,3,6,boss,,1,0,0,sniper:3|bulwark:1|hoarder:1|slayer:1

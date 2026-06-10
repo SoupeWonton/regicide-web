@@ -1,0 +1,40 @@
+{
+  "byOmittedClass": {
+    "sentinel": {
+      "games": 600,
+      "won": 27,
+      "avgDefeated": 6.51,
+      "exactKills": 3.59
+    },
+    "quartermaster": {
+      "games": 600,
+      "won": 16,
+      "avgDefeated": 6.22,
+      "exactKills": 3.33
+    },
+    "surgeon": {
+      "games": 600,
+      "won": 25,
+      "avgDefeated": 6.54,
+      "exactKills": 3.49
+    },
+    "executioner": {
+      "games": 600,
+      "won": 27,
+      "avgDefeated": 6.52,
+      "exactKills": 2.27
+    }
+  },
+  "lostByClass": {
+    "executioner": 574,
+    "surgeon": 631,
+    "quartermaster": 567,
+    "sentinel": 517
+  },
+  "classPresence": {
+    "quartermaster": 1800,
+    "surgeon": 1800,
+    "executioner": 1800,
+    "sentinel": 1800
+  }
+}

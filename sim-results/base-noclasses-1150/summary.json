@@ -1,0 +1,151 @@
+{
+  "byCount": {
+    "1p": {
+      "games": 250,
+      "won": 0,
+      "avgDefeated": 3
+    },
+    "2p": {
+      "games": 300,
+      "won": 2,
+      "avgDefeated": 5.69
+    },
+    "3p": {
+      "games": 300,
+      "won": 7,
+      "avgDefeated": 6.05
+    },
+    "4p": {
+      "games": 300,
+      "won": 1,
+      "avgDefeated": 5.11
+    }
+  },
+  "byLineup": {
+    "slayer-1p": {
+      "games": 50,
+      "won": 0,
+      "avgDefeated": 2.56
+    },
+    "slayer-2p": {
+      "games": 50,
+      "won": 0,
+      "avgDefeated": 5.38
+    },
+    "slayer-3p": {
+      "games": 50,
+      "won": 1,
+      "avgDefeated": 5.96
+    },
+    "slayer-4p": {
+      "games": 50,
+      "won": 0,
+      "avgDefeated": 5.26
+    },
+    "bulwark-1p": {
+      "games": 50,
+      "won": 0,
+      "avgDefeated": 3.3
+    },
+    "bulwark-2p": {
+      "games": 50,
+      "won": 0,
+      "avgDefeated": 5.46
+    },
+    "bulwark-3p": {
+      "games": 50,
+      "won": 0,
+      "avgDefeated": 5.3
+    },
+    "bulwark-4p": {
+      "games": 50,
+      "won": 0,
+      "avgDefeated": 4.74
+    },
+    "hoarder-1p": {
+      "games": 50,
+      "won": 0,
+      "avgDefeated": 2.82
+    },
+    "hoarder-2p": {
+      "games": 50,
+      "won": 1,
+      "avgDefeated": 6.36
+    },
+    "hoarder-3p": {
+      "games": 50,
+      "won": 3,
+      "avgDefeated": 6.8
+    },
+    "hoarder-4p": {
+      "games": 50,
+      "won": 0,
+      "avgDefeated": 5.34
+    },
+    "sniper-1p": {
+      "games": 50,
+      "won": 0,
+      "avgDefeated": 3.1
+    },
+    "sniper-2p": {
+      "games": 50,
+      "won": 0,
+      "avgDefeated": 5.86
+    },
+    "sniper-3p": {
+      "games": 50,
+      "won": 1,
+      "avgDefeated": 6.02
+    },
+    "sniper-4p": {
+      "games": 50,
+      "won": 0,
+      "avgDefeated": 5.32
+    },
+    "steady-1p": {
+      "games": 50,
+      "won": 0,
+      "avgDefeated": 3.2
+    },
+    "steady-2p": {
+      "games": 50,
+      "won": 0,
+      "avgDefeated": 5.62
+    },
+    "steady-3p": {
+      "games": 50,
+      "won": 0,
+      "avgDefeated": 5.62
+    },
+    "steady-4p": {
+      "games": 50,
+      "won": 1,
+      "avgDefeated": 5.24
+    },
+    "mixed-2p": {
+      "games": 50,
+      "won": 1,
+      "avgDefeated": 5.48
+    },
+    "mixed-3p": {
+      "games": 50,
+      "won": 2,
+      "avgDefeated": 6.6
+    },
+    "mixed-4p": {
+      "games": 50,
+      "won": 0,
+      "avgDefeated": 4.78
+    }
+  },
+  "lossByRank": {
+    "Q": 705,
+    "J": 258,
+    "K": 173
+  },
+  "progressBuckets": {
+    "jacks": 258,
+    "queens": 705,
+    "kings": 173
+  }
+}
