@@ -83,6 +83,17 @@ export function applyClassPick(c: CampaignState, playerId: string, classId: Clas
   if (Object.values(c.classPicks).every(v => v !== null)) {
     const { r, done } = rng(c)
     c.map = buildMap(c.chapter, r)
+    // small-company provisions (balance-testing): at 1-2 players each hero
+    // starts with a standard relic to close the party-CT gap vs 4 players
+    if (c.heroes.length <= 2) {
+      for (const h of c.heroes) {
+        const pool = itemsOf('relic', 'standard').filter(i => !c.heroes.some(o => o.relicId === i.id))
+        if (pool.length) {
+          h.relicId = r.pick(pool).id
+          clog(c, `🏺 Small company provisions: ${h.playerName} sets out with ${getItem(h.relicId).name}.`)
+        }
+      }
+    }
     done()
     setupChapterDeck(c)
     c.phase = 'road'
@@ -174,6 +185,12 @@ function resolveNode(c: CampaignState, nodeId: string, kind: NodeKind) {
   }
 }
 
+// reward CT scales with party size (bible canon: TC/DV scale by player count)
+// — small parties see one extra option per reward to close the tolerance gap
+function rewardBonus(c: CampaignState): number {
+  return c.heroes.length <= 2 ? 1 : 0
+}
+
 function offerItems(c: CampaignState, kind: 'relic' | 'spell' | 'preparation', tier: 'standard' | 'rare', n: number, prompt: string) {
   const { r, done } = rng(c)
   const owned = new Set([...c.spells, ...c.preparations, ...c.heroes.map(h => h.relicId).filter(Boolean) as string[]])
@@ -182,7 +199,7 @@ function offerItems(c: CampaignState, kind: 'relic' | 'spell' | 'preparation', t
     pool = [getItem(c.debug.forceNextRewardId)]
     c.debug.forceNextRewardId = undefined
   }
-  const options = r.shuffle(pool).slice(0, n)
+  const options = r.shuffle(pool).slice(0, n + rewardBonus(c))
   done()
   if (options.length === 0) { clog(c, 'Nothing new on offer here.'); c.phase = 'road'; return }
   c.phase = 'landmark'
@@ -300,7 +317,7 @@ export function checkEncounterEnd(c: CampaignState) {
       const { r, done } = rng(c)
       const pool = [...itemsOf('relic', 'rare'), ...itemsOf('spell', 'rare')]
         .filter(i => !c.spells.includes(i.id) && !c.heroes.some(h => h.relicId === i.id))
-      const options = r.shuffle(pool).slice(0, 2)
+      const options = r.shuffle(pool).slice(0, 2 + rewardBonus(c))
       done()
       c.encounter = null
       if (options.length) {
@@ -329,7 +346,7 @@ export function checkEncounterEnd(c: CampaignState) {
     }
     const pool = [...itemsOf('spell', 'standard'), ...itemsOf('preparation', 'standard'), ...(node.kind === 'elite' ? itemsOf('relic', 'rare') : [])]
       .filter(i => !c.spells.includes(i.id) && !c.preparations.includes(i.id) && !c.heroes.some(h => h.relicId === i.id))
-    const options = r.shuffle(pool).slice(0, node.kind === 'elite' ? 3 : 2)
+    const options = r.shuffle(pool).slice(0, (node.kind === 'elite' ? 3 : 2) + rewardBonus(c))
     done()
     c.encounter = null
     if (options.length) {

@@ -57,12 +57,17 @@ function once(s: EncounterState, key: string): boolean {
 // The deck carries across road encounters. It is built once per chapter and
 // only reshuffled/redrawn at camp/interlude rests (and Hearts mid-encounter).
 
+// Campaign jester counts differ from base (balance-testing): low player
+// counts get jesters back so jester tools aren't dead, and the solo jester
+// doubles as the official-style panic button (full hand refresh).
+const CAMPAIGN_JESTERS: Record<number, number> = { 1: 2, 2: 1, 3: 1, 4: 2 }
+
 function buildCampaignDeck(c: CampaignState, shuffler: <T>(a: T[]) => T[]): Card[] {
   const cards: Card[] = []
   for (const suit of SUITS)
     for (const rank of PLAYER_RANKS)
       cards.push({ suit, rank, id: uid() })
-  const jesters = jesterCount(c.heroes.length)
+  const jesters = CAMPAIGN_JESTERS[c.heroes.length] ?? jesterCount(c.heroes.length)
   for (let i = 0; i < jesters; i++) cards.push({ suit: 'C', rank: 'Jo', id: uid() })
   return shuffler(cards)
 }
@@ -107,7 +112,10 @@ export function dealReplacementHand(c: CampaignState, heroIdx: number) {
     if (deck.tavern.length) deck.hands[heroIdx]!.push(deck.tavern.pop()!)
 }
 
-function buildEnemyStack(tier: EncounterTier, isLair: boolean, shuffler: <T>(a: T[]) => T[]): Card[] {
+// Encounter composition scales with party size (balance-testing): the boss
+// castle is canon and never scales, but road fights shed a body at low
+// counts so pressure tracks the party's total hand capacity.
+function buildEnemyStack(tier: EncounterTier, isLair: boolean, players: number, shuffler: <T>(a: T[]) => T[]): Card[] {
   const mk = (rank: 'J' | 'Q' | 'K', suits: Suit[]) => suits.map(suit => ({ suit, rank: rank as Card['rank'], id: uid() }))
   if (tier === 'boss') {
     return [
@@ -118,10 +126,16 @@ function buildEnemyStack(tier: EncounterTier, isLair: boolean, shuffler: <T>(a: 
   }
   const pickSuits = (n: number) => shuffler([...SUITS]).slice(0, n)
   if (tier === 'skirmish') return mk('J', pickSuits(2))
-  if (tier === 'veteran') return [...mk('J', pickSuits(2)), ...mk('Q', pickSuits(1))]
+  if (tier === 'veteran') {
+    return players <= 2
+      ? [...mk('J', pickSuits(1)), ...mk('Q', pickSuits(1))]
+      : [...mk('J', pickSuits(2)), ...mk('Q', pickSuits(1))]
+  }
   // elite (lair variant is shorter but heavier)
-  if (isLair) return [...mk('Q', pickSuits(1)), ...mk('K', pickSuits(1))]
-  return [...mk('J', pickSuits(1)), ...mk('Q', pickSuits(1)), ...mk('K', pickSuits(1))]
+  if (isLair) return players === 1 ? mk('K', pickSuits(1)) : [...mk('Q', pickSuits(1)), ...mk('K', pickSuits(1))]
+  return players === 1
+    ? [...mk('J', pickSuits(1)), ...mk('Q', pickSuits(1))]
+    : [...mk('J', pickSuits(1)), ...mk('Q', pickSuits(1)), ...mk('K', pickSuits(1))]
 }
 
 // ── Encounter creation ───────────────────────────────────────────────────────
@@ -152,7 +166,7 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
     turnPhase: 'setup',
     currentPlayerIndex: heroesAlive[0]!,
     nextPlayerIndex: heroesAlive[1 % heroesAlive.length]!,
-    enemyDeck: buildEnemyStack(tier, !!opts.isLair, shuffler),
+    enemyDeck: buildEnemyStack(tier, !!opts.isLair, heroesAlive.length, shuffler),
     currentEnemy: null,
     defeatedCount: 0,
     totalEnemies: 0,
@@ -447,6 +461,15 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
     clog(c, `🃏 ${hero.playerName} plays the Jester!`)
     s.discard.push(...cards)
     if (s.currentEnemy) s.currentEnemy.immunityNullified = true
+    if (aliveIndices(c).length === 1) {
+      // solo rule (balance-testing): the Jester is a panic button — discard
+      // your whole hand and redraw to full, then keep playing
+      s.discard.push(...hand.splice(0))
+      const drawn = drawForHero(c, s, pi, maxHandSize(c))
+      s.turnPhase = 'play'
+      clog(c, `   Solo Jester: hand refreshed (${drawn} card${drawn !== 1 ? 's' : ''} drawn). No counterattack.`)
+      return {}
+    }
     s.turnPhase = 'choose_next'
     s.pendingChooseNext = false
     return {}
@@ -802,6 +825,16 @@ function heroDies(c: CampaignState, s: EncounterState, pi: number, unpayable: nu
 
   const alive = aliveIndices(c)
   if (alive.length === 0) {
+    // solo death insurance (balance-testing): outside boss fights, a solo
+    // hero's death drags the lineage to an emergency camp where a forced
+    // replacement takes up the banner — memories and relic die with the hero
+    if (c.heroes.length === 1 && s.tier !== 'boss') {
+      s.outcome = 'retreated'
+      s.turnPhase = 'over'
+      clog(c, '🩸 The hero falls — and is dragged from the field by their own stubborn lineage.')
+      clog(c, '   A successor must take up the banner at camp.')
+      return
+    }
     s.outcome = 'wiped'
     s.turnPhase = 'over'
     c.phase = 'campaign_lost'

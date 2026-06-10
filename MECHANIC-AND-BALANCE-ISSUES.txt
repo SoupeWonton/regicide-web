@@ -121,6 +121,41 @@ D7. TC/DV scaling by player count (values are static; CT is logged per node
 D8. Memory pool is 8 designs (target ~15).
 D9. Mid-session reconnection (must resume from save).
 
+F. PLAYER-COUNT SCALING EXPERIMENTS (balance-testing branch)
+------------------------------------------------------------
+Base Regicide scales 1-4p only via hand size (8/7/6/5) and jesters
+(0/0/1/2): the tavern is communal fuel, so trimming cards at low counts
+was rejected — it shortens the attrition runway exactly where the
+smallest parties need it, and distorts the suit economy. Instead the
+balance-testing branch closes the gap from four directions (campaign
+mode only; quick game and the boss castle are untouched):
+
+F1. Jesters at low counts: 1p = 2 jesters, 2p = 1 jester (3p = 1,
+    4p = 2 unchanged). The solo jester is a panic button: discard your
+    whole hand, redraw to full, keep your turn, no counterattack —
+    modeled on the official solo rule. Restores jester-dependent tools
+    (immunity nullification, Gambler Fate Broker) at 1-2p. (was E3)
+
+F2. Reward CT scaling (bible canon: TC/DV scale by player count): at
+    1-2p every landmark/spoils choice shows +1 option, and each hero
+    starts the campaign with a random standard relic ("small company
+    provisions"). Party CT at 2p: 2x0.75 + 2x0.25 = 2.0 vs 4p 3.0 —
+    closes roughly half the gap from the tolerance side. (was E4)
+
+F3. Encounter composition by party size: veterans drop to J+Q at 1-2p
+    (from J+J+Q); elites drop the King at solo (J+Q); the Lair gate is a
+    lone King at solo (from Q+K). Boss castle never scales (canon).
+
+F4. Solo death insurance: outside boss fights, a solo hero's death sends
+    the lineage to an emergency camp with a forced replacement (memories
+    and relic die with the hero) instead of ending the campaign. Boss
+    fights remain win-or-wipe. NOTE: this makes solo road play
+    effectively unloseable-but-costly — intentional for testing; revisit
+    whether it needs a once-per-chapter cap.
+
+All four are server-side switches on heroes.length — trivial to tune or
+revert after playtests.
+
 E. BALANCE OBSERVATIONS
 -----------------------
 

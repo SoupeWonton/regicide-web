@@ -141,7 +141,10 @@ console.log('Test 1: full campaign run (cheat-kill mode)')
     assert(c.map!.nodes.some(n => !n.known), 'some nodes are hidden (partial visibility)')
     const end = drive(c, { cheatKill: true })
     assert(end === 'campaign_won', `campaign won (got ${end})`)
-    assert(c.heroes.every(h => h.memories.length >= 1), 'survivors drafted memories')
+    // dead-at-the-end heroes legitimately have no memories (lost on death;
+    // boss fights forbid retreat) — only survivors must have drafted
+    assert(c.heroes.filter(h => h.alive).every(h => h.memories.length >= 1), 'survivors drafted memories')
+    assert(c.heroes.some(h => h.memories.length >= 1), 'at least one hero carried a memory home')
     ok(`campaign completed: ${end}; ch2 boss modifier exercised`)
   }
 }
@@ -277,6 +280,66 @@ console.log('Test 7: deck persistence (attrition canon)')
   } else {
     assert(false, `expected to reach a camp (got ${c.phase})`)
   }
+}
+
+// ── Test 8: player-count scaling (balance-testing) ───────────────────────────
+console.log('Test 8: player-count scaling')
+{
+  // solo campaign
+  const c = createCampaign([{ id: P1, name: 'Gab' }], 1, 'solo-seed', kingdom).campaign!
+  applyClassPick(c, P1, 'sentinel')
+  const allCards = [...c.deck!.tavern, ...c.deck!.hands.flat()]
+  assert(allCards.filter(card => card.rank === 'Jo').length === 2, 'solo deck has 2 jesters')
+  assert(c.heroes[0]!.relicId !== null, 'solo hero starts with a provision relic')
+
+  // fabricate camp → veteran to check composition + death insurance
+  const nodes = [
+    { id: 'n0', kind: 'camp' as const, layer: 0, next: ['n1'], known: true, visited: true, rewardCT: 0, pressureCT: 0 },
+    { id: 'n1', kind: 'veteran' as const, layer: 1, next: [], known: true, visited: false, rewardCT: 0, pressureCT: 0 },
+  ]
+  c.map = { variant: 'test', nodes, currentNodeId: 'n0' }
+  c.phase = 'camp'
+  step(c, 'host', () => applyBreakCamp(c, P1, P1), 'break camp (solo)')
+  step(c, 'host', () => applyRoadChoose(c, P1, 'n1', P1), 'enter veteran (solo)')
+  const s = c.encounter!
+  assert(s.totalEnemies === 2, `solo veteran is J+Q (${s.totalEnemies} enemies, want 2)`)
+  while (s.turnPhase === 'setup') applySetupReorder(c, c.heroes[0]!.playerId, s.setupPeek!.cards.map((_, i) => i))
+
+  // solo jester = hand refresh, stay in play phase
+  s.hands[0] = [{ suit: 'C', rank: 'Jo', id: 'jo-test' }]
+  const jr = applyEncounterPlay(c, P1, [0])
+  assert(!jr.error, `solo jester plays: ${jr.error ?? 'ok'}`)
+  assert(s.turnPhase === 'play', `solo jester keeps the turn (phase=${s.turnPhase})`)
+  assert(s.hands[0]!.length === 8, `solo jester refreshed hand to 8 (got ${s.hands[0]!.length})`)
+
+  // solo death outside boss → emergency camp, not campaign over
+  s.hands[0] = [{ suit: 'C', rank: '2', id: 'doom2' }]
+  s.currentEnemy!.attack = 99
+  s.currentEnemy!.shield = 0
+  step(c, P1, () => applyEncounterYield(c, P1), 'solo doom yield')
+  assert(c.phase === 'camp', `solo death → emergency camp (got ${c.phase})`)
+  assert(!c.heroes[0]!.alive, 'solo hero is dead, successor required')
+  const rep = beginReplacement(c, kingdom)
+  assert(!rep.error, `solo replacement offered: ${rep.error ?? 'ok'}`)
+
+  // 2-player: 1 jester + bigger reward choices
+  const d = createCampaign(players, 1, 'duo-seed', kingdom).campaign!
+  applyClassPick(d, P1, 'sentinel')
+  applyClassPick(d, P2, 'surgeon')
+  const duoCards = [...d.deck!.tavern, ...d.deck!.hands.flat()]
+  assert(duoCards.filter(card => card.rank === 'Jo').length === 1, 'duo deck has 1 jester')
+  assert(d.heroes.every(h => h.relicId !== null), 'duo heroes start with provision relics')
+  d.map = {
+    variant: 'test',
+    nodes: [
+      { id: 'm0', kind: 'start', layer: 0, next: ['m1'], known: true, visited: true, rewardCT: 0, pressureCT: 0 },
+      { id: 'm1', kind: 'market', layer: 1, next: [], known: true, visited: false, rewardCT: 0, pressureCT: 0 },
+    ],
+    currentNodeId: 'm0',
+  }
+  d.phase = 'road'
+  step(d, 'host', () => applyRoadChoose(d, P1, 'm1', P1), 'duo market')
+  assert((d.pendingChoice?.options.length ?? 0) === 4, `duo market shows 4 options (got ${d.pendingChoice?.options.length})`)
 }
 
 console.log(failures === 0 ? '\nAll smoke tests passed ✅' : `\n${failures} failure(s) ❌`)
