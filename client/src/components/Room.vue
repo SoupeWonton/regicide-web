@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { socket } from '../socket'
+import { socket, myId } from '../socket'
 import type { ClientGameState, RoomInfo, ClientCampaignState, SaveSummary } from '../types'
 import GameBoard from './GameBoard.vue'
 import CampaignView from './campaign/CampaignView.vue'
@@ -37,11 +37,11 @@ onMounted(() => {
   socket.emit('list_campaigns')
 })
 
-const isHost = computed(() => room.value?.hostId === socket.id)
+const isHost = computed(() => room.value?.hostId === myId)
 const allReady = computed(() => room.value?.players.every(p => p.ready) ?? false)
 
 function toggleReady() {
-  const me = room.value?.players.find(p => p.id === socket.id)
+  const me = room.value?.players.find(p => p.id === myId)
   socket.emit('set_ready', { code, ready: !me?.ready })
 }
 
@@ -94,7 +94,7 @@ function copyCode() {
             <div class="flex items-center gap-2">
               <span class="text-sm font-medium">{{ p.name }}</span>
               <span v-if="p.id === room?.hostId" class="badge badge-xs badge-primary">host</span>
-              <span v-if="p.id === socket.id"    class="badge badge-xs badge-ghost">you</span>
+              <span v-if="p.id === myId"    class="badge badge-xs badge-ghost">you</span>
             </div>
             <span :class="['badge badge-sm', p.ready ? 'badge-success' : 'badge-ghost']">
               {{ p.ready ? 'Ready' : 'Waiting' }}
@@ -106,7 +106,7 @@ function copyCode() {
 
         <div class="flex gap-2 pt-1">
           <button class="btn btn-outline flex-1" @click="toggleReady">
-            {{ room?.players.find(p => p.id === socket.id)?.ready ? 'Not Ready' : 'Ready' }}
+            {{ room?.players.find(p => p.id === myId)?.ready ? 'Not Ready' : 'Ready' }}
           </button>
           <button
             v-if="isHost"

@@ -145,6 +145,31 @@ export function roomInfo(code: string): RoomInfo | null {
   return { code, hostId: room.hostId, players: room.players }
 }
 
+/** Room codes this player belongs to (for reconnect auto-rejoin). */
+export function findRoomsByPlayer(playerId: string): string[] {
+  const codes: string[] = []
+  for (const [code, room] of rooms)
+    if (room.players.some(p => p.id === playerId) || room.state?.players.some(p => p.id === playerId))
+      codes.push(code)
+  return codes
+}
+
+/** Mark a reconnected player as connected again in any active game. */
+export function markConnected(playerId: string) {
+  for (const room of rooms.values()) {
+    const sp = room.state?.players.find(p => p.id === playerId)
+    if (sp) sp.connected = true
+  }
+}
+
+/** Current quick-game state for one player (null if no game running). */
+export function gameStateFor(code: string, playerId: string): ClientGameState | null {
+  const room = rooms.get(code)
+  if (!room?.state) return null
+  if (!room.state.players.some(p => p.id === playerId)) return null
+  return buildClientState(room.state, playerId)
+}
+
 function buildAllStates(room: Room): Map<string, ClientGameState> {
   const map = new Map<string, ClientGameState>()
   if (!room.state) return map

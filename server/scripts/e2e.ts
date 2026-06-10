@@ -13,9 +13,9 @@ function assert(cond: unknown, msg: string) {
   else console.log(`  ✓ ${msg}`)
 }
 
-function connect(): Promise<Socket> {
+function connect(clientId?: string): Promise<Socket> {
   return new Promise((res, rej) => {
-    const s = io(URL, { transports: ['websocket'] })
+    const s = io(URL, { transports: ['websocket'], auth: clientId ? { clientId } : {} })
     s.on('connect', () => res(s))
     s.on('connect_error', rej)
     setTimeout(() => rej(new Error('connect timeout')), 5000)
@@ -60,8 +60,10 @@ function cardValue(rank: string): number {
 
 async function main() {
   console.log('E2E: connecting two players')
-  const a = await connect()
-  const b = await connect()
+  const CID_A = `e2e-gab-${Date.now()}`
+  const CID_B = `e2e-jerome-${Date.now()}`
+  const a = await connect(CID_A)
+  let b = await connect(CID_B)
 
   // room setup
   a.emit('create_room', { name: 'Gab' })
@@ -174,6 +176,20 @@ async function main() {
   console.log(`  drove ${steps} steps; phases seen: ${[...seenPhases].join(', ')}`)
   assert(seenPhases.has('encounter'), 'protocol drove encounters')
   assert(steps < 600 || true, 'no hang')
+
+  // phone-sleep rejoin: drop B's socket, reconnect with the same clientId,
+  // expect the server to auto-rejoin the room and push campaign state
+  console.log('E2E: phone-sleep rejoin')
+  b.close()
+  await sleep(400)
+  b = io(URL, { transports: ['websocket'], auth: { clientId: CID_B } })
+  try {
+    const rejoined = await waitFor<CState>(b, 'campaign_state', () => true, 5000)
+    assert(rejoined.myHeroIndex >= 0, 'reconnected client is recognized as their hero')
+    assert(!rejoined.isHost, 'reconnected client keeps non-host role')
+  } catch {
+    assert(false, 'reconnected client automatically receives campaign state')
+  }
 
   // resume flow: load latest save into a fresh room
   a.emit('list_campaigns')
