@@ -55,20 +55,24 @@ function choose(node: ClientRoadNode) {
 
 <template>
   <div class="max-w-lg mx-auto p-3">
-    <div class="text-center mb-2">
-      <h2 class="text-xl font-bold">{{ state.chapter === 1 ? 'The First Ascension' : 'The Broken Court' }}</h2>
-      <p class="text-xs text-base-content/50">
+    <div class="text-center mb-2 rise-in">
+      <h2 class="text-xl font-display font-bold gold-title">{{ state.chapter === 1 ? 'The First Ascension' : 'The Broken Court' }}</h2>
+      <p class="text-xs text-base-content/50 font-flavor tracking-wide">
         {{ state.isHost ? 'Choose the next landmark — commitment is one-way.' : 'The host commits the route.' }}
       </p>
     </div>
 
-    <div class="relative card bg-base-100 overflow-hidden" :style="{ height: totalHeight + 'px' }">
+    <div class="relative card bg-base-100/80 border border-primary/10 overflow-hidden rise-in-1" :style="{ height: totalHeight + 'px' }">
+      <!-- parchment glow behind the current position -->
+      <div class="absolute inset-0 pointer-events-none"
+        style="background: radial-gradient(ellipse 60% 30% at 50% 20%, rgba(201,162,39,0.05), transparent 70%)" />
       <svg class="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
         <line
           v-for="(e, i) in edges" :key="i"
           :x1="e.x1 + '%'" :y1="e.y1" :x2="e.x2 + '%'" :y2="e.y2"
-          :stroke="e.active ? 'oklch(var(--p))' : 'currentColor'"
-          :stroke-opacity="e.active ? 0.9 : 0.12"
+          :class="e.active ? 'path-draw' : ''"
+          :stroke="e.active ? '#c9a227' : 'currentColor'"
+          :stroke-opacity="e.active ? 0.85 : 0.12"
           :stroke-width="e.active ? 2.5 : 1.5"
           stroke-dasharray="4 4"
         />
@@ -86,14 +90,14 @@ function choose(node: ClientRoadNode) {
         @click="choose(n)"
       >
         <span
-          class="w-12 h-12 rounded-full flex items-center justify-center text-xl border-2 bg-base-200"
+          class="w-12 h-12 rounded-full flex items-center justify-center text-xl border-2 bg-base-200 transition-transform"
           :class="[
             n.current ? 'border-primary ring-2 ring-primary/40 bg-primary/15' :
-            n.reachable ? 'border-success ring-2 ring-success/30 animate-pulse' :
+            n.reachable ? 'border-primary/70 node-reachable' :
             'border-base-content/15',
           ]"
         >{{ NODE_ICONS[n.kind] ?? '❓' }}</span>
-        <span class="text-[10px] font-semibold" :class="n.reachable ? 'text-success' : 'text-base-content/50'">
+        <span class="text-[10px] font-semibold font-display tracking-wide" :class="n.reachable ? 'text-primary' : 'text-base-content/50'">
           {{ NODE_LABELS[n.kind] ?? '???' }}
         </span>
       </button>

@@ -21,9 +21,10 @@ function act(action: Record<string, unknown>) {
 
 <template>
   <div class="max-w-lg mx-auto p-4 space-y-4">
-    <div class="text-center">
-      <h2 class="text-2xl font-bold">🏕 Camp</h2>
-      <p class="text-sm text-base-content/50">
+    <div class="text-center rise-in">
+      <h2 class="text-2xl font-display font-bold gold-title"><span class="flicker inline-block">🔥</span> Camp</h2>
+      <div class="splash-rule h-px mt-2 mx-auto w-40 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+      <p class="text-sm text-base-content/50 mt-2 font-flavor tracking-wide">
         {{ nextIsBoss ? 'The castle looms ahead. This is the last calm before the storm.' : 'Plan, prepare, recover.' }}
       </p>
     </div>

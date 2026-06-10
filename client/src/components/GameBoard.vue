@@ -129,8 +129,9 @@ const rankDisplayName: Record<string, string> = { J: 'Jack', Q: 'Queen', K: 'Kin
     <!-- Win / Lose -->
     <div v-if="state.phase === 'won' || state.phase === 'lost'"
          class="card bg-base-100 shadow-xl text-center py-12 px-6 gap-4 flex flex-col items-center">
-      <div class="text-6xl">{{ state.phase === 'won' ? '🎉' : '💀' }}</div>
-      <h2 class="text-3xl font-bold">{{ state.phase === 'won' ? 'Victory!' : 'Defeated!' }}</h2>
+      <div class="text-6xl crown-rise">{{ state.phase === 'won' ? '🎉' : '💀' }}</div>
+      <h2 class="text-3xl font-display font-bold" :class="state.phase === 'won' ? 'gold-title' : 'text-error'">
+        {{ state.phase === 'won' ? 'Victory!' : 'Defeated!' }}</h2>
       <p class="text-base-content/50 text-sm">{{ state.phase === 'won' ? 'You slew all 12 royals.' : 'The castle stands.' }}</p>
       <button class="btn btn-primary btn-lg mt-2" @click="playAgain">Play again</button>
     </div>
@@ -242,9 +243,9 @@ const rankDisplayName: Record<string, string> = { J: 'Jack', Q: 'Queen', K: 'Kin
             v-for="(card, i) in me?.hand"
             :key="card.id"
             :class="[
-              'btn font-mono flex-col gap-0 leading-none w-14 h-20 relative',
+              'btn font-mono flex-col gap-0 leading-none w-14 h-20 relative hand-card',
               selected.includes(i)
-                ? 'btn-primary ring-2 ring-primary ring-offset-1'
+                ? 'btn-primary ring-2 ring-primary ring-offset-1 hand-card-selected'
                 : 'btn-outline btn-neutral',
               (!inPlay && !inDiscard) ? 'opacity-40 pointer-events-none' : '',
             ]"

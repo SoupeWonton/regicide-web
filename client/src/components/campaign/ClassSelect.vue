@@ -29,16 +29,17 @@ function pick(classId: string) {
 
 <template>
   <div class="max-w-2xl mx-auto p-4 space-y-4">
-    <div class="text-center">
-      <h2 class="text-2xl font-bold">Assemble the Lineage</h2>
-      <p class="text-sm text-base-content/50 mt-1">Chapter {{ state.chapter }} — choose your hero. The campaign starts with the core roster.</p>
+    <div class="text-center rise-in">
+      <h2 class="text-2xl font-display font-bold gold-title">Assemble the Lineage</h2>
+      <div class="splash-rule h-px mt-2 mx-auto w-48 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+      <p class="text-sm text-base-content/50 mt-2 font-flavor tracking-wide">Chapter {{ state.chapter }} — choose your hero. The campaign starts with the core roster.</p>
     </div>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <button
-        v-for="cls in CORE" :key="cls.id"
-        class="card bg-base-100 text-left hover:ring-2 ring-primary transition-all"
-        :class="{ 'ring-2 ring-success': myHero?.picked && myHero?.classId === cls.id }"
+        v-for="(cls, i) in CORE" :key="cls.id"
+        :class="[`rise-in-${i + 1}`, 'card bg-base-100 text-left border border-base-content/10 hover:ring-2 ring-primary hover:-translate-y-0.5 transition-all',
+          { 'ring-2 ring-success': myHero?.picked && myHero?.classId === cls.id }]"
         @click="pick(cls.id)"
       >
         <div class="card-body p-4 gap-1">

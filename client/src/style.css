@@ -3,4 +3,215 @@
 @tailwind utilities;
 
 * { -webkit-tap-highlight-color: transparent; }
-body { overscroll-behavior: none; }
+
+/* ── Atmosphere ──────────────────────────────────────────────────────────────
+   Deep indigo night, candlelit vignette, film grain. The whole game sits on
+   this — surfaces float above it. */
+body {
+  overscroll-behavior: none;
+  background:
+    radial-gradient(ellipse 120% 70% at 50% -10%, rgba(201, 162, 39, 0.07), transparent 60%),
+    radial-gradient(ellipse 100% 100% at 50% 110%, rgba(125, 42, 42, 0.10), transparent 55%),
+    #0f0c1d;
+  min-height: 100vh;
+}
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 70;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.04 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ── Display type ──────────────────────────────────────────────────────────── */
+.font-display { font-family: 'Cinzel', Georgia, serif; }
+.font-flavor  { font-family: 'IM Fell English SC', Georgia, serif; }
+
+.gold-title {
+  font-family: 'Cinzel', Georgia, serif;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  background: linear-gradient(105deg, #8a6d1c 0%, #e8cd6f 28%, #fff3c4 50%, #e8cd6f 72%, #8a6d1c 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: gold-shimmer 6s ease-in-out infinite;
+}
+@keyframes gold-shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+/* ── Entrances ─────────────────────────────────────────────────────────────── */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.rise-in   { animation: rise-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.rise-in-1 { animation: rise-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both; }
+.rise-in-2 { animation: rise-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.16s both; }
+.rise-in-3 { animation: rise-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.24s both; }
+.rise-in-4 { animation: rise-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.32s both; }
+
+/* ── Phase transitions (Vue) ───────────────────────────────────────────────── */
+.phase-enter-active { transition: opacity 0.35s ease, transform 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
+.phase-leave-active { transition: opacity 0.2s ease; }
+.phase-enter-from   { opacity: 0; transform: translateY(12px) scale(0.99); }
+.phase-leave-to     { opacity: 0; }
+
+/* ── Splash overlays (chapter cards, boss gates) ───────────────────────────── */
+.splash-enter-active { transition: opacity 0.45s ease; }
+.splash-leave-active { transition: opacity 0.6s ease; }
+.splash-enter-from, .splash-leave-to { opacity: 0; }
+
+@keyframes splash-line {
+  from { transform: scaleX(0); opacity: 0; }
+  to   { transform: scaleX(1); opacity: 1; }
+}
+.splash-rule { animation: splash-line 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.15s both; }
+
+@keyframes splash-title-in {
+  0%   { opacity: 0; transform: translateY(18px); letter-spacing: 0.35em; }
+  100% { opacity: 1; transform: translateY(0); letter-spacing: 0.12em; }
+}
+.splash-title { animation: splash-title-in 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both; }
+
+/* ── Enemy reveal: a card turned over ──────────────────────────────────────── */
+.enemy-flip-enter-active { transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease; transform-style: preserve-3d; }
+.enemy-flip-leave-active { transition: transform 0.25s ease-in, opacity 0.25s ease-in; }
+.enemy-flip-enter-from   { transform: rotateY(90deg) scale(0.96); opacity: 0; }
+.enemy-flip-leave-to     { transform: translateY(-18px) rotate(2deg); opacity: 0; }
+
+/* ── Damage & hurt ─────────────────────────────────────────────────────────── */
+@keyframes dmg-float {
+  0%   { opacity: 0; transform: translateY(4px) scale(0.7); }
+  15%  { opacity: 1; transform: translateY(-2px) scale(1.15); }
+  100% { opacity: 0; transform: translateY(-44px) scale(1); }
+}
+.dmg-float { animation: dmg-float 1.1s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@keyframes hit-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px) rotate(-0.5deg); }
+  40% { transform: translateX(5px) rotate(0.4deg); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+.hit-shake { animation: hit-shake 0.45s ease both; }
+
+@keyframes hurt-flash {
+  0% { box-shadow: inset 0 0 0 9999px rgba(176, 52, 52, 0.28); }
+  100% { box-shadow: inset 0 0 0 9999px rgba(176, 52, 52, 0); }
+}
+.hurt-flash { animation: hurt-flash 0.7s ease-out both; }
+
+/* HP bar */
+.hp-bar { transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* ── Cards in hand ─────────────────────────────────────────────────────────── */
+.hand-card {
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s ease;
+}
+.hand-card:hover { transform: translateY(-6px) rotate(-1.2deg); }
+.hand-card:active { transform: translateY(-2px) scale(0.97); }
+.hand-card-selected {
+  transform: translateY(-10px);
+  box-shadow: 0 8px 20px -6px rgba(201, 162, 39, 0.45);
+}
+.hand-card-selected:hover { transform: translateY(-12px) rotate(-1.2deg); }
+
+@keyframes card-deal {
+  from { opacity: 0; transform: translateY(16px) rotate(4deg) scale(0.9); }
+  to   { opacity: 1; transform: translateY(0) rotate(0) scale(1); }
+}
+.card-deal { animation: card-deal 0.35s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* last-played chips */
+.played-enter-active { transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
+.played-enter-from   { opacity: 0; transform: translateY(10px) scale(0.8); }
+
+/* ── Turn beacon ───────────────────────────────────────────────────────────── */
+@keyframes beacon {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(201, 162, 39, 0.45); }
+  50%      { box-shadow: 0 0 16px 3px rgba(201, 162, 39, 0.25); }
+}
+.turn-beacon { animation: beacon 2.2s ease-in-out infinite; }
+
+@keyframes soft-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+.soft-pulse { animation: soft-pulse 1.8s ease-in-out infinite; }
+
+/* ── Road map ──────────────────────────────────────────────────────────────── */
+@keyframes path-draw { to { stroke-dashoffset: 0; } }
+.path-draw {
+  stroke-dasharray: 6 5;
+  stroke-dashoffset: 220;
+  animation: path-draw 2.4s ease-out forwards;
+}
+@keyframes node-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(201, 162, 39, 0.0), 0 0 10px 1px rgba(201, 162, 39, 0.25); }
+  50%      { box-shadow: 0 0 0 5px rgba(201, 162, 39, 0.08), 0 0 18px 4px rgba(201, 162, 39, 0.40); }
+}
+.node-reachable { animation: node-glow 1.8s ease-in-out infinite; }
+
+/* ── Camp fire flicker ─────────────────────────────────────────────────────── */
+@keyframes flicker {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  30% { opacity: 0.85; transform: scale(1.04) rotate(-1.5deg); }
+  60% { opacity: 0.95; transform: scale(0.98) rotate(1deg); }
+  80% { opacity: 0.8; transform: scale(1.02); }
+}
+.flicker { display: inline-block; animation: flicker 2.6s ease-in-out infinite; }
+
+/* ── Endings ───────────────────────────────────────────────────────────────── */
+@keyframes crown-rise {
+  0%   { opacity: 0; transform: translateY(30px) scale(0.6) rotate(-8deg); }
+  60%  { opacity: 1; transform: translateY(-6px) scale(1.08) rotate(2deg); }
+  100% { opacity: 1; transform: translateY(0) scale(1) rotate(0); }
+}
+.crown-rise { animation: crown-rise 1s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@keyframes suit-fall {
+  0%   { transform: translateY(-8vh) rotate(0deg); opacity: 0; }
+  8%   { opacity: 0.9; }
+  100% { transform: translateY(108vh) rotate(340deg); opacity: 0.15; }
+}
+.suit-fall {
+  position: absolute;
+  top: 0;
+  animation: suit-fall linear infinite;
+  pointer-events: none;
+  user-select: none;
+}
+
+@keyframes ember-rise {
+  0%   { transform: translateY(0) scale(1); opacity: 0; }
+  10%  { opacity: 0.8; }
+  100% { transform: translateY(-105vh) translateX(var(--drift, 12px)) scale(0.4); opacity: 0; }
+}
+.ember {
+  position: absolute;
+  bottom: -2vh;
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, #ffd98a 0%, #d08a2e 60%, transparent 100%);
+  animation: ember-rise linear infinite;
+  pointer-events: none;
+}
+
+/* ── Log ───────────────────────────────────────────────────────────────────── */
+.log-enter-active { transition: all 0.3s ease; }
+.log-enter-from   { opacity: 0; transform: translateX(-8px); }
+
+/* ── Choice overlays ───────────────────────────────────────────────────────── */
+.overlay-enter-active { transition: opacity 0.3s ease; }
+.overlay-leave-active { transition: opacity 0.2s ease; }
+.overlay-enter-from, .overlay-leave-to { opacity: 0; }
+.overlay-enter-active .overlay-card { transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
+.overlay-enter-from  .overlay-card { transform: translateY(20px) scale(0.97); }
