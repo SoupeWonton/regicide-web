@@ -99,33 +99,37 @@ const LEGEND = [
         />
       </svg>
 
+      <!-- positioning lives on the button; the entrance animation lives on an
+           inner wrapper so its keyframe transform never clobbers the centering -->
       <button
         v-for="n in state.map?.nodes" :key="n.id"
-        class="map-node-enter absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-0.5"
+        class="absolute -translate-x-1/2 -translate-y-1/2 block"
         :class="[
           n.reachable && state.isHost ? 'cursor-pointer hover:scale-110 transition-transform' : 'cursor-default',
           n.visited && !n.current ? 'node-visited opacity-40' : '',
           !n.visited && !n.reachable && !n.current ? 'opacity-60' : '',
         ]"
-        :style="{ left: positions.get(n.id)?.x + '%', top: positions.get(n.id)?.y + 'px', animationDelay: `${n.layer * 70}ms` }"
+        :style="{ left: positions.get(n.id)?.x + '%', top: positions.get(n.id)?.y + 'px' }"
         :title="`${NODE_LABELS[n.kind] ?? '???'} — ${NODE_DESCRIPTIONS[n.kind] ?? ''}`"
         @click="choose(n)"
       >
-        <span v-if="n.current" class="here-marker text-base">⚜️</span>
-        <span
-          class="w-12 h-12 rounded-full flex items-center justify-center text-xl border-2 bg-base-200 relative"
-          :class="[
-            n.current ? 'border-primary ring-2 ring-primary/50 bg-primary/15' :
-            n.reachable ? 'border-primary/70 node-reachable' :
-            'border-base-content/15',
-          ]"
-        >
-          {{ NODE_ICONS[n.kind] ?? '❓' }}
-          <span v-if="n.visited && !n.current" class="absolute -bottom-1 -right-1 text-[10px] bg-base-300 rounded-full w-4 h-4 flex items-center justify-center border border-base-content/20">✓</span>
-        </span>
-        <span class="text-[10px] font-semibold font-display tracking-wide" :class="n.reachable ? 'text-primary' : 'text-base-content/50'">
-          {{ NODE_LABELS[n.kind] ?? '???' }}
-        </span>
+        <div class="map-node-enter relative flex flex-col items-center gap-0.5" :style="{ animationDelay: `${n.layer * 70}ms` }">
+          <span v-if="n.current" class="here-marker text-base">⚜️</span>
+          <span
+            class="w-12 h-12 rounded-full flex items-center justify-center text-xl border-2 bg-base-200 relative"
+            :class="[
+              n.current ? 'border-primary ring-2 ring-primary/50 bg-primary/15' :
+              n.reachable ? 'border-primary/70 node-reachable' :
+              'border-base-content/15',
+            ]"
+          >
+            {{ NODE_ICONS[n.kind] ?? '❓' }}
+            <span v-if="n.visited && !n.current" class="absolute -bottom-1 -right-1 text-[10px] bg-base-300 rounded-full w-4 h-4 flex items-center justify-center border border-base-content/20">✓</span>
+          </span>
+          <span class="text-[10px] font-semibold font-display tracking-wide" :class="n.reachable ? 'text-primary' : 'text-base-content/50'">
+            {{ NODE_LABELS[n.kind] ?? '???' }}
+          </span>
+        </div>
       </button>
     </div>
 

@@ -62,9 +62,16 @@ function act(action: Record<string, unknown>) {
   socket.emit('campaign_action', { code: props.code, action })
 }
 
-// persistent hand: the deck carries across road encounters (camp rests reset it)
+// persistent hand: the deck carries across road encounters (camp rests reset
+// it). Only shown once the chapter's first fight has happened — before that
+// the hand is fresh and the strip is just noise.
+const FIGHT_KINDS = ['skirmish', 'veteran', 'elite', 'lair', 'boss']
+const hasFoughtThisChapter = computed(() =>
+  props.state.map?.nodes.some(n => n.visited && FIGHT_KINDS.includes(n.kind)) ?? false)
 const showHandStrip = computed(() =>
-  ['road', 'camp', 'landmark', 'replace_hero', 'memory_draft'].includes(phase.value) && props.state.myHand.length > 0)
+  ['road', 'camp', 'landmark', 'replace_hero', 'memory_draft'].includes(phase.value)
+  && hasFoughtThisChapter.value
+  && props.state.myHand.length > 0)
 
 function heroTooltip(h: ClientHero): string {
   const lines = [`${h.className} — ${h.abilityText}`]
