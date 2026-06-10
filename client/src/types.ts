@@ -119,6 +119,7 @@ export interface ClientCampaignState {
   chapter: number
   heroes: ClientHero[]
   myHeroIndex: number
+  myHand: Card[]
   isHost: boolean
   map: { nodes: ClientRoadNode[]; currentNodeId: string } | null
   encounter: ClientEncounterState | null

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { socket } from '../../socket'
-import type { ClientCampaignState } from '../../types'
+import type { ClientCampaignState, ClientHero } from '../../types'
 import ClassSelect from './ClassSelect.vue'
 import RoadMap from './RoadMap.vue'
 import EncounterBoard from './EncounterBoard.vue'
 import CampPanel from './CampPanel.vue'
+import { suitSymbol, suitColor, CLASS_ICONS } from './cards'
 
 const props = defineProps<{ state: ClientCampaignState; code: string }>()
 
@@ -24,6 +25,18 @@ const voteLabels: Record<string, string> = {
 function act(action: Record<string, unknown>) {
   errorMsg.value = ''
   socket.emit('campaign_action', { code: props.code, action })
+}
+
+// persistent hand: the deck carries across road encounters (camp rests reset it)
+const showHandStrip = computed(() =>
+  ['road', 'camp', 'landmark', 'replace_hero', 'memory_draft'].includes(phase.value) && props.state.myHand.length > 0)
+
+function heroTooltip(h: ClientHero): string {
+  const lines = [`${h.className} — ${h.abilityText}`]
+  if (h.relic) lines.push(`🏺 ${h.relic.name}: ${h.relic.text}`)
+  for (const m of h.memories) lines.push(`🧠 ${m.name}: ${m.text}`)
+  if (!h.alive) lines.push('💀 Fallen — can be replaced at camp.')
+  return lines.join('\n')
 }
 </script>
 
@@ -138,6 +151,35 @@ function act(action: Record<string, unknown>) {
             {{ choice.forPlayerId ? 'Their decision to make…' : 'The host decides…' }}
           </p>
         </div>
+      </div>
+    </div>
+
+    <!-- Party strip (road) — hover a hero for class/relic/memory details -->
+    <div v-if="phase === 'road'" class="flex gap-2 px-3 max-w-lg mx-auto w-full">
+      <div
+        v-for="h in state.heroes" :key="h.playerId"
+        :title="heroTooltip(h)"
+        :class="['flex-1 rounded-lg px-2 py-1.5 text-center text-xs border cursor-help',
+          h.alive ? 'border-base-content/10 bg-base-100 text-base-content/60' : 'border-error/40 bg-error/5 opacity-50']"
+      >
+        <div class="font-semibold truncate">{{ h.alive ? CLASS_ICONS[h.classId] : '💀' }} {{ h.playerName }}</div>
+        <div class="text-base-content/40">{{ h.handSize }} cards{{ h.relic ? ' · 🏺' : '' }}{{ h.memories.length ? ' · 🧠' + h.memories.length : '' }}</div>
+      </div>
+    </div>
+
+    <!-- Persistent hand (carries between encounters; camp rests redraw it) -->
+    <div v-if="showHandStrip" class="px-3 max-w-lg mx-auto w-full">
+      <p class="text-[10px] text-base-content/40 mb-1" title="Your hand carries over between fights. Only a camp rest reshuffles the deck and redraws everyone to full.">
+        Your hand ({{ state.myHand.length }}) — carries to the next fight
+      </p>
+      <div class="flex flex-wrap gap-1">
+        <span
+          v-for="card in state.myHand" :key="card.id"
+          class="w-9 h-12 rounded border border-base-content/15 bg-base-100 flex flex-col items-center justify-center font-mono text-xs"
+        >
+          <span :class="suitColor(card.suit)">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
+          <span :class="suitColor(card.suit)">{{ card.rank !== 'Jo' ? suitSymbol(card.suit) : '' }}</span>
+        </span>
       </div>
     </div>
 

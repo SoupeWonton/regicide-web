@@ -80,7 +80,7 @@ client/src/components/
 
 - **CT values** (Catastrophe Tolerance) are design/debug only — logged to the server console as `[CT] ...`, never sent to or shown in the player UI.
 - **Determinism**: every campaign-mode shuffle/roll goes through `rng.ts` with state stored in `campaign.rngState`. Never use `Math.random()` in campaign logic (lobby code generation is the only exception).
-- **Encounter reset canon**: every encounter rebuilds a fresh Tavern and full hands. Don't add cross-encounter discard-pile effects.
+- **Deck persistence canon**: the deck (Tavern + discard + hands) carries across road encounters — held in `campaign.deck` between fights, adopted by the encounter while one is active. Only camp/interlude rests (`campRest`) reshuffle and redraw, and an empty Tavern is only refilled by Hearts or a rest — never auto-recycled. Don't reintroduce per-encounter deck rebuilds.
 - All campaign mutations flow through `sessions.dispatchCampaignAction`, which persists the save after every successful action. New actions must be added to the `CampaignAction` union and the dispatcher switch.
 - Validate-then-mutate: action handlers return `{ error }` without mutating on invalid input.
 - The base quick game (`game.ts`/`rooms.ts` state) must keep working unchanged.

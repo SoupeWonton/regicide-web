@@ -183,6 +183,9 @@ export const ITEMS: ItemDef[] = [
     text: 'The first discard check this encounter is reduced by 1.' },
   { id: 'p-spare-edge', kind: 'preparation', tier: 'standard', name: 'Spare Edge', ct: 0.25, category: 'Initiative',
     text: 'The first attack this encounter deals +2 damage.' },
+  // NOTE: the pool's discard-recovery preps (Reserve Kits, Full Logistics) stay
+  // out of v0 — preps fire at the first post-camp encounter, where the camp
+  // rest has just emptied the discard, so they would never do anything.
   { id: 'p-fortified-entry', kind: 'preparation', tier: 'rare', name: 'Fortified Entry', ct: 0.75, category: 'Shield',
     text: 'The first counterattack this encounter deals 0.' },
   { id: 'p-surgical-reserve', kind: 'preparation', tier: 'rare', name: 'Surgical Reserve', ct: 0.75, category: 'Recovery',

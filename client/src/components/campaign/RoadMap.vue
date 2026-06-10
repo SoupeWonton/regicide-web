@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { socket } from '../../socket'
 import type { ClientCampaignState, ClientRoadNode } from '../../types'
-import { NODE_ICONS, NODE_LABELS } from './cards'
+import { NODE_ICONS, NODE_LABELS, NODE_DESCRIPTIONS } from './cards'
 
 const props = defineProps<{ state: ClientCampaignState; code: string }>()
 
@@ -82,6 +82,7 @@ function choose(node: ClientRoadNode) {
           n.visited && !n.current ? 'opacity-35' : '',
         ]"
         :style="{ left: positions.get(n.id)?.x + '%', top: positions.get(n.id)?.y + 'px' }"
+        :title="`${NODE_LABELS[n.kind] ?? '???'} — ${NODE_DESCRIPTIONS[n.kind] ?? ''}`"
         @click="choose(n)"
       >
         <span

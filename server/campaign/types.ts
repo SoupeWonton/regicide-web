@@ -166,6 +166,11 @@ export interface CampaignState {
   map: RoadMapState | null
   encounter: EncounterState | null
 
+  // Persistent deck state — carries across road encounters (attrition canon).
+  // Only camp/interlude rests reshuffle and redraw. Null while an encounter is
+  // active (the live state lives in encounter.* and is written back on end).
+  deck: { tavern: Card[]; discard: Card[]; hands: Card[][] } | null
+
   spells: string[]               // team-owned spell inventory (item ids)
   preparations: string[]         // owned, not yet activated
   activePreparations: string[]   // activated at camp; consumed at next encounter start (cap 2)
@@ -257,6 +262,7 @@ export interface ClientCampaignState {
   chapter: number
   heroes: ClientHero[]
   myHeroIndex: number
+  myHand: Card[]            // persistent hand — visible on the road/camp too
   isHost: boolean
   map: { nodes: ClientRoadNode[]; currentNodeId: string } | null
   encounter: ClientEncounterState | null

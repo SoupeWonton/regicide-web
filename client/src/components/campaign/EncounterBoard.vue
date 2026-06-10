@@ -104,6 +104,14 @@ socket.on('error', (msg: string) => { errorMsg.value = msg })
 
 const rankNames: Record<string, string> = { J: 'Jack', Q: 'Queen', K: 'King' }
 const tierLabels: Record<string, string> = { skirmish: 'Skirmish', veteran: 'Veteran patrol', elite: 'Elite warband', boss: 'THE CASTLE' }
+
+function heroTooltip(h: (typeof props.state.heroes)[number]): string {
+  const lines = [`${h.className} — ${h.abilityText}`]
+  if (h.relic) lines.push(`🏺 ${h.relic.name}: ${h.relic.text}`)
+  for (const m of h.memories) lines.push(`🧠 ${m.name}: ${m.text}`)
+  if (!h.alive) lines.push('💀 Fallen — can be replaced at camp.')
+  return lines.join('\n')
+}
 </script>
 
 <template>
@@ -187,7 +195,8 @@ const tierLabels: Record<string, string> = { skirmish: 'Skirmish', veteran: 'Vet
     <div class="flex gap-2">
       <div
         v-for="h in state.heroes" :key="h.playerId"
-        :class="['flex-1 rounded-lg px-2 py-2 text-center text-xs border transition-colors',
+        :title="heroTooltip(h)"
+        :class="['flex-1 rounded-lg px-2 py-2 text-center text-xs border transition-colors cursor-help',
           !h.alive ? 'border-error/40 bg-error/5 opacity-50' :
           h.isCurrentPlayer ? 'border-primary bg-primary/10 text-primary' : 'border-base-content/10 bg-base-100 text-base-content/60']"
       >
@@ -277,21 +286,25 @@ const tierLabels: Record<string, string> = { skirmish: 'Skirmish', veteran: 'Vet
         <button
           v-if="state.spells.length && (inPlay || inDiscard)"
           class="btn btn-xs btn-outline btn-secondary"
+          :title="state.spells.map(sp => `${sp.name}: ${sp.text}`).join('\n')"
           @click="showSpells = !showSpells"
         >📖 Spells ({{ state.spells.length }})</button>
         <button
           v-if="enc.canWager && inPlay && !enc.wagerArmed"
           class="btn btn-xs btn-outline btn-warning"
+          title="Gambler, once per chapter: if the enemy dies this turn you choose who acts next; if it survives, you discard 1 random card."
           @click="act({ type: 'arm_wager' })"
         >🎲 Wager</button>
         <button
           v-if="enc.myRelicActivatable && inPlay && me?.relic?.id !== 'r-signal-whistle'"
           class="btn btn-xs btn-outline btn-accent"
+          :title="me?.relic ? `${me.relic.name}: ${me.relic.text}` : ''"
           @click="activateRelic()"
         >🏺 {{ me?.relic?.name }}</button>
         <button
           v-if="enc.myRelicActivatable && inPlay && me?.relic?.id === 'r-signal-whistle'"
           class="btn btn-xs btn-outline btn-accent"
+          :title="me?.relic ? `${me.relic.name}: ${me.relic.text}` : ''"
           @click="whistleMode = !whistleMode"
         >🏺 Signal Whistle</button>
       </div>

@@ -38,3 +38,19 @@ export const NODE_LABELS: Record<string, string> = {
   veteran: 'Veterans', elite: 'Elite', forge: 'Forge', abbey: 'Abbey',
   market: 'Market', tower: 'Tower', shrine: 'Shrine', lair: 'Lair', unknown: '???',
 }
+
+export const NODE_DESCRIPTIONS: Record<string, string> = {
+  start: 'Where the lineage set out.',
+  camp: 'Rest: the deck is reshuffled, hands redrawn to full. Activate preparations, replace fallen heroes.',
+  boss: 'The full castle — 12 royals. No retreat once a hero falls.',
+  skirmish: 'A light fight (2 Jacks) with a minor twist. Your hand and deck carry over from the road.',
+  veteran: 'A harder fight (Jacks + a Queen) with a nastier twist.',
+  elite: 'A dangerous fight (Jack, Queen, King) with a punishing rule.',
+  forge: 'The Forge offers its work — choose a relic for a hero.',
+  abbey: 'The Abbey shares its rites — choose a spell for the team.',
+  market: 'The Market trades in readiness — choose a preparation.',
+  tower: 'The Tower grants initiative — pick who starts the next fight, or study the boss for intel.',
+  shrine: 'A blessing: next encounter everyone draws 1 and the hand cap is +1.',
+  lair: 'An elite gate guards a rare prize. High risk, rare reward.',
+  unknown: 'Unscouted. You will only know what it is once you commit.',
+}

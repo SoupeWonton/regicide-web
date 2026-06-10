@@ -242,5 +242,42 @@ console.log('Test 6: client projection')
   ok('projection masks hidden info')
 }
 
+// ── Test 7: deck persists across encounters; only camps reset it ─────────────
+console.log('Test 7: deck persistence (attrition canon)')
+{
+  const c = createCampaign(players, 1, 'persist-seed', kingdom).campaign!
+  applyClassPick(c, P1, 'sentinel')
+  applyClassPick(c, P2, 'surgeon')
+  assert(!!c.deck, 'chapter deck exists at road start')
+  const idsBefore = new Set([...c.deck!.tavern, ...c.deck!.hands.flat()].map(card => card.id))
+
+  drive(c, { cheatKill: true, stopAt: ['encounter'], budget: 20 })
+  assert(c.phase === 'encounter' && c.deck === null, 'encounter adopts the deck (campaign.deck is null while fighting)')
+  const s1 = c.encounter!
+  const inFight = [...s1.tavern, ...s1.hands.flat()].filter(card => idsBefore.has(card.id)).length
+  assert(inFight > 30, `encounter uses the same physical cards (${inFight} matched)`)
+
+  // finish this encounter, then reach the next one without passing a camp
+  drive(c, { cheatKill: true, stopAt: ['road'], budget: 60 })
+  const handsAfterFight = c.deck!.hands.map(h => h.length)
+  drive(c, { cheatKill: true, stopAt: ['encounter'], budget: 60 })
+  const s2 = c.encounter!
+  const sameHands = s2.hands.every((h, i) => h.length === handsAfterFight[i])
+  assert(sameHands, 'hands carry over between road encounters (no redraw)')
+  const carried = [...s2.tavern, ...s2.hands.flat()].filter(card => idsBefore.has(card.id)).length
+  assert(carried > 20, `second encounter still uses the chapter deck (${carried} original cards present)`)
+
+  // drive to a camp and confirm the rest redraws everyone to full
+  drive(c, { cheatKill: true, stopAt: ['camp'], budget: 400 })
+  if (c.phase === 'camp') {
+    const full = c.deck!.hands.every((h, i) => !c.heroes[i]!.alive || h.length === 6) // 2 players → hand size 7? see PLAYER_SETUP
+    assert(c.deck!.discard.length === 0, 'camp rest shuffles the discard away')
+    assert(c.deck!.hands.filter((_, i) => c.heroes[i]!.alive).every(h => h.length === 7), 'camp rest redraws hands to full (7 for 2 players)')
+    void full
+  } else {
+    assert(false, `expected to reach a camp (got ${c.phase})`)
+  }
+}
+
 console.log(failures === 0 ? '\nAll smoke tests passed ✅' : `\n${failures} failure(s) ❌`)
 process.exit(failures === 0 ? 0 : 1)

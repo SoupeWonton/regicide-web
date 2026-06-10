@@ -6,7 +6,7 @@ import type {
 import { CLASSES, TIER1_CLASSES, getItem, itemsOf, MEMORY_POOL, ACTIVE_PREP_CAP, getEncounterDef, BOSS_MODIFIERS } from './content'
 import { buildMap } from './maps'
 import {
-  startEncounter, maxHandSize,
+  startEncounter, maxHandSize, setupChapterDeck, campRest, dealReplacementHand,
 } from './encounter'
 import { loadKingdom, saveKingdom, saveCampaign } from './store'
 
@@ -45,6 +45,7 @@ export function createCampaign(
     })),
     map: null,
     encounter: null,
+    deck: null,
     spells: [],
     preparations: [],
     activePreparations: [],
@@ -83,6 +84,7 @@ export function applyClassPick(c: CampaignState, playerId: string, classId: Clas
     const { r, done } = rng(c)
     c.map = buildMap(c.chapter, r)
     done()
+    setupChapterDeck(c)
     c.phase = 'road'
     clog(c, `🗺 The road to ${c.chapter === 1 ? 'the First Ascension' : 'the Broken Court'} unfolds. Choose your path.`)
     logNodeCT(c)
@@ -142,6 +144,7 @@ function resolveNode(c: CampaignState, nodeId: string, kind: NodeKind) {
       break
     case 'camp':
       c.phase = 'camp'
+      campRest(c)   // reset canon: rests reshuffle the deck and redraw hands
       clog(c, '🏕 The party makes camp. Plan, prepare, recover.')
       break
     case 'forge': offerItems(c, 'relic', 'standard', 2, 'The Forge offers its work — choose a relic.'); break
@@ -163,7 +166,7 @@ function resolveNode(c: CampaignState, nodeId: string, kind: NodeKind) {
     }
     case 'shrine':
       c.shrineBlessing = true
-      clog(c, '⛩ The Shrine blesses the party: +1 hand size next encounter.')
+      clog(c, '⛩ The Shrine blesses the party: next encounter, everyone draws 1 and the hand cap is raised by 1.')
       c.phase = 'road'
       break
     default:
@@ -222,6 +225,17 @@ export function applyChoice(c: CampaignState, playerId: string, optionId: string
 
   if (pc.kind === 'exile_pick') {
     const [suit, ...rank] = optionId.split('')
+    // physically remove the card from the persistent deck (tavern first, then discard)
+    const deck = c.deck
+    if (deck) {
+      const match = (card: { suit: string; rank: string }) => card.suit === suit && card.rank === rank.join('')
+      let i = deck.tavern.findIndex(match)
+      if (i >= 0) deck.tavern.splice(i, 1)
+      else {
+        i = deck.discard.findIndex(match)
+        if (i >= 0) deck.discard.splice(i, 1)
+      }
+    }
     c.exiledCards.push({ suit: suit!, rank: rank.join('') })
     const exiles = c.exiledCards.length
     if (exiles % 2 === 0) {
@@ -259,9 +273,16 @@ function grantItem(c: CampaignState, itemId: string) {
 
 // ── Encounter end hooks (called by rooms layer after each encounter action) ──
 
+// hand live deck state back to the campaign when an encounter ends
+function reclaimDeck(c: CampaignState) {
+  const s = c.encounter
+  if (s) c.deck = { tavern: s.tavern, discard: s.discard, hands: s.hands }
+}
+
 export function checkEncounterEnd(c: CampaignState) {
   const s = c.encounter
   if (!s || s.outcome === 'active') return
+  reclaimDeck(c)
   if (s.outcome === 'wiped') { c.encounter = null; return }
 
   if (s.outcome === 'won') {
@@ -322,6 +343,7 @@ export function checkEncounterEnd(c: CampaignState) {
   if (s.outcome === 'retreated') {
     c.encounter = null
     c.phase = 'camp'
+    campRest(c)   // emergency camp is an interlude: full rest applies
     clog(c, '🏕 The party falls back to an emergency camp. The fight can be retaken from here.')
   }
 }
@@ -428,15 +450,19 @@ export function applyExileAtCamp(c: CampaignState, playerId: string): { error?: 
   if (flagged === c.map!.currentNodeId) return { error: 'Once per camp.' }
   ;(c as CampaignState & { exileCampFlag?: string }).exileCampFlag = c.map!.currentNodeId
 
-  // pick any non-exiled standard card to remove for the chapter
-  const exiled = new Set(c.exiledCards.map(e => `${e.suit}${e.rank}`))
+  // pick a card actually present in the Tavern/discard right now (canon: exile
+  // one Tavern card; hands are private and stay untouchable)
+  const present = new Set<string>()
+  for (const card of [...(c.deck?.tavern ?? []), ...(c.deck?.discard ?? [])])
+    if (card.rank !== 'Jo') present.add(`${card.suit}${card.rank}`)
   const options: PendingChoice['options'] = []
   for (const suit of ['C', 'D', 'H', 'S']) {
     for (const rank of ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10']) {
       const key = `${suit}${rank}`
-      if (!exiled.has(key)) options.push({ id: key, label: `${rank}${{ C: '♣', D: '♦', H: '♥', S: '♠' }[suit]}` })
+      if (present.has(key)) options.push({ id: key, label: `${rank}${{ C: '♣', D: '♦', H: '♥', S: '♠' }[suit]}` })
     }
   }
+  if (options.length === 0) return { error: 'No cards available to exile right now.' }
   c.phase = 'landmark'
   c.pendingChoice = {
     kind: 'exile_pick', forPlayerId: playerId,
@@ -504,6 +530,7 @@ function applyReplacementPick(c: CampaignState, playerId: string, classId: strin
     clog(c, `   Onboarding: equipped ${getItem(hero.relicId).name}.`)
   }
   done()
+  dealReplacementHand(c, deadIdx)
   clog(c, `🎖 ${hero.playerName} returns as the ${CLASSES[hero.classId].name}.`)
   c.pendingChoice = null
   c.phase = 'camp'
@@ -579,6 +606,7 @@ export function applyContinueChapter(c: CampaignState, playerId: string, hostId:
   const { r, done } = rng(c)
   c.map = buildMap(2, r)
   done()
+  setupChapterDeck(c)   // each chapter starts with a fresh full deck
   c.phase = 'road'
   clog(c, '🗺 Chapter 2: the Broken Court. The road is harder and the rewards are richer.')
   logNodeCT(c)
@@ -601,7 +629,7 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
     alive: h.alive,
     memories: h.memories.map(m => ({ id: m, name: getItem(m).name, text: getItem(m).text })),
     relic: h.relicId ? { id: h.relicId, name: getItem(h.relicId).name, text: getItem(h.relicId).text, tier: getItem(h.relicId).tier } : null,
-    handSize: s ? s.hands[i]!.length : 0,
+    handSize: s ? s.hands[i]!.length : (c.deck?.hands[i]?.length ?? 0),
     isCurrentPlayer: !!s && s.currentPlayerIndex === i && s.outcome === 'active',
   }))
 
@@ -673,6 +701,7 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
     chapter: c.chapter,
     heroes,
     myHeroIndex,
+    myHand: myHeroIndex < 0 ? [] : (s ? s.hands[myHeroIndex]! : (c.deck?.hands[myHeroIndex] ?? [])),
     isHost: forPlayerId === hostId,
     map,
     encounter,

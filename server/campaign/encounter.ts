@@ -53,22 +53,58 @@ function once(s: EncounterState, key: string): boolean {
   return true
 }
 
-// ── Deck building (respects Exile removals + deterministic shuffles) ────────
+// ── Persistent deck (attrition canon) ────────────────────────────────────────
+// The deck carries across road encounters. It is built once per chapter and
+// only reshuffled/redrawn at camp/interlude rests (and Hearts mid-encounter).
 
 function buildCampaignDeck(c: CampaignState, shuffler: <T>(a: T[]) => T[]): Card[] {
-  const exiled = [...c.exiledCards.map(e => `${e.suit}${e.rank}`)]
   const cards: Card[] = []
-  for (const suit of SUITS) {
-    for (const rank of PLAYER_RANKS) {
-      const key = `${suit}${rank}`
-      const ei = exiled.indexOf(key)
-      if (ei >= 0) { exiled.splice(ei, 1); continue }
+  for (const suit of SUITS)
+    for (const rank of PLAYER_RANKS)
       cards.push({ suit, rank, id: uid() })
-    }
-  }
-  const jesters = jesterCount(aliveIndices(c).length)
+  const jesters = jesterCount(c.heroes.length)
   for (let i = 0; i < jesters; i++) cards.push({ suit: 'C', rank: 'Jo', id: uid() })
   return shuffler(cards)
+}
+
+/** Chapter start: fresh full deck, full hands. */
+export function setupChapterDeck(c: CampaignState) {
+  const { r, done } = rng(c)
+  const tavern = buildCampaignDeck(c, a => r.shuffle(a))
+  c.deck = { tavern, discard: [], hands: c.heroes.map(() => []) }
+  const max = maxHandSize(c)
+  for (const hi of aliveIndices(c))
+    for (let i = 0; i < max; i++)
+      if (c.deck.tavern.length) c.deck.hands[hi]!.push(c.deck.tavern.pop()!)
+  done()
+  clog(c, '🃏 The expedition deck is assembled and hands are drawn.')
+}
+
+/** Camp/interlude rest: shuffle discard + hands into the Tavern, redraw full. */
+export function campRest(c: CampaignState) {
+  const deck = c.deck
+  if (!deck) return
+  const pool = [...deck.tavern, ...deck.discard, ...deck.hands.flat()]
+  const { r, done } = rng(c)
+  deck.tavern = r.shuffle(pool)
+  deck.discard = []
+  deck.hands = c.heroes.map(() => [])
+  const max = maxHandSize(c)
+  for (const hi of aliveIndices(c))
+    for (let i = 0; i < max; i++)
+      if (deck.tavern.length) deck.hands[hi]!.push(deck.tavern.pop()!)
+  done()
+  clog(c, '🔄 The party rests — the deck is reshuffled and hands are redrawn.')
+}
+
+/** Camp replacement: the new hero draws a full hand. */
+export function dealReplacementHand(c: CampaignState, heroIdx: number) {
+  const deck = c.deck
+  if (!deck) return
+  const max = maxHandSize(c)
+  deck.hands[heroIdx] = []
+  for (let i = 0; i < max; i++)
+    if (deck.tavern.length) deck.hands[heroIdx]!.push(deck.tavern.pop()!)
 }
 
 function buildEnemyStack(tier: EncounterTier, isLair: boolean, shuffler: <T>(a: T[]) => T[]): Card[] {
@@ -135,12 +171,20 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
 
   if (c.shrineBlessing) { s.flags['shrineBlessing'] = true; c.shrineBlessing = false }
 
-  // fresh tavern state every encounter (encounter reset canon)
-  s.tavern = buildCampaignDeck(c, shuffler)
-  const hand = maxHandSize(c)
-  for (const hi of heroesAlive)
-    for (let i = 0; i < hand; i++)
-      if (s.tavern.length) s.hands[hi]!.push(s.tavern.pop()!)
+  // adopt the persistent deck — no reshuffle between road encounters (canon:
+  // only encounters entered from camp/interlude start from a fresh state, and
+  // the camp rest itself performs that reset)
+  const deck = c.deck!
+  s.tavern = deck.tavern
+  s.discard = deck.discard
+  s.hands = deck.hands
+  c.deck = null   // live state belongs to the encounter until it ends
+
+  // Shrine blessing: hand cap +1 for this encounter, each hero draws 1 now
+  if (s.flags['shrineBlessing']) {
+    for (const hi of heroesAlive) drawForHero(c, s, hi, 1)
+    clog(c, '⛩ The Shrine’s blessing: everyone draws 1 (hand cap +1 this encounter).')
+  }
 
   // starting hero: Tower / Brace Command override
   if (c.nextStarterIndex !== null && c.heroes[c.nextStarterIndex]?.alive) {
@@ -257,16 +301,14 @@ function revealNextEnemy(c: CampaignState, s: EncounterState) {
 // ── Suit power resolution ────────────────────────────────────────────────────
 
 function drawForHero(c: CampaignState, s: EncounterState, heroIdx: number, n: number): number {
+  // No automatic discard recycling: Hearts and camp rests are the only ways
+  // the discard returns to the Tavern (attrition canon).
   let drawn = 0
   const max = maxHandSize(c)
   for (let i = 0; i < n; i++) {
     if (s.tavern.length === 0) {
-      if (s.discard.length === 0) break
-      const { r, done } = rng(c)
-      s.tavern = r.shuffle(s.discard)
-      s.discard = []
-      done()
-      clog(c, '🔄 Discard shuffled into the Tavern.')
+      if (!s.flags['tavernDryLogged']) { s.flags['tavernDryLogged'] = true; clog(c, '🫗 The Tavern runs dry — only ♥ Hearts or a camp rest can refill it.') }
+      break
     }
     if (s.hands[heroIdx]!.length >= max) break
     s.hands[heroIdx]!.push(s.tavern.pop()!)
@@ -305,8 +347,8 @@ function resolveDiamonds(c: CampaignState, s: EncounterState, playerIdx: number,
   let idx = playerIdx
   let passes = 0
   const max = maxHandSize(c)
-  while (remaining > 0 && passes < c.heroes.length) {
-    if (c.heroes[idx]!.alive && s.hands[idx]!.length < max && (s.tavern.length > 0 || s.discard.length > 0)) {
+  while (remaining > 0 && passes < c.heroes.length && s.tavern.length > 0) {
+    if (c.heroes[idx]!.alive && s.hands[idx]!.length < max) {
       if (drawForHero(c, s, idx, 1) > 0) { remaining--; passes = 0 } else passes++
     } else passes++
     idx = (idx + 1) % c.heroes.length
