@@ -170,6 +170,9 @@ function heroTooltip(h: (typeof props.state.heroes)[number]): string {
         <p v-if="enc.bossModifier" class="text-xs" :class="enc.bossModifier.id === 'hidden' ? 'text-warning/60 italic' : 'text-warning'">
           {{ enc.bossModifier.name }}: {{ enc.bossModifier.text }}
         </p>
+        <p v-for="p in enc.preps" :key="p.id" class="text-xs text-success/90" :title="p.text">
+          🎒 {{ p.name }} — active this fight
+        </p>
       </div>
     </div>
 

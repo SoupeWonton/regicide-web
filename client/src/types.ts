@@ -84,6 +84,7 @@ export interface ClientEncounterState {
   tier: 'skirmish' | 'veteran' | 'elite' | 'boss'
   modifier: { id: string; name: string; text: string } | null
   bossModifier: { id: string; name: string; text: string } | null
+  preps: { id: string; name: string; text: string }[]
   turnPhase: string
   currentPlayerIndex: number
   enemiesRemaining: number

@@ -148,6 +148,7 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
   const s: EncounterState = {
     nodeId, tier, modifierId, bossModifierId,
     bossModifierRevealed: false,
+    preps: [...c.activePreparations],
     turnPhase: 'setup',
     currentPlayerIndex: heroesAlive[0]!,
     nextPlayerIndex: heroesAlive[1 % heroesAlive.length]!,

@@ -99,6 +99,7 @@ export interface PendingChoice {
   forPlayerId: string | null   // null → host decides
   prompt: string
   options: { id: string; label: string; detail?: string }[]
+  returnTo?: 'camp' | 'road'   // phase to restore after the pick (default road)
 }
 
 export interface DeathVoteState {
@@ -125,6 +126,7 @@ export interface EncounterState {
   modifierId: string | null      // null for Chapter 1 boss (canon: no modifier)
   bossModifierId: string | null  // Chapter 2 boss hidden modifier
   bossModifierRevealed: boolean  // Tower intel can reveal it
+  preps: string[]                // preparations that fired at this encounter's start (for UI)
 
   turnPhase: TurnPhase | 'setup' | 'over'
   currentPlayerIndex: number     // index into campaign.heroes
@@ -235,6 +237,7 @@ export interface ClientEncounterState {
   tier: EncounterTier
   modifier: { id: string; name: string; text: string } | null
   bossModifier: { id: string; name: string; text: string } | null  // only if revealed (or over)
+  preps: { id: string; name: string; text: string }[]              // fired at encounter start
   turnPhase: string
   currentPlayerIndex: number
   enemiesRemaining: number

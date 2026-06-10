@@ -203,6 +203,9 @@ export function applyChoice(c: CampaignState, playerId: string, optionId: string
     if (optionId.startsWith('hero-')) {
       c.nextStarterIndex = parseInt(optionId.slice(5))
       clog(c, `🗼 ${c.heroes[c.nextStarterIndex]!.playerName} will take the first turn of the next encounter.`)
+      c.pendingChoice = null
+      c.phase = pc.returnTo ?? 'road'   // Brace Command picks return to camp
+      return {}
     } else if (optionId === 'intel') {
       clog(c, c.chapter === 2 ? '🗼 The Tower reveals the court’s corruption.' : '🗼 The Tower reveals little — the First Ascension hides no tricks.')
       c.debug = { ...c.debug }
@@ -425,13 +428,14 @@ export function applyActivatePreparation(c: CampaignState, playerId: string, pre
   if (i < 0) return { error: 'The team does not own that preparation.' }
   if (c.activePreparations.length >= ACTIVE_PREP_CAP) return { error: `At most ${ACTIVE_PREP_CAP} preparations may be active (v0 cap).` }
   if (prepId === 'p-brace-command') {
-    // consumed at camp: choose starting hero now
+    // consumed at camp: choose starting hero now, then return to camp
     c.preparations.splice(i, 1)
     c.phase = 'landmark'
     c.pendingChoice = {
       kind: 'landmark_reward', forPlayerId: null,
       prompt: 'Brace Command: choose who starts the next encounter.',
       options: c.heroes.filter(h => h.alive).map(h => ({ id: `hero-${c.heroes.indexOf(h)}`, label: h.playerName })),
+      returnTo: 'camp',
     }
     return {}
   }
@@ -660,6 +664,7 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
     encounter = {
       tier: s.tier,
       modifier: mod ? { id: mod.id, name: mod.name, text: mod.mechanicText } : null,
+      preps: s.preps.map(p => ({ id: p, name: getItem(p).name, text: getItem(p).text })),
       bossModifier: revealBoss && bossMod ? bossMod : (bossMod ? { id: 'hidden', name: '???', text: 'Something is wrong with this court…' } : null),
       turnPhase: s.turnPhase,
       currentPlayerIndex: s.currentPlayerIndex,
