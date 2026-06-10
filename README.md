@@ -13,6 +13,8 @@ An unofficial digital multiplayer adaptation of [Regicide](https://www.badgersfr
 - Node.js 18+
 - npm
 
+> 🤖 Installing with an AI assistant (Claude Code, Copilot, etc.)? Point it at [`CLAUDE.md`](./CLAUDE.md) — it contains exact install/run/verify steps and the project's architecture conventions.
+
 ### Install
 
 ```bash
