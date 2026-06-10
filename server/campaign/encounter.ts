@@ -1,7 +1,7 @@
 import type { Card, Enemy, Suit } from '../types'
 import { cardValue, cardLabel, suitSymbol, enemyStats, jesterCount } from '../deck'
 import { createRng } from '../rng'
-import type { CampaignState, EncounterState, EncounterTier, Hero } from './types'
+import type { CampaignState, EncounterState, EncounterTier, EncounterEvent, Hero } from './types'
 import { getEncounterDef, getItem, encountersOf, BOSS_MODIFIERS } from './content'
 
 // Campaign encounter engine. A superset of the base Regicide rules with hook
@@ -18,6 +18,16 @@ const uid = () => `c${++_uid}`
 function clog(c: CampaignState, msg: string) {
   c.log.unshift(msg)
   if (c.log.length > 60) c.log.pop()
+}
+
+// ── Event stream (Balatro-style playback on the client) ─────────────────────
+function ev(s: EncounterState, kind: EncounterEvent['kind'], text: string, tone: EncounterEvent['tone'] = 'plain', big = false) {
+  s.events.push({ kind, text, tone, big })
+}
+/** Start a fresh event batch — call after validation, before mutation. */
+function beginEvents(s: EncounterState) {
+  s.events = []
+  s.eventSeq++
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -180,6 +190,8 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
     wagerArmedBy: null,
     pendingChooseNext: false,
     flags: {},
+    events: [],
+    eventSeq: 0,
   }
   s.totalEnemies = s.enemyDeck.length
   c.encounter = s
@@ -298,6 +310,7 @@ function revealNextEnemy(c: CampaignState, s: EncounterState) {
     return
   }
   const card = s.enemyDeck.shift()!
+  ev(s, 'reveal', `${cardLabel(card)} steps forward`, 'blood')
   const { hp, attack } = enemyStats(card.rank as 'J' | 'Q' | 'K')
   const enemy: Enemy = { card, hp, maxHp: hp, attack, shield: 0, immunityNullified: false }
 
@@ -348,7 +361,7 @@ function resolveDiamonds(c: CampaignState, s: EncounterState, playerIdx: number,
   }
   // class / relic / memory access boosts
   const qm = c.heroes.findIndex(h => h.alive && h.classId === 'quartermaster')
-  if (qm >= 0 && once(s, 'enemy.qmDiamond')) { amount += 1; clog(c, '   📦 Quartermaster: +1 draw.') }
+  if (qm >= 0 && once(s, 'enemy.qmDiamond')) { amount += 1; clog(c, '   📦 Quartermaster: +1 draw.'); ev(s, 'proc', '📦 Quartermaster +1 draw', 'gold') }
   const holder = c.heroes[playerIdx]!
   if (holder.relicId === 'r-field-satchel' && once(s, flagKey('satchel', playerIdx))) amount += 1
   if (holder.relicId === 'r-grand-provision') {
@@ -369,6 +382,7 @@ function resolveDiamonds(c: CampaignState, s: EncounterState, playerIdx: number,
     idx = (idx + 1) % c.heroes.length
   }
   clog(c, `   ♦ Drew ${amount - remaining} card${amount - remaining !== 1 ? 's' : ''}.`)
+  ev(s, 'suit', `♦ Draw ${amount - remaining}`, 'info')
 }
 
 function resolveHearts(c: CampaignState, s: EncounterState, playerIdx: number, amount: number) {
@@ -385,7 +399,7 @@ function resolveHearts(c: CampaignState, s: EncounterState, playerIdx: number, a
     }
   }
   const surgeon = c.heroes.findIndex(h => h.alive && h.classId === 'surgeon')
-  if (surgeon >= 0 && once(s, 'enemy.surgeonHeart')) { amount += 1; clog(c, '   ⚕️ Surgeon: +1 recovery.') }
+  if (surgeon >= 0 && once(s, 'enemy.surgeonHeart')) { amount += 1; clog(c, '   ⚕️ Surgeon: +1 recovery.'); ev(s, 'proc', '⚕️ Surgeon +1 recovery', 'gold') }
   const holder = c.heroes[playerIdx]!
   if (heroHasMemory(holder, 'm-surgical-notes') && once(s, flagKey('m-notes', playerIdx))) amount += 1
 
@@ -397,13 +411,14 @@ function resolveHearts(c: CampaignState, s: EncounterState, playerIdx: number, a
     done()
   }
   clog(c, `   ♥ Recovered ${toRecover} card${toRecover !== 1 ? 's' : ''} into the Tavern.`)
+  ev(s, 'suit', `♥ ${toRecover} back to the Tavern`, 'info')
 }
 
 function resolveSpades(c: CampaignState, s: EncounterState, playerIdx: number, amount: number) {
   const enemy = s.currentEnemy!
   let bonus = 0
   const holder = c.heroes[playerIdx]!
-  if (holder.classId === 'sentinel' && once(s, 'enemy.sentinelSpade')) { bonus += 2; clog(c, '   🛡 Sentinel: +2 shield.') }
+  if (holder.classId === 'sentinel' && once(s, 'enemy.sentinelSpade')) { bonus += 2; clog(c, '   🛡 Sentinel: +2 shield.'); ev(s, 'proc', '🛡 Sentinel +2 shield', 'gold') }
   if (holder.relicId === 'r-iron-stitch' && once(s, flagKey('stitch', playerIdx))) bonus += 1
   if (holder.relicId === 'r-bastion-sigil') {
     const used = ((s.flags[flagKey('bastion', playerIdx)] as number) ?? 0)
@@ -420,6 +435,7 @@ function resolveSpades(c: CampaignState, s: EncounterState, playerIdx: number, a
     if (g > 0) { s.flags['enemy.guard'] = g - 1; clog(c, '   ⚫ Guard stripped (remaining: ' + (g - 1) + ').') }
   }
   clog(c, `   ♠ Shield +${amount + bonus} (total ${enemy.shield}, net ATK ${Math.max(0, enemy.attack - enemy.shield)}).`)
+  ev(s, 'suit', `♠ Shield +${amount + bonus} → net ${Math.max(0, enemy.attack - enemy.shield)}`, 'info')
 }
 
 // ── Core actions ─────────────────────────────────────────────────────────────
@@ -451,6 +467,7 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   const comboError = validateCampaignCombo(cards)
   if (comboError) return { error: comboError }
 
+  beginEvents(s)
   for (const i of sorted) hand.splice(i, 1)
   s.lastPlayed = cards
   s.flags['spadeThisTurn'] = false
@@ -459,8 +476,9 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   // ── Jester ────────────────────────────────────────────────────────────────
   if (cards[0]!.rank === 'Jo') {
     clog(c, `🃏 ${hero.playerName} plays the Jester!`)
+    ev(s, 'play', `🃏 ${hero.playerName} plays the Jester!`, 'gold', true)
     s.discard.push(...cards)
-    if (s.currentEnemy) s.currentEnemy.immunityNullified = true
+    if (s.currentEnemy) { s.currentEnemy.immunityNullified = true; ev(s, 'proc', 'Suit immunity nullified', 'gold') }
     if (aliveIndices(c).length === 1) {
       // solo rule (balance-testing): the Jester is a panic button — discard
       // your whole hand and redraw to full, then keep playing
@@ -468,6 +486,7 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
       const drawn = drawForHero(c, s, pi, maxHandSize(c))
       s.turnPhase = 'play'
       clog(c, `   Solo Jester: hand refreshed (${drawn} card${drawn !== 1 ? 's' : ''} drawn). No counterattack.`)
+      ev(s, 'proc', `Hand refreshed — ${drawn} drawn`, 'gold', true)
       return {}
     }
     s.turnPhase = 'choose_next'
@@ -478,16 +497,19 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   const enemy = s.currentEnemy!
   let base = cards.reduce((sum, card) => sum + cardValue(card.rank), 0)
   clog(c, `${hero.playerName} plays ${cards.map(cardLabel).join(' + ')} (base ${base}).`)
+  ev(s, 'play', `${hero.playerName}: ${cards.map(cardLabel).join(' + ')}`, 'plain')
 
   if (s.flags['prepSpareEdge'] && once(s, 'spareEdgeDone')) {
     base += 2
     s.flags['prepSpareEdge'] = false
     clog(c, '   🗡 Spare Edge: +2 damage.')
+    ev(s, 'proc', '🗡 Spare Edge +2', 'gold')
   }
   if (s.flags[flagKey('duelCharmReady', pi)]) {
     base += 2
     s.flags[flagKey('duelCharmReady', pi)] = false
     clog(c, '   🏅 Duel Charm: +2 damage.')
+    ev(s, 'proc', '🏅 Duel Charm +2', 'gold')
   }
 
   const immuneSuit = enemy.immunityNullified ? null : enemy.card.suit
@@ -496,9 +518,9 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
     clog(c, `   ${suitSymbol(enemy.card.suit)} power blocked by enemy immunity.`)
 
   let damage = base
-  if (activeSuits.has('C')) { damage *= 2; clog(c, `   ♣ Damage doubled: ${base} → ${damage}.`) }
-  if (s.flags[flagKey('keenEdge', pi)]) { damage *= 2; s.flags[flagKey('keenEdge', pi)] = false; clog(c, `   ✨ Keen Edge: damage doubled → ${damage}.`) }
-  if (s.flags[flagKey('crownbreaker', pi)]) { damage *= 3; s.flags[flagKey('crownbreaker', pi)] = false; clog(c, `   👑 Crownbreaker: damage tripled → ${damage}.`) }
+  if (activeSuits.has('C')) { damage *= 2; clog(c, `   ♣ Damage doubled: ${base} → ${damage}.`); ev(s, 'suit', `♣ DOUBLE! ${base} → ${damage}`, 'blood', true) }
+  if (s.flags[flagKey('keenEdge', pi)]) { damage *= 2; s.flags[flagKey('keenEdge', pi)] = false; clog(c, `   ✨ Keen Edge: damage doubled → ${damage}.`); ev(s, 'proc', `✨ Keen Edge ×2 → ${damage}`, 'gold', true) }
+  if (s.flags[flagKey('crownbreaker', pi)]) { damage *= 3; s.flags[flagKey('crownbreaker', pi)] = false; clog(c, `   👑 Crownbreaker: damage tripled → ${damage}.`); ev(s, 'proc', `👑 Crownbreaker ×3 → ${damage}`, 'gold', true) }
 
   if (activeSuits.has('S')) resolveSpades(c, s, pi, base)
   if (activeSuits.has('H')) resolveHearts(c, s, pi, base)
@@ -506,13 +528,16 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
 
   // ── Damage + threshold abilities ──────────────────────────────────────────
   enemy.hp -= damage
+  ev(s, 'damage', `💥 ${damage} damage`, 'blood', true)
   if (enemy.hp === 1 && heroHasMemory(hero, 'm-clean-finish') && once(s, 'cleanFinishDone')) {
     enemy.hp -= 1
     clog(c, '   📜 Clean Finish: +1 finishing damage.')
+    ev(s, 'proc', '📜 Clean Finish +1', 'gold')
   }
   if ((enemy.hp === 1 || enemy.hp === 2) && c.heroes.some(h => h.alive && h.classId === 'executioner') && once(s, 'enemy.execFinish')) {
     enemy.hp -= 2
     clog(c, '   🪓 Executioner: +2 finishing damage.')
+    ev(s, 'proc', '🪓 Executioner +2 — finish!', 'gold', true)
   }
   clog(c, `   💥 ${damage} damage → ${cardLabel(enemy.card)} at ${Math.max(0, enemy.hp)} HP.`)
   s.discard.push(...cards)
@@ -523,6 +548,7 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
     if (wagered) {
       s.wagerArmedBy = null
       clog(c, '🎲 Wager won! Choose who acts next.')
+      ev(s, 'wager', '🎲 WAGER WON', 'gold', true)
       if (s.outcome === 'active') { s.turnPhase = 'choose_next'; s.pendingChooseNext = false }
     }
     return {}
@@ -535,6 +561,7 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
       const lost = hand.splice(r.int(hand.length), 1)[0]!
       s.discard.push(lost)
       clog(c, `🎲 Wager lost — ${hero.playerName} discards ${cardLabel(lost)}.`)
+      ev(s, 'wager', `🎲 Wager lost — ${cardLabel(lost)} gone`, 'blood', true)
     }
     done()
   }
@@ -549,6 +576,7 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
     s.tavern.unshift(enemy.card)
     s.flags['exactKills'] = ((s.flags['exactKills'] as number) ?? 0) + 1
     clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} slides under the Tavern.`)
+    ev(s, 'kill', `✨ EXACT KILL — ${cardLabel(enemy.card)} joins the Tavern`, 'gold', true)
     if (s.modifierId === 'rot-ward') {
       const pen = (s.flags['rotPenalty'] as number) ?? 2
       if (pen > 0) s.flags['rotPenalty'] = pen - 1
@@ -565,11 +593,13 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
   } else {
     s.discard.push(enemy.card)
     clog(c, `✅ ${cardLabel(enemy.card)} defeated!`)
+    ev(s, 'kill', `☠️ ${cardLabel(enemy.card)} DEFEATED`, 'gold', true)
   }
   s.currentEnemy = null
   revealNextEnemy(c, s)
   if (s.outcome === 'won') {
     clog(c, '🎉 Encounter cleared!')
+    ev(s, 'kill', '🎉 ENCOUNTER CLEARED', 'gold', true)
     return
   }
 
@@ -660,6 +690,7 @@ function counterattack(c: CampaignState, s: EncounterState, pi: number): { error
 
   if (net === 0) {
     clog(c, '🛡 Fully shielded — no damage taken.')
+    ev(s, 'counter', '🛡 FULLY SHIELDED', 'info', true)
     const hero = c.heroes[pi]!
     if (hero.relicId === 'r-bastion-sigil' && once(s, flagKey('bastionDraw', pi))) {
       drawForHero(c, s, pi, 1)
@@ -707,6 +738,7 @@ function counterattack(c: CampaignState, s: EncounterState, pi: number): { error
   s.turnPhase = 'discard'
   s.discardNeeded = needed
   clog(c, `💔 Counterattack for ${needed} — ${hero.playerName} must discard ≥ ${needed}.`)
+  ev(s, 'counter', `💔 COUNTERATTACK ${needed} → ${hero.playerName}`, 'blood', true)
   return {}
 }
 
@@ -724,9 +756,11 @@ export function applyEncounterDiscard(c: CampaignState, playerId: string, cardIn
   const total = cards.reduce((t, card) => t + cardValue(card.rank), 0)
   if (total < s.discardNeeded) return { error: `Total ${total} is less than ${s.discardNeeded}.` }
 
+  beginEvents(s)
   for (const i of sorted) hand.splice(i, 1)
   s.discard.push(...cards)
   clog(c, `${c.heroes[pi]!.playerName} discards ${cards.map(cardLabel).join(', ')} (${total}/${s.discardNeeded}).`)
+  ev(s, 'info', `${c.heroes[pi]!.playerName} pays ${total} in cards`, 'plain')
   s.discardNeeded = 0
   advanceTurn(c, s)
   return {}
@@ -737,8 +771,10 @@ export function applyEncounterYield(c: CampaignState, playerId: string): { error
   if (!s || s.turnPhase !== 'play') return { error: 'Can only yield in play phase.' }
   const pi = c.heroes.findIndex(h => h.playerId === playerId)
   if (pi !== s.currentPlayerIndex) return { error: 'Not your turn.' }
+  beginEvents(s)
   s.flags['spadeThisTurn'] = false
   clog(c, `🏳 ${c.heroes[pi]!.playerName} yields.`)
+  ev(s, 'info', `🏳 ${c.heroes[pi]!.playerName} yields`, 'plain')
   return counterattack(c, s, pi)
 }
 
@@ -819,6 +855,7 @@ function heroDies(c: CampaignState, s: EncounterState, pi: number, unpayable: nu
   hero.alive = false
   s.discard.push(...s.hands[pi]!)
   s.hands[pi] = []
+  ev(s, 'death', `💀 ${hero.playerName} FALLS`, 'blood', true)
   clog(c, `💀 ${hero.playerName} the ${hero.classId} falls — ${unpayable} damage could not be paid.`)
   clog(c, `   Their memories fade with them.`)
   hero.memories = []
@@ -879,6 +916,8 @@ export function applyCastSpell(c: CampaignState, playerId: string, spellId: stri
   if (spellId === 's-calm-pulse' ? !inDiscard : !inPlay)
     return { error: spellId === 's-calm-pulse' ? 'Calm Pulse is cast during your discard check.' : 'Cast spells during your play phase.' }
 
+  beginEvents(s)
+  ev(s, 'spell', `📖 ${item.name}!`, 'gold', true)
   switch (spellId) {
     case 's-keen-edge': s.flags[flagKey('keenEdge', pi)] = true; break
     case 's-crownbreaker': s.flags[flagKey('crownbreaker', pi)] = true; break
@@ -923,6 +962,8 @@ export function applyActivateRelic(c: CampaignState, playerId: string, targetInd
   if (!relic) return { error: 'No relic equipped.' }
   if (s.flags[flagKey('relicUsed', pi)]) return { error: 'Relic already used this encounter.' }
 
+  beginEvents(s)
+  ev(s, 'relic', `🏺 ${getItem(relic).name}!`, 'gold', true)
   switch (relic) {
     case 'r-bone-thread': {
       const n = Math.min(2, s.discard.length)
@@ -960,8 +1001,10 @@ export function applyArmWager(c: CampaignState, playerId: string): { error?: str
   if (c.heroes[pi]!.classId !== 'gambler') return { error: 'Only the Gambler wagers.' }
   if (c.gamblerWagerUsed) return { error: 'The wager is spent this chapter.' }
   if (s.wagerArmedBy !== null) return { error: 'Wager already armed.' }
+  beginEvents(s)
   s.wagerArmedBy = pi
   c.gamblerWagerUsed = true
   clog(c, `🎲 ${c.heroes[pi]!.playerName} wagers: the enemy dies this turn — or pays for it.`)
+  ev(s, 'wager', `🎲 ${c.heroes[pi]!.playerName} WAGERS — kill or pay`, 'gold', true)
   return {}
 }

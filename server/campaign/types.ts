@@ -120,6 +120,15 @@ export interface EncounterFlags {
   [key: string]: number | boolean | string | undefined
 }
 
+// Structured combat events — the client plays these back as Balatro-style
+// trigger popups. One batch per action (eventSeq increments per batch).
+export interface EncounterEvent {
+  kind: 'play' | 'suit' | 'proc' | 'mod' | 'damage' | 'kill' | 'counter' | 'death' | 'spell' | 'relic' | 'wager' | 'reveal' | 'info'
+  text: string
+  tone: 'gold' | 'blood' | 'info' | 'plain'
+  big?: boolean
+}
+
 export interface EncounterState {
   nodeId: string
   tier: EncounterTier
@@ -152,6 +161,9 @@ export interface EncounterState {
   pendingChooseNext: boolean
 
   flags: EncounterFlags          // modifier + ability one-shot bookkeeping
+
+  events: EncounterEvent[]       // current action's event batch (playback)
+  eventSeq: number               // increments per batch so clients detect new ones
 }
 
 // ── Campaign root ────────────────────────────────────────────────────────────
@@ -255,6 +267,8 @@ export interface ClientEncounterState {
   wagerArmed: boolean
   canWager: boolean
   myRelicActivatable: boolean
+  events: EncounterEvent[]
+  eventSeq: number
 }
 
 export interface ClientCampaignState {

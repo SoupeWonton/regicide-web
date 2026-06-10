@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { socket } from '../../socket'
-import type { ClientCampaignState, Card } from '../../types'
+import type { ClientCampaignState, Card, EncounterEvent } from '../../types'
 import { cardValue, suitSymbol, CLASS_ICONS } from './cards'
 
 const props = defineProps<{ state: ClientCampaignState; code: string }>()
@@ -59,6 +59,35 @@ watch(() => props.state.encounter?.discardNeeded ?? 0, (now, was) => {
 watch(() => props.state.heroes.filter(h => !h.alive).length, (now, was) => {
   if ((was ?? 0) < now) { shake(); spawnFloat('💀', 'death') }
 })
+
+// ── Event playback: server emits a batch per action; we pop each trigger
+//    over the stage one at a time, Balatro-style ─────────────────────────────
+const popup = ref<(EncounterEvent & { seq: number }) | null>(null)
+const popQueue: EncounterEvent[] = []
+let popTimer: ReturnType<typeof setTimeout> | null = null
+let popSeq = 0
+
+function nextPop() {
+  const e = popQueue.shift()
+  if (!e) {
+    popup.value = null
+    popTimer = null
+    return
+  }
+  popup.value = { ...e, seq: ++popSeq }
+  popTimer = setTimeout(nextPop, e.big ? 700 : 430)
+}
+
+watch(() => props.state.encounter?.eventSeq ?? 0, (now, was) => {
+  if (was === undefined || now === was) return
+  const events = props.state.encounter?.events ?? []
+  // 'play' lines matter to spectators; the actor just played those cards
+  popQueue.push(...events.filter(e => !(e.kind === 'play' && isMyTurn.value && e.tone === 'plain')))
+  if (popQueue.length > 12) popQueue.splice(0, popQueue.length - 12)   // never lag behind a fast table
+  if (!popTimer) nextPop()
+})
+
+onBeforeUnmount(() => { if (popTimer) clearTimeout(popTimer) })
 
 // ── HP counter that counts down instead of snapping ──────────────────────────
 const hpShown = ref(0)
@@ -340,11 +369,28 @@ const netAttack = computed(() => {
         </div>
       </div>
 
+      <!-- trigger popup (event playback) -->
+      <div class="absolute inset-x-0 top-2 z-30 flex justify-center pointer-events-none" aria-hidden="true">
+        <Transition name="played">
+          <div v-if="popup" :key="popup.seq"
+            class="chip-pop px-3 py-1 rounded-full font-display font-bold shadow-xl border backdrop-blur-sm"
+            :class="[
+              popup.big ? 'text-base' : 'text-xs',
+              popup.tone === 'gold' ? 'bg-primary/20 border-primary/60 text-primary' :
+              popup.tone === 'blood' ? 'bg-error/20 border-error/60 text-error' :
+              popup.tone === 'info' ? 'bg-info/15 border-info/50 text-info' :
+              'bg-base-100/80 border-base-content/20 text-base-content/80',
+            ]"
+          >{{ popup.text }}</div>
+        </Transition>
+      </div>
+
       <!-- last played, on the stage felt -->
       <div class="flex justify-center items-end gap-1 min-h-[3.2rem] mt-1">
         <TransitionGroup name="played">
-          <div v-for="card in enc.lastPlayed" :key="card.id"
-            class="card-face w-9 h-12 flex flex-col items-center justify-center font-mono text-xs shadow-lg">
+          <div v-for="(card, i) in enc.lastPlayed" :key="card.id"
+            class="card-face w-9 h-12 flex flex-col items-center justify-center font-mono text-xs shadow-lg"
+            :style="{ transitionDelay: `${i * 110}ms` }">
             <span class="font-bold" :class="suitClass(card.suit)">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
             <span :class="suitClass(card.suit)">{{ card.rank !== 'Jo' ? suitSymbol(card.suit) : '' }}</span>
           </div>

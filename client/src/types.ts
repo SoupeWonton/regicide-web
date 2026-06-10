@@ -102,6 +102,15 @@ export interface ClientEncounterState {
   wagerArmed: boolean
   canWager: boolean
   myRelicActivatable: boolean
+  events: EncounterEvent[]
+  eventSeq: number
+}
+
+export interface EncounterEvent {
+  kind: string
+  text: string
+  tone: 'gold' | 'blood' | 'info' | 'plain'
+  big?: boolean
 }
 
 export interface PendingChoiceView {

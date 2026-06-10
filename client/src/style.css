@@ -316,6 +316,55 @@ body::after {
 }
 .chip-pop { animation: chip-pop 0.35s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
+/* ── Class selection cards ─────────────────────────────────────────────────── */
+.class-card {
+  background: linear-gradient(170deg, #1c1730 0%, #131022 100%);
+  border: 1px solid rgba(201, 162, 39, 0.25);
+  border-radius: 0.9rem;
+  overflow: hidden;
+  box-shadow: 0 4px 16px -6px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+  cursor: pointer;
+}
+.class-card:hover {
+  transform: translateY(-5px) rotate(-0.5deg);
+  border-color: rgba(201, 162, 39, 0.6);
+  box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.7), 0 0 18px -4px rgba(201, 162, 39, 0.3);
+}
+.class-card-chosen {
+  border-color: #c9a227;
+  box-shadow: 0 0 0 2px rgba(201, 162, 39, 0.55), 0 0 26px -4px rgba(201, 162, 39, 0.45);
+}
+.class-card-taken { opacity: 0.55; }
+.class-card-taken:hover { transform: none; }
+
+.class-medallion {
+  width: 3.6rem;
+  height: 3.6rem;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 35% 30%, #2c2547, #171228 70%);
+  border: 2px solid rgba(201, 162, 39, 0.45);
+  box-shadow: inset 0 0 12px rgba(201, 162, 39, 0.15), 0 3px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Road map polish ───────────────────────────────────────────────────────── */
+.map-node-enter { animation: rise-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes here-bounce {
+  0%, 100% { transform: translate(-50%, 0); }
+  50%      { transform: translate(-50%, -5px); }
+}
+.here-marker {
+  position: absolute;
+  left: 50%;
+  top: -1.45rem;
+  animation: here-bounce 1.6s ease-in-out infinite;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.7));
+}
+.node-visited { filter: grayscale(0.8); }
+
 /* ── Choice overlays ───────────────────────────────────────────────────────── */
 .overlay-enter-active { transition: opacity 0.3s ease; }
 .overlay-leave-active { transition: opacity 0.2s ease; }

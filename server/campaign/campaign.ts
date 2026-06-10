@@ -704,6 +704,8 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
           }
         : null,
       pendingChooseNext: s.pendingChooseNext,
+      events: s.events,
+      eventSeq: s.eventSeq,
       wagerArmed: s.wagerArmedBy !== null,
       canWager: !!me && me.classId === 'gambler' && me.alive && !c.gamblerWagerUsed && s.outcome === 'active',
       myRelicActivatable: !!me?.relicId && activatable.includes(me.relicId) && !s.flags[`relicUsed:${myHeroIndex}`],

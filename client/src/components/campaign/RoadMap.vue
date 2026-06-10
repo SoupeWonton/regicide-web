@@ -17,90 +17,120 @@ const layers = computed(() => {
   return [...byLayer.entries()].sort((a, b) => a[0] - b[0]).map(([, nodes]) => nodes)
 })
 
-// SVG edge lines between layers (vertical layout, layers as rows)
+const ROW = 96
 const positions = computed(() => {
   const pos = new Map<string, { x: number; y: number }>()
   layers.value.forEach((nodes, li) => {
     nodes.forEach((n, ni) => {
       pos.set(n.id, {
         x: ((ni + 1) / (nodes.length + 1)) * 100,
-        y: li * 92 + 46,
+        y: li * ROW + ROW / 2,
       })
     })
   })
   return pos
 })
 
-const totalHeight = computed(() => layers.value.length * 92)
+const totalHeight = computed(() => layers.value.length * ROW)
+const nodeById = computed(() => new Map(props.state.map?.nodes.map(n => [n.id, n]) ?? []))
 
 const edges = computed(() => {
-  const out: { x1: number; y1: number; x2: number; y2: number; active: boolean }[] = []
+  const out: { d: string; state: 'active' | 'traveled' | 'idle' }[] = []
   for (const n of props.state.map?.nodes ?? []) {
     const from = positions.value.get(n.id)
     if (!from) continue
     for (const nid of n.next) {
       const to = positions.value.get(nid)
       if (!to) continue
-      out.push({ x1: from.x, y1: from.y, x2: to.x, y2: to.y, active: n.current })
+      const ym = (from.y + to.y) / 2
+      const d = `M ${from.x} ${from.y + 10} C ${from.x} ${ym}, ${to.x} ${ym}, ${to.x} ${to.y - 10}`
+      const target = nodeById.value.get(nid)
+      const state = n.current && target?.reachable ? 'active'
+        : n.visited && target?.visited ? 'traveled'
+        : 'idle'
+      out.push({ d, state })
     }
   }
   return out
+})
+
+const currentLayer = computed(() => {
+  const cur = props.state.map?.nodes.find(n => n.current)
+  return (cur?.layer ?? 0)
 })
 
 function choose(node: ClientRoadNode) {
   if (!node.reachable || !props.state.isHost) return
   socket.emit('campaign_action', { code: props.code, action: { type: 'road_choose', nodeId: node.id } })
 }
+
+const LEGEND = [
+  ['⚔️', 'fight'], ['🛒', 'boon'], ['🏕', 'camp'], ['👑', 'the castle'], ['❓', 'unscouted'],
+] as const
 </script>
 
 <template>
-  <div class="max-w-lg mx-auto p-3">
+  <div class="max-w-lg mx-auto p-3 w-full">
     <div class="text-center mb-2 rise-in">
       <h2 class="text-xl font-display font-bold gold-title">{{ state.chapter === 1 ? 'The First Ascension' : 'The Broken Court' }}</h2>
       <p class="text-xs text-base-content/50 font-flavor tracking-wide">
         {{ state.isHost ? 'Choose the next landmark — commitment is one-way.' : 'The host commits the route.' }}
+        <span class="text-base-content/30"> · leg {{ currentLayer + 1 }} of {{ layers.length }}</span>
       </p>
     </div>
 
     <div class="relative card bg-base-100/80 border border-primary/10 overflow-hidden rise-in-1" :style="{ height: totalHeight + 'px' }">
-      <!-- parchment glow behind the current position -->
-      <div class="absolute inset-0 pointer-events-none"
-        style="background: radial-gradient(ellipse 60% 30% at 50% 20%, rgba(201,162,39,0.05), transparent 70%)" />
-      <svg class="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
-        <line
+      <!-- candlelight wash that follows the party -->
+      <div class="absolute inset-x-0 h-48 pointer-events-none transition-all duration-1000"
+        :style="{ top: `${currentLayer * ROW - 48}px`, background: 'radial-gradient(ellipse 65% 70% at 50% 50%, rgba(201,162,39,0.07), transparent 70%)' }" />
+
+      <svg class="absolute inset-0 w-full h-full pointer-events-none"
+        :viewBox="`0 0 100 ${totalHeight}`" preserveAspectRatio="none">
+        <path
           v-for="(e, i) in edges" :key="i"
-          :x1="e.x1 + '%'" :y1="e.y1" :x2="e.x2 + '%'" :y2="e.y2"
-          :class="e.active ? 'path-draw' : ''"
-          :stroke="e.active ? '#c9a227' : 'currentColor'"
-          :stroke-opacity="e.active ? 0.85 : 0.12"
-          :stroke-width="e.active ? 2.5 : 1.5"
-          stroke-dasharray="4 4"
+          :d="e.d"
+          fill="none"
+          vector-effect="non-scaling-stroke"
+          :class="e.state === 'active' ? 'path-draw' : ''"
+          :stroke="e.state === 'idle' ? 'currentColor' : '#c9a227'"
+          :stroke-opacity="e.state === 'active' ? 0.9 : e.state === 'traveled' ? 0.45 : 0.1"
+          :stroke-width="e.state === 'active' ? 2.5 : e.state === 'traveled' ? 2 : 1.5"
+          :stroke-dasharray="e.state === 'traveled' ? 'none' : '4 4'"
         />
       </svg>
 
       <button
         v-for="n in state.map?.nodes" :key="n.id"
-        class="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-0.5 transition-all"
+        class="map-node-enter absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-0.5"
         :class="[
-          n.reachable && state.isHost ? 'cursor-pointer hover:scale-110' : 'cursor-default',
-          n.visited && !n.current ? 'opacity-35' : '',
+          n.reachable && state.isHost ? 'cursor-pointer hover:scale-110 transition-transform' : 'cursor-default',
+          n.visited && !n.current ? 'node-visited opacity-40' : '',
+          !n.visited && !n.reachable && !n.current ? 'opacity-60' : '',
         ]"
-        :style="{ left: positions.get(n.id)?.x + '%', top: positions.get(n.id)?.y + 'px' }"
+        :style="{ left: positions.get(n.id)?.x + '%', top: positions.get(n.id)?.y + 'px', animationDelay: `${n.layer * 70}ms` }"
         :title="`${NODE_LABELS[n.kind] ?? '???'} — ${NODE_DESCRIPTIONS[n.kind] ?? ''}`"
         @click="choose(n)"
       >
+        <span v-if="n.current" class="here-marker text-base">⚜️</span>
         <span
-          class="w-12 h-12 rounded-full flex items-center justify-center text-xl border-2 bg-base-200 transition-transform"
+          class="w-12 h-12 rounded-full flex items-center justify-center text-xl border-2 bg-base-200 relative"
           :class="[
-            n.current ? 'border-primary ring-2 ring-primary/40 bg-primary/15' :
+            n.current ? 'border-primary ring-2 ring-primary/50 bg-primary/15' :
             n.reachable ? 'border-primary/70 node-reachable' :
             'border-base-content/15',
           ]"
-        >{{ NODE_ICONS[n.kind] ?? '❓' }}</span>
+        >
+          {{ NODE_ICONS[n.kind] ?? '❓' }}
+          <span v-if="n.visited && !n.current" class="absolute -bottom-1 -right-1 text-[10px] bg-base-300 rounded-full w-4 h-4 flex items-center justify-center border border-base-content/20">✓</span>
+        </span>
         <span class="text-[10px] font-semibold font-display tracking-wide" :class="n.reachable ? 'text-primary' : 'text-base-content/50'">
           {{ NODE_LABELS[n.kind] ?? '???' }}
         </span>
       </button>
+    </div>
+
+    <div class="flex justify-center gap-3 mt-2 text-[10px] text-base-content/40">
+      <span v-for="[icon, label] in LEGEND" :key="label">{{ icon }} {{ label }}</span>
     </div>
   </div>
 </template>
