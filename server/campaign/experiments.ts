@@ -20,6 +20,9 @@ export const EXPERIMENTS = {
   // ultimates. Castle checkpoint off (the roads between ranks are the rest).
   // LIVE for playtesting (2026-06-11, Gab) — smoke.ts pins canon for tests.
   provinceMode: true,
+  // Gates sweep the party forward without a route choice (random on forks).
+  // OFF for now (2026-06-11, Gab): players keep agency after a gate falls.
+  autoMarchAfterGates: false,
 }
 
 // Class curation (province mode): each suited class removes its N lowest

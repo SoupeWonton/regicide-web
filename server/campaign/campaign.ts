@@ -146,6 +146,7 @@ export function applyRoadChoose(c: CampaignState, playerId: string, nodeId: stri
 // out of a gate commits automatically (pursuit, not planning). Self-guards on
 // phase and node kind, so it is safe to call after any choice resolution.
 function autoAdvanceAfterGate(c: CampaignState) {
+  if (!EXPERIMENTS.autoMarchAfterGates) return
   if (!EXPERIMENTS.provinceMode || c.phase !== 'road' || !c.map) return
   const cur = c.map.nodes.find(n => n.id === c.map!.currentNodeId)
   if (!cur || cur.kind !== 'boss' || cur.next.length === 0) return
