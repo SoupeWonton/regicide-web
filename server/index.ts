@@ -11,12 +11,26 @@ import {
   buildCampaignStates, getSaves, getKingdom, getSession, endSession,
 } from './campaign/sessions'
 import type { CampaignAction } from './campaign/sessions'
+import path from 'path'
+import fs from 'fs'
+import { fileURLToPath } from 'url'
 
 const app = express()
 const http = createServer(app)
 const io = new Server(http, { cors: { origin: '*' } })
 
 app.get('/health', (_, res) => res.json({ ok: true }))
+
+// Production: serve the built client (client/dist) from this server so a
+// single origin (and a single tunnel/host) carries both the app and the
+// websocket. Dev keeps using Vite on :5173 — dist simply may not exist.
+const HERE = path.dirname(fileURLToPath(import.meta.url))
+const DIST = path.join(HERE, '..', 'client', 'dist')
+if (fs.existsSync(DIST)) {
+  app.use(express.static(DIST))
+  app.get(/^\/(?!socket\.io|health).*/, (_, res) => res.sendFile(path.join(DIST, 'index.html')))
+  console.log('Serving built client from client/dist')
+}
 
 // Players are keyed by a stable client id (sent via socket auth, persisted in
 // the browser's localStorage) instead of the volatile socket id. This map
