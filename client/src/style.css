@@ -88,6 +88,39 @@ body::after {
   background: linear-gradient(180deg, #e09c3f 0%, #c07f26 60%, #a96e1d 100%);
   color: #221603;
 }
+.btn-info {
+  background: linear-gradient(180deg, #6f9fe3 0%, #4a7ac4 60%, #3c66a8 100%);
+  color: #0a1322;
+}
+.btn-success {
+  background: linear-gradient(180deg, #74b368 0%, #538f48 60%, #44783b 100%);
+  color: #0c1808;
+}
+/* the arena action: big, centered, impossible to miss — and STATIC.
+   No hover drift; press feedback is light and shadow only. */
+.arena-action,
+.arena-action:hover,
+.arena-action:active {
+  transform: none;
+  font-size: 1.05rem;
+  box-shadow:
+    0 0.3rem 0 0 rgba(0, 0, 0, 0.5),
+    0 0 26px -4px rgba(110, 160, 230, 0.45),
+    0 0.7rem 1.2rem -0.3rem rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+.arena-action:hover { filter: brightness(1.12); }
+.arena-action:active {
+  filter: brightness(0.88);
+  box-shadow:
+    0 0.12rem 0 0 rgba(0, 0, 0, 0.5),
+    inset 0 3px 10px rgba(0, 0, 0, 0.45);
+}
+.arena-action.btn-error:disabled {
+  background: linear-gradient(180deg, #b03434 0%, #8a2727 100%);
+  color: #f3d7d2;
+  opacity: 0.9;
+}
 /* outline buttons: no more transparent flat boxes — dark slabs, colored rim */
 .btn-outline,
 .btn-outline.btn-primary, .btn-outline.btn-secondary, .btn-outline.btn-accent,
@@ -509,6 +542,16 @@ body::after {
 }
 .card-sway { animation: card-sway 3.8s ease-in-out infinite; }
 
+/* the side board: deck + discard rack beside the table */
+.side-board {
+  border-radius: 1rem;
+  border: 1px solid rgba(201, 162, 39, 0.14);
+  background: linear-gradient(178deg, rgba(34, 28, 56, 0.55) 0%, rgba(18, 14, 32, 0.55) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 0.5rem 1rem -0.5rem rgba(0, 0, 0, 0.5);
+}
+
 /* card piles (tavern / discard) */
 .pile { position: relative; width: 2.6rem; height: 3.6rem; }
 .pile-layer {
@@ -707,15 +750,11 @@ body::after {
 .glow-S { box-shadow: 0 0 16px 1px rgba(105, 160, 255, 0.5), 0 4px 10px -2px rgba(0, 0, 0, 0.55); }
 .glow-C { box-shadow: 0 0 16px 1px rgba(120, 220, 130, 0.5), 0 4px 10px -2px rgba(0, 0, 0, 0.55); }
 
-/* ward ring: shield magic snapping shut around the royal */
-.ward-ring {
+/* ward ring: Block magic snapping shut around the PARTY (it's our armor) */
+.party-ward {
   position: absolute;
-  top: -0.5rem;
-  left: 50%;
-  width: 9.5rem;
-  height: 12.5rem;
-  margin-left: -4.75rem;
-  border-radius: 1.1rem;
+  inset: -0.45rem;
+  border-radius: 1rem;
   border: 3px solid rgba(110, 170, 255, 0.75);
   box-shadow:
     0 0 26px 4px rgba(110, 170, 255, 0.45),

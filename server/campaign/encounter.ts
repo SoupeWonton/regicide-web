@@ -4,6 +4,7 @@ import { createRng } from '../rng'
 import type { CampaignState, EncounterState, EncounterTier, EncounterEvent, Hero } from './types'
 import { getEncounterDef, getItem, encountersOf, BOSS_MODIFIERS, CLASSES } from './content'
 import { EXPERIMENTS, CURATION_CUT } from './experiments'
+import { appendGameLog } from './store'
 
 // Campaign encounter engine. A superset of the base Regicide rules with hook
 // points for encounter modifiers, class core abilities, relics, spells,
@@ -19,6 +20,7 @@ const uid = () => `c${++_uid}`
 function clog(c: CampaignState, msg: string) {
   c.log.unshift(msg)
   if (c.log.length > 60) c.log.pop()
+  appendGameLog(c.id, msg)
 }
 
 // ── Event stream (Balatro-style playback on the client) ─────────────────────

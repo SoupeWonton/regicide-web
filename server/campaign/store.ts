@@ -36,6 +36,19 @@ export function saveKingdom(k: KingdomState) {
   fs.writeFileSync(KINGDOM_FILE, JSON.stringify(k, null, 2))
 }
 
+// Full game chronicle on disk — the UI no longer shows a log, but every line
+// is kept per campaign so games can be reviewed and argued about afterwards.
+const LOG_DIR = path.join(DATA_DIR, 'logs')
+export function appendGameLog(campaignId: string, line: string) {
+  try {
+    fs.mkdirSync(LOG_DIR, { recursive: true })
+    fs.appendFileSync(
+      path.join(LOG_DIR, `${campaignId.replace(/[^a-zA-Z0-9_-]/g, '')}.log`),
+      `${new Date().toISOString()} ${line}\n`,
+    )
+  } catch { /* logging never breaks the game */ }
+}
+
 export function saveCampaign(c: CampaignState) {
   ensureDirs()
   fs.writeFileSync(path.join(CAMPAIGN_DIR, `${c.id}.json`), JSON.stringify(c))

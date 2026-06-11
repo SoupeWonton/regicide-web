@@ -82,7 +82,7 @@ watch(
     const dmg = Number(hpA) - Number(hpB)
     const sh = Number(shB) - Number(shA)
     if (dmg > 0) spawnFloat(`−${dmg}`, 'dmg')
-    if (sh > 0) { spawnFloat(`🛡+${sh}`, 'shield'); flashWard() }
+    if (sh > 0) flashWard()   // Block is ours — it flashes on the party, not the royal
   },
 )
 
@@ -380,12 +380,13 @@ const netAttack = computed(() => {
       </p>
     </OverlayModal>
 
-    <!-- ═══ STAGE ═══ -->
+    <!-- ═══ STAGE + the side board (deck/discard live off-table) ═══ -->
+    <div class="flex items-center gap-2 lg:gap-3">
     <div
-      class="stage-swirl rounded-2xl border border-base-content/10 bg-base-300/60 px-3 pt-4 pb-3"
+      class="stage-swirl flex-1 min-w-0 rounded-2xl border border-base-content/10 bg-base-300/60 px-3 pt-4 pb-3"
       :class="shaking ? 'hit-shake hurt-flash' : ''"
     >
-      <div class="relative flex items-center justify-between gap-2 min-h-[13rem] lg:min-h-[15rem] pb-9">
+      <div class="relative flex items-center justify-between gap-2 min-h-[13rem] lg:min-h-[15rem] pb-3">
 
         <!-- The party, holding the line -->
         <div class="relative z-10 flex flex-col justify-center gap-1.5 shrink-0 w-16 lg:w-20">
@@ -408,6 +409,13 @@ const netAttack = computed(() => {
             <p class="text-[9px] font-bold leading-tight mt-0.5 max-w-full truncate">{{ h.playerName }}</p>
             <p class="text-[8px] text-base-content/40 leading-none">{{ h.alive ? h.handSize + ' cards' : 'fallen' }}</p>
           </div>
+          <!-- our standing Block — spades raise it, it eats the counterattack -->
+          <div v-if="enc.currentEnemy && enc.currentEnemy.shield > 0" :key="`blk${enc.currentEnemy.shield}`"
+            class="chip-pop self-center px-2 py-0.5 mt-1 rounded-full bg-info/15 border border-info/45 text-info font-semibold text-[11px] whitespace-nowrap">
+            🛡 Block {{ enc.currentEnemy.shield }}
+          </div>
+          <!-- ward flash when the Block rises -->
+          <div v-if="wardSeq" :key="`w${wardSeq}`" class="party-ward" aria-hidden="true" />
           <!-- the party raises a wall of cards -->
           <div v-if="blockSeq" :key="`b${blockSeq}`" class="block-ward" aria-hidden="true">🛡</div>
         </div>
@@ -424,6 +432,28 @@ const netAttack = computed(() => {
               </div>
             </TransitionGroup>
           </div>
+
+          <!-- floating action: bottom-center of the arena (never covers the
+               thrown cards). Static — click feedback is light/shadow only -->
+          <Transition name="overlay">
+            <div v-if="inPlay && selected.length > 0 && !comboError"
+              class="absolute inset-0 z-30 flex items-end justify-center pb-1 pointer-events-none">
+              <button class="arena-action btn btn-info btn-lg px-8 whitespace-nowrap pointer-events-auto" @click="playSelected">
+                ⚔️ Play {{ selected.length > 1 ? 'combo' : 'card' }}
+              </button>
+            </div>
+          </Transition>
+          <Transition name="overlay">
+            <div v-if="inDiscard && selected.length > 0"
+              class="absolute inset-0 z-30 flex items-end justify-center pb-1 pointer-events-none">
+              <button
+                class="arena-action btn btn-lg px-8 whitespace-nowrap pointer-events-auto"
+                :class="selectedTotal >= enc.discardNeeded ? 'btn-success' : 'btn-error'"
+                :disabled="selectedTotal < enc.discardNeeded"
+                @click="confirmDiscard"
+              >🛡 Block {{ selectedTotal }}/{{ enc.discardNeeded }}</button>
+            </div>
+          </Transition>
         </div>
 
         <!-- Enemy royal card -->
@@ -436,9 +466,6 @@ const netAttack = computed(() => {
               :class="f.kind === 'dmg' ? 'text-error text-3xl' : f.kind === 'shield' ? 'text-info text-xl' : 'text-4xl'"
             >{{ f.text }}</div>
           </div>
-
-          <!-- ward ring when the royal gains shield -->
-          <div v-if="wardSeq" :key="`w${wardSeq}`" class="ward-ring" aria-hidden="true" />
 
           <div class="royal-card w-32 h-44 flex flex-col items-center justify-between py-2 px-2 relative"
             :class="[enc.tier === 'boss' ? 'royal-boss' : '',
@@ -478,38 +505,15 @@ const netAttack = computed(() => {
             </div>
           </div>
 
-          <!-- stat chips -->
+          <!-- attack chip: our Block directly reduces the number shown -->
           <div class="flex gap-2 mt-1.5 text-xs">
-            <span class="px-2 py-0.5 rounded-full bg-error/15 border border-error/30 text-error font-semibold">⚔️ {{ enc.currentEnemy.attack }}</span>
-            <span v-if="enc.currentEnemy.shield > 0" :key="enc.currentEnemy.shield" class="chip-pop px-2 py-0.5 rounded-full bg-info/15 border border-info/30 text-info font-semibold">
-              🛡 {{ enc.currentEnemy.shield }} → {{ netAttack }}
+            <span :key="netAttack" class="chip-pop px-2 py-0.5 rounded-full bg-error/15 border border-error/30 text-error font-semibold">
+              ⚔️ {{ netAttack }}<s v-if="enc.currentEnemy.shield > 0" class="opacity-50 ml-1 font-normal">{{ enc.currentEnemy.attack }}</s>
             </span>
           </div>
         </div>
         </Transition>
 
-      </div>
-
-      <!-- piles, tucked at the table's foot — click to inspect -->
-      <div class="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex gap-7 z-10">
-        <button class="flex items-center gap-1.5 cursor-pointer hover:brightness-125 transition-all"
-          :title="`Tavern — the draw pile (click to inspect). Empty? Only ♥ Hearts or a camp rest refill it.`"
-          @click="showPile = 'tavern'">
-          <div class="pile scale-75 origin-right" :class="enc.tavernCount === 0 ? 'pile-empty' : ''">
-            <div class="pile-layer" /><div class="pile-layer" /><div class="pile-layer" />
-            <span class="absolute inset-0 flex items-center justify-center font-display font-bold text-primary/90 z-10">{{ enc.tavernCount }}</span>
-          </div>
-          <span class="text-[9px] uppercase tracking-widest text-base-content/40">Tavern 🔍</span>
-        </button>
-        <button class="flex items-center gap-1.5 cursor-pointer hover:brightness-125 transition-all"
-          title="Discard — played and lost cards (click to inspect). ♥ Hearts recover from here."
-          @click="showPile = 'discard'">
-          <div class="pile scale-75 origin-right" :class="enc.discardCount === 0 ? 'pile-empty' : ''">
-            <div class="pile-layer" /><div class="pile-layer" /><div class="pile-layer" />
-            <span class="absolute inset-0 flex items-center justify-center font-display font-bold text-base-content/70 z-10">{{ enc.discardCount }}</span>
-          </div>
-          <span class="text-[9px] uppercase tracking-widest text-base-content/40">Discard 🔍</span>
-        </button>
       </div>
 
       <!-- pile inspector: contents sorted by suit/value — draw order stays secret -->
@@ -546,6 +550,30 @@ const netAttack = computed(() => {
         </Transition>
       </div>
 
+    </div>
+
+    <!-- the side board: deck + discard stacked beside the table, click to inspect -->
+    <aside class="side-board shrink-0 self-stretch flex flex-col items-center justify-center gap-3 px-2 py-3">
+      <button class="flex flex-col items-center gap-1 cursor-pointer hover:brightness-125 transition-all"
+        :title="`Tavern — the draw pile (click to inspect). Empty? Only ♥ Hearts or a camp rest refill it.`"
+        @click="showPile = 'tavern'">
+        <div class="pile" :class="enc.tavernCount === 0 ? 'pile-empty' : ''">
+          <div class="pile-layer" /><div class="pile-layer" /><div class="pile-layer" />
+          <span class="absolute inset-0 flex items-center justify-center font-display font-bold text-primary/90 z-10">{{ enc.tavernCount }}</span>
+        </div>
+        <span class="text-[9px] uppercase tracking-widest text-base-content/40">Tavern</span>
+      </button>
+      <div class="h-px w-9 bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
+      <button class="flex flex-col items-center gap-1 cursor-pointer hover:brightness-125 transition-all"
+        title="Discard — played and lost cards (click to inspect). ♥ Hearts recover from here."
+        @click="showPile = 'discard'">
+        <div class="pile" :class="enc.discardCount === 0 ? 'pile-empty' : ''">
+          <div class="pile-layer" /><div class="pile-layer" /><div class="pile-layer" />
+          <span class="absolute inset-0 flex items-center justify-center font-display font-bold text-base-content/70 z-10">{{ enc.discardCount }}</span>
+        </div>
+        <span class="text-[9px] uppercase tracking-widest text-base-content/40">Discard</span>
+      </button>
+    </aside>
     </div>
 
     <!-- Choose-next — a blocking decision, so it floats over the table -->
@@ -592,7 +620,7 @@ const netAttack = computed(() => {
         </span>
         <span v-if="preview.shield !== null" class="chip-pop px-2 py-0.5 rounded-full bg-info/15 border border-info/45 text-info font-semibold"
           :class="enc.myBoosts.S > 0 ? 'ring-1 ring-success/50' : ''">
-          🛡 +{{ preview.shield }}<span v-if="enc.myBoosts.S !== 0" class="ml-1" :class="enc.myBoosts.S > 0 ? 'text-success' : 'text-error'">({{ enc.myBoosts.S > 0 ? '+' : '' }}{{ enc.myBoosts.S }})</span>
+          🛡 Block +{{ preview.shield }}<span v-if="enc.myBoosts.S !== 0" class="ml-1" :class="enc.myBoosts.S > 0 ? 'text-success' : 'text-error'">({{ enc.myBoosts.S > 0 ? '+' : '' }}{{ enc.myBoosts.S }})</span>
         </span>
         <span v-if="preview.draws !== null" class="chip-pop px-2 py-0.5 rounded-full bg-success/15 border border-success/45 text-success font-semibold">
           ♦ draw {{ preview.draws }}<span v-if="enc.myBoosts.D !== 0" class="ml-1" :class="enc.myBoosts.D > 0 ? 'text-success' : 'text-error'">({{ enc.myBoosts.D > 0 ? '+' : '' }}{{ enc.myBoosts.D }})</span>
@@ -649,15 +677,9 @@ const netAttack = computed(() => {
         <p v-if="hand.length === 0" key="empty-hand" class="text-xs text-base-content/40 py-6">No cards — yield and pray.</p>
       </TransitionGroup>
 
-      <!-- Actions (above the fan in stacking order — cards never cover buttons) -->
-      <div class="flex gap-2 mt-1 relative z-50">
-        <button v-if="inPlay" class="btn btn-primary flex-1" :disabled="selected.length === 0 || !!comboError" @click="playSelected">
-          Play {{ selected.length > 1 ? 'combo' : 'card' }}
-        </button>
-        <button v-if="inPlay" class="btn btn-ghost btn-sm self-center" @click="act({ type: 'yield_turn' })">Yield</button>
-        <button v-if="inDiscard" class="btn btn-error flex-1" :disabled="selectedTotal < enc.discardNeeded" @click="confirmDiscard">
-          Discard ({{ selectedTotal }}/{{ enc.discardNeeded }})
-        </button>
+      <!-- Play/Block float on the table while selecting; only Yield lives here -->
+      <div v-if="inPlay" class="flex justify-center -mt-3 relative z-50">
+        <button class="btn btn-ghost btn-xs text-base-content/50" @click="act({ type: 'yield_turn' })">🏳 Yield</button>
       </div>
 
       <!-- Arsenal: the team's magic, physically on the table -->
@@ -701,7 +723,7 @@ const netAttack = computed(() => {
     </div>
     </div>
 
-    <!-- ═══ RIGHT WING: battle intel + chronicle (desktop) ═══ -->
+    <!-- ═══ RIGHT WING: battle intel (desktop) ═══ -->
     <aside class="hidden lg:flex flex-col gap-2 sticky top-3">
       <div class="card bg-base-100/90">
         <div class="card-body p-3 gap-1.5">

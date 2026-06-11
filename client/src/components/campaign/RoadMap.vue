@@ -144,7 +144,7 @@ const LEGEND = [
             {{ gateInfo.get(n.id)?.icon ?? NODE_ICONS[n.kind] ?? '❓' }}
             <span v-if="n.visited && !n.current" class="absolute -bottom-1 -right-1 text-[10px] bg-[#d8c89f] text-[#3a2d18] rounded-full w-4 h-4 flex items-center justify-center border border-[#8a6d1c]">✓</span>
           </span>
-          <span class="text-[10px] font-semibold font-display tracking-wide" :class="n.reachable ? 'text-[#7a5510]' : 'text-[#5a4830]/85'">
+          <span class="map-label text-[10px] font-semibold font-display tracking-wide" :class="n.reachable ? 'text-[#7a5510]' : 'text-[#5a4830]/85'">
             {{ gateInfo.get(n.id)?.label ?? NODE_LABELS[n.kind] ?? '???' }}
           </span>
         </div>

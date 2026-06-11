@@ -18,6 +18,12 @@ function onToggleMute() { muted.value = toggleMute() }
 const victory = ref<{ title: string; sub: string } | null>(null)
 let victoryTimer: ReturnType<typeof setTimeout> | null = null
 
+// ── Vote resolution: confirm the winner; tied votes spin the wheel of fate ───
+const draw = ref<{ options: { id: string; label: string; detail?: string }[]; winnerId: string; tie: boolean; detail?: string } | null>(null)
+const drawActiveId = ref('')
+const drawSettled = ref(false)
+let drawTimers: ReturnType<typeof setTimeout>[] = []
+
 const props = defineProps<{ state: ClientCampaignState; code: string }>()
 
 const errorMsg = ref('')
@@ -63,6 +69,47 @@ const lastFightTier = ref('')
 watch(() => props.state.encounter?.tier, t => { if (t) lastFightTier.value = t })
 const lastFightRank = ref<'J' | 'Q' | 'K' | null>(null)
 watch(() => props.state.encounter, e => { if (e) lastFightRank.value = e.siegeRank }, { immediate: true })
+
+// every vote resolution confirms the winner; ties additionally spin a
+// decelerating wheel that always lands on the server's pick
+watch(() => props.state.rewardDraw?.seq, (now, was) => {
+  const rd = props.state.rewardDraw
+  if (!rd || was === undefined || now === was) return
+  drawTimers.forEach(clearTimeout)
+  drawTimers = []
+  const winnerDetail = rd.options.find(o => o.id === rd.winnerId)?.detail
+  if (!rd.tie || rd.options.length < 2) {
+    // clean majority — show what won and what it does, no wheel
+    draw.value = { options: rd.options, winnerId: rd.winnerId, tie: false, detail: winnerDetail }
+    drawActiveId.value = rd.winnerId
+    drawSettled.value = true
+    sfx.arcane()
+    drawTimers.push(setTimeout(() => { draw.value = null }, 2800))
+    return
+  }
+  draw.value = { options: rd.options, winnerId: rd.winnerId, tie: true, detail: winnerDetail }
+  drawSettled.value = false
+  const n = rd.options.length
+  const winIdx = Math.max(0, rd.options.findIndex(o => o.id === rd.winnerId))
+  const steps = n * 4 + winIdx          // always ends on the winner
+  let t = 400                            // beat before the wheel starts
+  let delay = 85
+  for (let s = 0; s <= steps; s++) {
+    const id = rd.options[s % n]!.id
+    const isLast = s === steps
+    drawTimers.push(setTimeout(() => {
+      drawActiveId.value = id
+      sfx.click()
+      if (isLast) {
+        drawSettled.value = true
+        sfx.victory()
+        drawTimers.push(setTimeout(() => { draw.value = null }, 1700))
+      }
+    }, t))
+    if (s > steps - n) delay *= 1.4      // decelerate on the final lap
+    t += delay
+  }
+})
 
 watch(() => props.state.phase, (now, was) => {
   // a boss just fell — memory drafts only ever follow a slain castle / Throne
@@ -130,6 +177,7 @@ watch(() => props.state.phase, (now, was) => {
 onBeforeUnmount(() => {
   if (splashTimer) clearTimeout(splashTimer)
   if (victoryTimer) clearTimeout(victoryTimer)
+  drawTimers.forEach(clearTimeout)
 })
 
 const voteLabels: Record<string, string> = {
@@ -263,6 +311,37 @@ function heroTooltip(h: ClientHero): string {
     </div>
     </Transition>
 
+    <!-- Casino draw: a tied vote spins the wheel of fate -->
+    <Transition name="splash">
+      <div v-if="draw" class="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none"
+        style="background: radial-gradient(ellipse at center, rgba(28, 20, 8, 0.92) 0%, rgba(11, 9, 24, 0.97) 100%)">
+        <div class="text-center px-6 w-full max-w-md">
+          <p class="font-flavor tracking-[0.35em] uppercase text-sm rise-in-1"
+            :class="draw.tie ? 'text-warning/80' : 'text-primary/70'">
+            {{ draw.tie ? 'The vote is tied' : 'The vote is in' }}
+          </p>
+          <h2 class="font-display font-black text-4xl gold-title mt-1 mb-5">
+            {{ draw.tie ? 'Fate Decides' : 'The Party Chooses' }}
+          </h2>
+          <div class="space-y-2">
+            <div
+              v-for="o in draw.options" :key="o.id"
+              class="rounded-xl border-2 px-4 py-3 font-display font-bold transition-all duration-100"
+              :class="drawActiveId === o.id
+                ? (drawSettled && o.id === draw.winnerId
+                  ? 'border-primary bg-primary/25 text-primary scale-105 shadow-2xl'
+                  : 'border-warning bg-warning/20 text-warning scale-[1.03]')
+                : 'border-base-content/15 bg-base-100/70 text-base-content/45'"
+            >
+              {{ drawSettled && o.id === draw.winnerId ? '✨ ' : '' }}{{ o.label }}
+              <p v-if="drawSettled && o.id === draw.winnerId && draw.detail"
+                class="text-xs font-normal font-sans text-base-content/65 mt-1.5 leading-snug">{{ draw.detail }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
     <!-- Boss victory sequence -->
     <Transition name="splash">
       <div v-if="victory" class="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none overflow-hidden"
@@ -333,12 +412,14 @@ function heroTooltip(h: ClientHero): string {
             <ItemCard
               v-if="choice.kind === 'landmark_reward' && /^[rspm]-/.test(opt.id)"
               :id="opt.id" :name="opt.label" :text="opt.detail"
+              :class="choice.teamVote && choice.myVote === opt.id ? 'ring-2 ring-primary' : ''"
               @click="act({ type: 'choice_pick', optionId: opt.id })"
             />
             <button
               v-else
               class="btn btn-outline justify-start text-left h-auto py-2 w-full"
-              :class="choice.kind === 'exile_pick' ? 'btn-sm font-mono justify-center' : ''"
+              :class="[choice.kind === 'exile_pick' ? 'btn-sm font-mono justify-center' : '',
+                choice.teamVote && choice.myVote === opt.id ? 'ring-2 ring-primary' : '']"
               @click="act({ type: 'choice_pick', optionId: opt.id })"
             >
               <span class="font-semibold">{{ opt.label }}</span>
@@ -346,6 +427,10 @@ function heroTooltip(h: ClientHero): string {
             </button>
           </template>
         </div>
+        <p v-if="choice.teamVote" class="text-[11px] text-center text-base-content/40">
+          🗳 {{ choice.votesIn }}/{{ choice.votesNeeded }} votes in · secret ballot · majority wins, ties spin the wheel
+          <span v-if="choice.myVote" class="text-primary/60">· tap again to change your vote</span>
+        </p>
       </template>
       <p v-else class="text-sm text-center text-base-content/50 soft-pulse">
         {{ choice.forPlayerId ? 'Their decision to make…' : 'The host decides…' }}
@@ -381,17 +466,7 @@ function heroTooltip(h: ClientHero): string {
       </div>
     </div>
 
-    <!-- Log (never during a battle — the battlefield speaks for itself) -->
-    <div class="card bg-base-100 m-3 mt-auto" v-if="!['campaign_won', 'campaign_lost'].includes(phase) && phaseKey !== 'fight'">
-      <div class="card-body py-3 px-4">
-        <p class="text-xs font-display font-semibold text-primary/40 uppercase tracking-[0.25em] mb-1">Chronicle</p>
-        <TransitionGroup name="log" tag="div" class="space-y-1 max-h-28 overflow-y-auto">
-          <p v-for="(entry, i) in state.log" :key="state.log.length - i"
-            class="text-xs leading-snug"
-            :class="i === 0 ? 'text-base-content/90' : 'text-base-content/50'"
-          >{{ entry }}</p>
-        </TransitionGroup>
-      </div>
-    </div>
+    <!-- No chronicle on screen — the full game log is written to
+         server/data/logs/<campaign-id>.log for post-game arguments. -->
   </div>
 </template>

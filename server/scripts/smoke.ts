@@ -50,6 +50,14 @@ function drive(c: CampaignState, opts: { cheatKill: boolean; budget?: number; st
       case 'landmark':
       case 'replace_hero': {
         const pc = c.pendingChoice!
+        if (pc.kind === 'landmark_reward' && pc.forPlayerId === null && c.heroes.length > 1) {
+          // team rewards are a vote — everyone backs the first option
+          for (const h of c.heroes) {
+            if (!c.pendingChoice) break
+            step(c, h.playerId, () => applyChoice(c, h.playerId, pc.options[0]!.id, P1), `vote ${pc.kind}`)
+          }
+          break
+        }
         const decider = pc.forPlayerId ?? P1
         step(c, decider, () => applyChoice(c, decider, pc.options[0]!.id, P1), `choice ${pc.kind}`)
         break

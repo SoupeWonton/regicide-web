@@ -65,6 +65,13 @@ const CORE = [
     pillars: [['Consistency', 3], ['Initiative', 1]] as const,
     accent: 'oracle-accent',
   },
+  {
+    id: 'exile', name: 'Exile', theme: 'Deck Evolution', suit: '🔥',
+    question: 'What must be cut away?',
+    text: 'Once per camp, exile one card from the deck for the rest of the chapter. Every second exile adds Burden.',
+    pillars: [['Consistency', 2], ['Recovery', 1]] as const,
+    accent: 'exile-accent',
+  },
 ]
 
 const takenBy = computed(() => {
@@ -88,7 +95,7 @@ function pick(classId: string) {
       <h2 class="text-3xl font-display font-bold gold-title mt-1">Assemble the Lineage</h2>
       <div class="splash-rule h-px mt-3 mx-auto w-56 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
       <p class="text-sm text-base-content/50 mt-2 font-flavor tracking-wide">
-        Chapter {{ state.chapter }} — eight banners answer the call. The Exile has not yet been earned.
+        Chapter {{ state.chapter }} — all nine banners answer the call.
       </p>
     </div>
 
@@ -143,7 +150,7 @@ function pick(classId: string) {
       <template v-if="waitingOn.length">
         <span class="soft-pulse">Waiting on {{ waitingOn.join(', ') }}…</span>
       </template>
-      The Exile joins the roster once earned — every other banner answers from the start.
+      All classes are unlocked for playtesting.
     </p>
     <p class="text-center text-[11px] text-primary/50 font-flavor tracking-wide">
       ⚔ Province rules: each suited hero curates the deck at setup — their lowest cards of their own suit are cut.

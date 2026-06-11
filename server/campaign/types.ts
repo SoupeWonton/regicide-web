@@ -103,10 +103,11 @@ export type CampaignPhase =
 
 export interface PendingChoice {
   kind: 'landmark_reward' | 'replacement' | 'exile_pick' | 'memory'
-  forPlayerId: string | null   // null → host decides
+  forPlayerId: string | null   // null → team vote (or host when solo)
   prompt: string
   options: { id: string; label: string; detail?: string }[]
   returnTo?: 'camp' | 'road'   // phase to restore after the pick (default road)
+  votes?: Record<string, string>   // team rewards: playerId → optionId (secret ballot)
 }
 
 export interface DeathVoteState {
@@ -217,6 +218,14 @@ export interface CampaignState {
   shrineBlessing: boolean         // +1 hand size next encounter
 
   pendingChoice: PendingChoice | null
+  // last resolved team-reward vote — the client confirms the winner (and
+  // plays the casino draw on ties)
+  rewardDraw?: {
+    seq: number
+    options: { id: string; label: string; detail?: string }[]
+    winnerId: string
+    tie: boolean
+  } | null
   deathVote: DeathVoteState | null
   memoryDraft: MemoryDraftState | null
 
@@ -316,7 +325,14 @@ export interface ClientCampaignState {
   spells: { id: string; name: string; text: string; tier: ItemTier }[]
   preparations: { id: string; name: string; text: string; tier: ItemTier }[]
   activePreparations: { id: string; name: string; text: string }[]
-  pendingChoice: (PendingChoice & { mine: boolean }) | null
+  pendingChoice: (Omit<PendingChoice, 'votes'> & {
+    mine: boolean
+    teamVote: boolean
+    myVote: string | null
+    votesIn: number
+    votesNeeded: number
+  }) | null
+  rewardDraw: { seq: number; options: { id: string; label: string; detail?: string }[]; winnerId: string; tie: boolean } | null
   deathVote: { deadHeroName: string; options: string[]; votes: Record<string, string>; myVote: string | null; isBoss: boolean } | null
   memoryDraft: { myOptions: { id: string; name: string; text: string }[] | null; waitingOn: string[] } | null
   exileAvailable: boolean

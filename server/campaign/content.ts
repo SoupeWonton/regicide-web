@@ -62,10 +62,10 @@ export const TIER2_CLASSES: ClassId[] = ['commander', 'warden']
 export const TIER3_CLASSES: ClassId[] = ['gambler', 'exile', 'oracle']
 
 // Province direction 2026-06-11: the two support (commander, warden) and two
-// weird (gambler, oracle) classes are start-available. Exile stays locked —
-// its deck-exile identity overlaps the class curation system and is being
-// rethought; it remains a rewards-on-death unlock.
-export const STARTING_CLASSES: ClassId[] = [...TIER1_CLASSES, 'commander', 'warden', 'gambler', 'oracle']
+// weird (gambler, oracle) classes are start-available. Exile's deck-exile
+// identity overlaps class curation and is being rethought, but for playtest
+// coverage ALL classes are unlocked for now (2026-06-11, Gab).
+export const STARTING_CLASSES: ClassId[] = [...TIER1_CLASSES, 'commander', 'warden', 'gambler', 'oracle', 'exile']
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Encounter modifiers — implemented subset of the Chapter 1 encounter pack.

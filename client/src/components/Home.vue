@@ -63,28 +63,33 @@ function join() {
             class="input input-bordered w-full"
             placeholder="e.g. Gabe"
             maxlength="20"
-            @keyup.enter="create"
           />
         </div>
 
-        <button class="btn btn-primary btn-lg w-full" :disabled="loading" @click="create">
-          <span v-if="loading" class="loading loading-spinner loading-sm" />
-          Create Room
-        </button>
-
-        <div class="divider text-xs text-base-content/40">or join existing</div>
-
-        <div class="flex gap-2">
-          <input
-            v-model="code"
-            class="input input-bordered flex-1 uppercase tracking-widest font-mono text-center"
-            placeholder="XXXX"
-            maxlength="4"
-            @keyup.enter="join"
-          />
-          <button class="btn btn-outline btn-neutral" :disabled="loading" @click="join">
-            Join
-          </button>
+        <!-- two equal doors: host a table, or walk into one -->
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded-xl border border-primary/20 bg-base-200/40 p-3 flex flex-col gap-2 text-center">
+            <p class="text-[10px] uppercase tracking-[0.25em] text-base-content/40">Host a table</p>
+            <p class="text-xs text-base-content/50 flex-1 leading-snug">Open a room and share the 4-letter code.</p>
+            <button class="btn btn-primary w-full" :disabled="loading" @click="create">
+              <span v-if="loading" class="loading loading-spinner loading-sm" />
+              ⚜ Create
+            </button>
+          </div>
+          <div class="rounded-xl border border-primary/20 bg-base-200/40 p-3 flex flex-col gap-2 text-center">
+            <p class="text-[10px] uppercase tracking-[0.25em] text-base-content/40">Join a table</p>
+            <input
+              v-model="code"
+              class="input input-bordered input-sm w-full uppercase tracking-[0.3em] font-mono text-center flex-1"
+              placeholder="XXXX"
+              maxlength="4"
+              @keyup.enter="join"
+            />
+            <button class="btn btn-secondary w-full" :disabled="loading" @click="join">
+              <span v-if="loading" class="loading loading-spinner loading-sm" />
+              🚪 Join
+            </button>
+          </div>
         </div>
 
         <div v-if="error" class="alert alert-error text-sm py-2">{{ error }}</div>

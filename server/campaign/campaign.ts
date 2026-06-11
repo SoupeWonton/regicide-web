@@ -9,7 +9,7 @@ import {
   startEncounter, maxHandSize, setupChapterDeck, campRest, dealReplacementHand,
   computeBoosts,
 } from './encounter'
-import { loadKingdom, saveKingdom, saveCampaign } from './store'
+import { loadKingdom, saveKingdom, saveCampaign, appendGameLog } from './store'
 import { EXPERIMENTS } from './experiments'
 import { RUN_EVENTS } from './events'
 
@@ -25,6 +25,7 @@ const evUid = () => `evc${++_evUid}`
 function clog(c: CampaignState, msg: string) {
   c.log.unshift(msg)
   if (c.log.length > 60) c.log.pop()
+  appendGameLog(c.id, msg)
 }
 
 function rng(c: CampaignState) {
@@ -258,38 +259,51 @@ function offerItems(c: CampaignState, kind: 'relic' | 'spell' | 'preparation', t
 export function applyChoice(c: CampaignState, playerId: string, optionId: string, hostId: string): { error?: string } {
   const pc = c.pendingChoice
   if (!pc) return { error: 'Nothing to choose.' }
-  const decider = pc.forPlayerId ?? hostId
-  if (playerId !== decider) return { error: 'Not your decision.' }
+  const teamVote = pc.kind === 'landmark_reward' && pc.forPlayerId === null && c.heroes.length > 1
+  if (!teamVote) {
+    const decider = pc.forPlayerId ?? hostId
+    if (playerId !== decider) return { error: 'Not your decision.' }
+  } else if (!c.heroes.some(h => h.playerId === playerId)) {
+    return { error: 'You are not in this campaign.' }
+  }
   if (!pc.options.some(o => o.id === optionId)) return { error: 'Invalid option.' }
 
   if (pc.kind === 'landmark_reward') {
-    if (optionId.startsWith('hero-')) {
-      c.nextStarterIndex = parseInt(optionId.slice(5))
-      clog(c, `🗼 ${c.heroes[c.nextStarterIndex]!.playerName} will take the first turn of the next encounter.`)
-      c.pendingChoice = null
-      c.phase = pc.returnTo ?? 'road'   // Brace Command picks return to camp
-      return {}
-    } else if (optionId.startsWith('ev:')) {
-      const [, eventId, optId] = optionId.split(':')
-      applyRunEvent(c, eventId!, optId!)
-      c.pendingChoice = null
-      c.phase = 'road'
-      return {}
-    } else if (optionId === 'intel') {
-      clog(c, c.chapter === 2 ? '🗼 The Tower reveals the court’s corruption.' : '🗼 The Tower reveals little — the First Ascension hides no tricks.')
-      c.debug = { ...c.debug }
-      c.pendingChoice = null
-      c.phase = 'road'
-      // reveal applies to the *next* boss encounter — store on campaign
-      ;(c as CampaignState & { bossIntel?: boolean }).bossIntel = true
-      return {}
-    } else {
-      grantItem(c, optionId)
+    if (teamVote) {
+      // team rewards are a secret ballot: everyone votes, majority wins,
+      // ties go to the wheel of fate (client plays the casino draw)
+      pc.votes = pc.votes ?? {}
+      const firstVote = !(playerId in pc.votes)
+      pc.votes[playerId] = optionId
+      if (firstVote) {
+        const who = c.heroes.find(h => h.playerId === playerId)!
+        clog(c, `🗳 ${who.playerName} locks a vote (${Object.keys(pc.votes).length}/${c.heroes.length}).`)
+      }
+      if (Object.keys(pc.votes).length < c.heroes.length) return {}
+
+      const tally = new Map<string, number>()
+      for (const v of Object.values(pc.votes)) tally.set(v, (tally.get(v) ?? 0) + 1)
+      const top = Math.max(...tally.values())
+      const leaders = [...tally.entries()].filter(([, n]) => n === top).map(([id]) => id)
+      let winner = leaders[0]!
+      const tie = leaders.length > 1
+      if (tie) {
+        const { r, done } = rng(c)
+        winner = r.pick(leaders)
+        done()
+        clog(c, '🎰 The vote is tied — fate spins the wheel.')
+      } else {
+        clog(c, '🗳 The vote settles it.')
+      }
+      c.rewardDraw = {
+        seq: (c.rewardDraw?.seq ?? 0) + 1,
+        options: pc.options.filter(o => leaders.includes(o.id)).map(o => ({ id: o.id, label: o.label, detail: o.detail })),
+        winnerId: winner,
+        tie,
+      }
+      return resolveRewardOption(c, winner, pc)
     }
-    c.pendingChoice = null
-    c.phase = 'road'
-    autoAdvanceAfterGate(c)   // province: gates sweep the party forward
-    return {}
+    return resolveRewardOption(c, optionId, pc)
   }
 
   if (pc.kind === 'replacement') {
@@ -323,6 +337,38 @@ export function applyChoice(c: CampaignState, playerId: string, optionId: string
   }
 
   return { error: 'Unhandled choice.' }
+}
+
+// resolve a landmark_reward option (after a vote or a direct pick)
+function resolveRewardOption(c: CampaignState, optionId: string, pc: PendingChoice): { error?: string } {
+  if (optionId.startsWith('hero-')) {
+    c.nextStarterIndex = parseInt(optionId.slice(5))
+    clog(c, `🗼 ${c.heroes[c.nextStarterIndex]!.playerName} will take the first turn of the next encounter.`)
+    c.pendingChoice = null
+    c.phase = pc.returnTo ?? 'road'   // Brace Command picks return to camp
+    return {}
+  }
+  if (optionId.startsWith('ev:')) {
+    const [, eventId, optId] = optionId.split(':')
+    applyRunEvent(c, eventId!, optId!)
+    c.pendingChoice = null
+    c.phase = 'road'
+    return {}
+  }
+  if (optionId === 'intel') {
+    clog(c, c.chapter === 2 ? '🗼 The Tower reveals the court’s corruption.' : '🗼 The Tower reveals little — the First Ascension hides no tricks.')
+    c.debug = { ...c.debug }
+    c.pendingChoice = null
+    c.phase = 'road'
+    // reveal applies to the *next* boss encounter — store on campaign
+    ;(c as CampaignState & { bossIntel?: boolean }).bossIntel = true
+    return {}
+  }
+  grantItem(c, optionId)
+  c.pendingChoice = null
+  c.phase = 'road'
+  autoAdvanceAfterGate(c)   // province: gates sweep the party forward
+  return {}
 }
 
 // ── Road events: non-battle run impact (TEST-GRADE, see events.ts) ──────────
@@ -946,8 +992,20 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
     preparations: c.preparations.map(itemView),
     activePreparations: c.activePreparations.map(itemView),
     pendingChoice: c.pendingChoice
-      ? { ...c.pendingChoice, mine: (c.pendingChoice.forPlayerId ?? hostId) === forPlayerId }
+      ? (() => {
+          const { votes, ...pub } = c.pendingChoice
+          const teamVote = c.pendingChoice.kind === 'landmark_reward' && c.pendingChoice.forPlayerId === null && c.heroes.length > 1
+          return {
+            ...pub,
+            mine: teamVote || (c.pendingChoice.forPlayerId ?? hostId) === forPlayerId,
+            teamVote,
+            myVote: votes?.[forPlayerId] ?? null,   // ballots stay secret — you only see your own
+            votesIn: Object.keys(votes ?? {}).length,
+            votesNeeded: c.heroes.length,
+          }
+        })()
       : null,
+    rewardDraw: c.rewardDraw ?? null,
     deathVote: c.deathVote
       ? {
           deadHeroName: c.heroes[c.deathVote.deadHeroIndex]!.playerName,

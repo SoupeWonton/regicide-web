@@ -134,6 +134,10 @@ export interface PendingChoiceView {
   prompt: string
   options: { id: string; label: string; detail?: string }[]
   mine: boolean
+  teamVote: boolean
+  myVote: string | null
+  votesIn: number
+  votesNeeded: number
 }
 
 export interface ClientCampaignState {
@@ -153,6 +157,7 @@ export interface ClientCampaignState {
   preparations: ItemView[]
   activePreparations: ItemView[]
   pendingChoice: PendingChoiceView | null
+  rewardDraw: { seq: number; options: { id: string; label: string; detail?: string }[]; winnerId: string; tie: boolean } | null
   deathVote: { deadHeroName: string; options: string[]; votes: Record<string, string>; myVote: string | null; isBoss: boolean } | null
   memoryDraft: { myOptions: ItemView[] | null; waitingOn: string[] } | null
   exileAvailable: boolean
