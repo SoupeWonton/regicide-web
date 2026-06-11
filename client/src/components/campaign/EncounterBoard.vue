@@ -309,6 +309,11 @@ function heroTooltip(h: (typeof props.state.heroes)[number]): string {
 const rankNames: Record<string, string> = { J: 'Jack', Q: 'Queen', K: 'King' }
 const ROYAL_GLYPHS: Record<string, string> = { J: '♞', Q: '♛', K: '♚' }
 const tierLabels: Record<string, string> = { skirmish: 'Skirmish', veteran: 'Veteran patrol', elite: 'Elite warband', boss: 'THE CASTLE' }
+const GATE_LABELS: Record<string, string> = { J: 'THE GATES', Q: 'THE COURTYARD', K: 'THE THRONE' }
+const tierLabel = computed(() =>
+  enc.value.tier === 'boss' && enc.value.siegeRank
+    ? GATE_LABELS[enc.value.siegeRank]!
+    : tierLabels[enc.value.tier] ?? enc.value.tier)
 const netAttack = computed(() => {
   const e = enc.value.currentEnemy
   return e ? Math.max(0, e.attack - e.shield) : 0
@@ -326,7 +331,7 @@ const netAttack = computed(() => {
       <div class="card-body py-2 px-4 gap-0.5">
         <div class="flex items-center justify-between">
           <span class="font-display font-bold text-sm tracking-wide" :class="enc.tier === 'boss' ? 'text-error' : 'text-primary/90'">
-            {{ tierLabels[enc.tier] }}
+            {{ tierLabel }}
             <span v-if="enc.modifier" class="text-base-content/80"> — {{ enc.modifier.name }}</span>
           </span>
           <span class="text-xs text-base-content/50">⚔️ {{ enc.defeatedCount }}/{{ enc.totalEnemies }}</span>
@@ -672,7 +677,7 @@ const netAttack = computed(() => {
           <p class="text-[10px] font-display font-semibold text-primary/40 uppercase tracking-[0.25em]">Battle Intel</p>
           <div class="flex items-center justify-between">
             <span class="font-display font-bold text-sm tracking-wide" :class="enc.tier === 'boss' ? 'text-error' : 'text-primary/90'">
-              {{ tierLabels[enc.tier] }}
+              {{ tierLabel }}
             </span>
             <span class="text-xs text-base-content/50">⚔️ {{ enc.defeatedCount }}/{{ enc.totalEnemies }}</span>
           </div>

@@ -8,7 +8,13 @@ import { createCampaign, applyClassPick, applyRoadChoose, applyChoice, applyDeat
 import { applyEncounterPlay, applyEncounterDiscard, applyEncounterYield, applyEncounterChooseNext, applySetupReorder, applyCastSpell } from '../campaign/encounter'
 import { loadKingdom, saveCampaign, loadCampaign } from '../campaign/store'
 import { cardValue } from '../deck'
+import { EXPERIMENTS } from '../campaign/experiments'
 import type { CampaignState } from '../campaign/types'
+
+// Tests 1-8 assert CANON rules regardless of the live experiment toggles;
+// Test 9 covers province mode explicitly.
+const LIVE_PROVINCE = EXPERIMENTS.provinceMode
+EXPERIMENTS.provinceMode = false
 
 let failures = 0
 function assert(cond: unknown, msg: string) {
@@ -340,6 +346,49 @@ console.log('Test 8: player-count scaling')
   d.phase = 'road'
   step(d, 'host', () => applyRoadChoose(d, P1, 'm1', P1), 'duo market')
   assert((d.pendingChoice?.options.length ?? 0) === 4, `duo market shows 4 options (got ${d.pendingChoice?.options.length})`)
+}
+
+// ── Test 9: province mode (Gates → Courtyard → Throne) ──────────────────────
+console.log('Test 9: province mode')
+{
+  EXPERIMENTS.provinceMode = true
+  // note: province cheat-kill runs can legitimately die at a gate (no rests);
+  // this seed is verified to reach the Throne under the drive() policy
+  const c = createCampaign(players, 1, 'prov-probe-2', kingdom).campaign!
+  applyClassPick(c, P1, 'sentinel')
+  applyClassPick(c, P2, 'surgeon')
+  const bosses = c.map!.nodes.filter(n => n.kind === 'boss')
+  assert(bosses.length === 3, `province map has 3 rank gates (got ${bosses.length})`)
+  assert(c.map!.variant.startsWith('prov'), `province map variant (${c.map!.variant})`)
+
+  // curation: suited classes cut their lowest own-suit cards at deck build
+  const all = [...c.deck!.tavern, ...c.deck!.hands.flat()]
+  const spades = all.filter(card => card.suit === 'S' && card.rank !== 'Jo').length
+  assert(spades < 10, `sentinel curated spades (${spades}/10 remain)`)
+
+  const end = drive(c, { cheatKill: true, budget: 4000 })
+  assert(end === 'campaign_won', `throne taken → campaign won at chapter 1 (got ${end})`)
+  assert(c.chapter === 1, 'province run never enters chapter 2')
+  ok('province: 3 rank gates, curation, throne win')
+
+  // second wind: first road-fight death stands back up, once per act
+  const d = createCampaign(players, 1, 'prov-wind', kingdom).campaign!
+  applyClassPick(d, P1, 'sentinel')
+  applyClassPick(d, P2, 'surgeon')
+  drive(d, { cheatKill: true, stopAt: ['encounter'], budget: 50 })
+  const s = d.encounter!
+  while (s.turnPhase === 'setup') applySetupReorder(d, s.setupPeek!.playerId, s.setupPeek!.cards.map((_, i) => i))
+  const pi = s.currentPlayerIndex
+  s.hands[pi] = [{ suit: 'C', rank: '2', id: 'doom-p' }]
+  s.currentEnemy!.attack = 99
+  s.currentEnemy!.shield = 0
+  const pid = d.heroes[pi]!.playerId
+  const r = applyEncounterYield(d, pid)
+  assert(!r.error, `province doom yield: ${r.error}`)
+  assert(d.heroes[pi]!.alive, 'second wind: the hero stands back up')
+  assert(d.phase !== 'campaign_lost' && d.phase !== 'death_vote', `no vote, run continues (${d.phase})`)
+  ok('province: second wind spends the act mercy')
+  EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
 console.log(failures === 0 ? '\nAll smoke tests passed ✅' : `\n${failures} failure(s) ❌`)

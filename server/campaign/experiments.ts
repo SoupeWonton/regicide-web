@@ -19,7 +19,8 @@ export const EXPERIMENTS = {
   // 4 Queens / 4 Kings) with road acts between them. Any hero death = full
   // run reset. Classes curate the deck at setup (option B) instead of siege
   // ultimates. Castle checkpoint off (the roads between ranks are the rest).
-  provinceMode: false,
+  // LIVE for playtesting (2026-06-11, Gab) — smoke.ts pins canon for tests.
+  provinceMode: true,
 }
 
 // Class curation (province mode): each suited class removes its N lowest

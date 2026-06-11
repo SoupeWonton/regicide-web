@@ -18,7 +18,7 @@ const CORE = [
   {
     id: 'quartermaster', name: 'Quartermaster', theme: 'Draw · Access', suit: '♦',
     question: 'How do we keep options?',
-    text: 'The first Diamond trigger each enemy draws +1 extra card.',
+    text: 'The first Diamond trigger each enemy draws +1 extra card, and the party’s hand cap is +1 while the Quartermaster stands.',
     pillars: [['Access', 3], ['Consistency', 1]] as const,
     accent: 'quartermaster-accent',
   },
@@ -115,6 +115,10 @@ function pick(classId: string) {
         <span class="soft-pulse">Waiting on {{ waitingOn.join(', ') }}…</span>
       </template>
       Tier 2 &amp; 3 heroes (Commander, Warden, Gambler, Exile, Oracle) join mid-campaign through the replacement flow once unlocked.
+    </p>
+    <p class="text-center text-[11px] text-primary/50 font-flavor tracking-wide">
+      ⚔ Province rules: each suited hero curates the deck at setup — their lowest cards of their own suit are cut.
+      One Second Wind per act on the road; rank gates grant no mercy.
     </p>
   </div>
 </template>

@@ -60,6 +60,21 @@ const currentLayer = computed(() => {
   return (cur?.layer ?? 0)
 })
 
+// province mode: successive boss nodes are the three rank gates
+const gateInfo = computed(() => {
+  const bosses = (props.state.map?.nodes ?? []).filter(n => n.kind === 'boss').sort((a, b) => a.layer - b.layer)
+  const m = new Map<string, { icon: string; label: string; desc: string }>()
+  if (bosses.length >= 3) {
+    const meta = [
+      { icon: '🏰', label: 'The Gates', desc: 'The first rank gate — the Jacks bar the way. Win to advance the siege.' },
+      { icon: '🏛', label: 'Courtyard', desc: 'The second rank gate — the Queens hold the yard.' },
+      { icon: '👑', label: 'The Throne', desc: 'The Kings. No retreat, no second wind. Take it and the province is liberated.' },
+    ]
+    bosses.forEach((b, i) => m.set(b.id, meta[Math.min(i, 2)]!))
+  }
+  return m
+})
+
 function choose(node: ClientRoadNode) {
   if (!node.reachable || !props.state.isHost) return
   sfx.footsteps()
@@ -113,7 +128,7 @@ const LEGEND = [
           !n.visited && !n.reachable && !n.current ? 'opacity-65' : '',
         ]"
         :style="{ left: positions.get(n.id)?.x + '%', top: positions.get(n.id)?.y + 'px' }"
-        :title="`${NODE_LABELS[n.kind] ?? '???'} — ${NODE_DESCRIPTIONS[n.kind] ?? ''}`"
+        :title="`${gateInfo.get(n.id)?.label ?? NODE_LABELS[n.kind] ?? '???'} — ${gateInfo.get(n.id)?.desc ?? NODE_DESCRIPTIONS[n.kind] ?? ''}`"
         @click="choose(n)"
       >
         <div class="map-node-enter relative flex flex-col items-center gap-0.5" :style="{ animationDelay: `${n.layer * 70}ms` }">
@@ -126,11 +141,11 @@ const LEGEND = [
               n.reachable ? 'map-medallion-reachable node-reachable' : '',
             ]"
           >
-            {{ NODE_ICONS[n.kind] ?? '❓' }}
+            {{ gateInfo.get(n.id)?.icon ?? NODE_ICONS[n.kind] ?? '❓' }}
             <span v-if="n.visited && !n.current" class="absolute -bottom-1 -right-1 text-[10px] bg-[#d8c89f] text-[#3a2d18] rounded-full w-4 h-4 flex items-center justify-center border border-[#8a6d1c]">✓</span>
           </span>
           <span class="text-[10px] font-semibold font-display tracking-wide" :class="n.reachable ? 'text-[#7a5510]' : 'text-[#5a4830]/85'">
-            {{ NODE_LABELS[n.kind] ?? '???' }}
+            {{ gateInfo.get(n.id)?.label ?? NODE_LABELS[n.kind] ?? '???' }}
           </span>
         </div>
       </button>

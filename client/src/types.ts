@@ -103,6 +103,7 @@ export interface ClientEncounterState {
   canWager: boolean
   myRelicActivatable: boolean
   myBoosts: SuitBoosts
+  siegeRank: 'J' | 'Q' | 'K' | null
   events: EncounterEvent[]
   eventSeq: number
 }

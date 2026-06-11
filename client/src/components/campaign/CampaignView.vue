@@ -48,31 +48,48 @@ function showSplash(s: NonNullable<typeof splash.value>, ms = 2200) {
 // the win transition fires
 const lastFightTier = ref('')
 watch(() => props.state.encounter?.tier, t => { if (t) lastFightTier.value = t })
+const lastFightRank = ref<'J' | 'Q' | 'K' | null>(null)
+watch(() => props.state.encounter, e => { if (e) lastFightRank.value = e.siegeRank }, { immediate: true })
 
 watch(() => props.state.phase, (now, was) => {
-  // a boss just fell — memory drafts only ever follow a slain castle
+  // a boss just fell — memory drafts only ever follow a slain castle / Throne
   if (now === 'memory_draft' && was === 'encounter') {
-    victory.value = props.state.chapter === 1
-      ? { title: 'The Castle Falls', sub: 'The First Ascension is yours. Each survivor carries a Memory from the ruin.' }
-      : { title: 'The Broken Court Falls', sub: 'The crown is shattered. Draft your memories — the Kingdom will remember.' }
+    victory.value = lastFightRank.value === 'K'
+      ? { title: 'The Throne Is Taken', sub: 'The province is liberated. Each survivor carries a Memory of the siege.' }
+      : props.state.chapter === 1
+        ? { title: 'The Castle Falls', sub: 'The First Ascension is yours. Each survivor carries a Memory from the ruin.' }
+        : { title: 'The Broken Court Falls', sub: 'The crown is shattered. Draft your memories — the Kingdom will remember.' }
     sfx.triumph()
     if (victoryTimer) clearTimeout(victoryTimer)
     victoryTimer = setTimeout(() => { victory.value = null }, 4200)
   }
-  // a road fight was won (retreats go to camp, wipes end the campaign) —
-  // give the table its moment before the spoils appear
+  // a road fight or rank gate was won (retreats go to camp, wipes end the
+  // campaign) — give the table its moment before the spoils appear
   if (was === 'encounter' && (now === 'landmark' || now === 'road')) {
-    const titles: Record<string, string> = {
-      skirmish: 'Skirmish Cleared', veteran: 'Veterans Broken', elite: 'Elite Warband Destroyed',
+    if (lastFightRank.value === 'J' || lastFightRank.value === 'Q') {
+      // province rank gate cleared — bigger moment, full trumpets
+      sfx.triumph()
+      showSplash({
+        over: 'The siege advances',
+        title: lastFightRank.value === 'J' ? 'The Gates Have Fallen' : 'The Courtyard Is Yours',
+        sub: lastFightRank.value === 'J' ? 'The Courtyard awaits beyond the rubble.' : 'Only the Throne room remains.',
+        tone: 'gold',
+        fx: true,
+      }, 3000)
+      lastFightRank.value = null
+    } else {
+      const titles: Record<string, string> = {
+        skirmish: 'Skirmish Cleared', veteran: 'Veterans Broken', elite: 'Elite Warband Destroyed',
+      }
+      sfx.victory()
+      showSplash({
+        over: 'Victory',
+        title: titles[lastFightTier.value] ?? 'Encounter Cleared',
+        sub: now === 'landmark' ? 'Claim your spoils.' : 'The road continues.',
+        tone: 'gold',
+        fx: true,
+      }, 2100)
     }
-    sfx.victory()
-    showSplash({
-      over: 'Victory',
-      title: titles[lastFightTier.value] ?? 'Encounter Cleared',
-      sub: now === 'landmark' ? 'Claim your spoils.' : 'The road continues.',
-      tone: 'gold',
-      fx: true,
-    }, 2100)
   }
   if (now === 'road' && was === 'class_select')
     showSplash({ over: 'Chapter One', title: 'The First Ascension', sub: 'The road remembers every step.', tone: 'gold' }, 2800)
@@ -81,7 +98,14 @@ watch(() => props.state.phase, (now, was) => {
   if (now === 'encounter' && was !== 'death_vote' && was !== undefined) {
     const e = props.state.encounter
     if (!e) return
-    if (e.tier === 'boss')
+    if (e.tier === 'boss' && e.siegeRank) {
+      const gates = {
+        J: { title: 'The Gates', sub: `${e.totalEnemies} Jacks bar the way. Break them.` },
+        Q: { title: 'The Courtyard', sub: `${e.totalEnemies} Queens hold the yard. No mercy here.` },
+        K: { title: 'The Throne', sub: `${e.totalEnemies} Kings. No retreat. No second wind.` },
+      }[e.siegeRank]
+      showSplash({ over: e.siegeRank === 'K' ? 'The final siege' : 'The siege', title: gates.title, sub: gates.sub, tone: 'blood' }, 3000)
+    } else if (e.tier === 'boss')
       showSplash({ over: 'No retreat', title: props.state.chapter === 1 ? 'The Castle' : 'The Broken Court', sub: 'Twelve royals stand between you and the crown.', tone: 'blood' }, 3000)
     else if (e.modifier)
       showSplash({ over: { skirmish: 'Skirmish', veteran: 'Veterans', elite: 'Elite' }[e.tier] ?? 'Encounter', title: e.modifier.name, sub: e.modifier.text, tone: 'gold' }, 2400)

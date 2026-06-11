@@ -755,6 +755,14 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
       canWager: !!me && me.classId === 'gambler' && me.alive && !c.gamblerWagerUsed && s.outcome === 'active',
       myRelicActivatable: !!me?.relicId && activatable.includes(me.relicId) && !s.flags[`relicUsed:${myHeroIndex}`],
       myBoosts: computeBoosts(c, s, myHeroIndex),
+      siegeRank: (() => {
+        // province mode: which rank gate this boss node is (Gates/Courtyard/Throne)
+        if (s.tier !== 'boss' || !EXPERIMENTS.provinceMode || !c.map) return null
+        const node = c.map.nodes.find(n => n.id === s.nodeId)
+        if (!node) return null
+        const before = c.map.nodes.filter(n => n.kind === 'boss' && n.layer < node.layer).length
+        return (['J', 'Q', 'K'] as const)[Math.min(before, 2)]!
+      })(),
     }
   }
 

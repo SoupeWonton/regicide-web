@@ -279,6 +279,8 @@ export interface ClientEncounterState {
     dmgPlus: number; dmgMult: number
     execReady: boolean; dCap: number | null; hHalf: boolean
   }
+  // province mode: which rank gate a boss fight is (J=Gates, Q=Courtyard, K=Throne)
+  siegeRank: 'J' | 'Q' | 'K' | null
   events: EncounterEvent[]
   eventSeq: number
 }
