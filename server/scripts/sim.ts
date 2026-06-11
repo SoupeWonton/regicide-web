@@ -21,6 +21,7 @@ import {
   applyActivateRelic, applyArmWager, maxHandSize,
 } from '../campaign/encounter'
 import { getItem } from '../campaign/content'
+import { EXPERIMENTS } from '../campaign/experiments'
 import { cardValue } from '../deck'
 import { createRng, type Rng } from '../rng'
 import type { Card, Suit } from '../types'
@@ -238,6 +239,8 @@ interface RunRecord {
   beatCh1: number        // 0/1 — completed chapter 1
   reachedBoss2: number   // 0/1 — reached the chapter 2 castle
   deathsByPersona: string
+  classes: string        // starting classes, in seat order
+  deathsByClass: string  // classId:count|... (classId at time of death)
 }
 
 // ── Bot driver ───────────────────────────────────────────────────────────────
@@ -249,6 +252,7 @@ function runCampaign(
   kingdom: KingdomState,
   encOut: EncRecord[],
   runId: string,
+  forcedClasses?: ClassId[],   // class-isolation mode: seat i plays forcedClasses[i]
 ): RunRecord {
   const players = personas.map((p, i) => ({ id: `p${i + 1}`, name: `${p.id}-${i + 1}` }))
   const HOST = players[0]!.id
@@ -264,20 +268,30 @@ function runCampaign(
     exactKills: 0, jesters: 0, yields: 0, itemsGained: 0,
     lossNodeKind: '', lossModifier: '',
     reachedBoss1: 0, beatCh1: 0, reachedBoss2: 0, deathsByPersona: '',
+    classes: '', deathsByClass: '',
   }
   const deathTally = new Map<string, number>()
+  const classDeathTally = new Map<string, number>()
 
   const { campaign: c, error } = createCampaign(players, 1, seed, kingdom)
   if (error || !c) { rec.result = `error:${error}`; return rec }
 
-  // class select: each player picks their persona's highest available pref
-  for (const pl of players) {
-    const p = personaById(pl.id)
-    const taken = new Set(Object.values(c.classPicks).filter(Boolean))
-    const pick = p.classPref.find(cid =>
-      ['sentinel', 'quartermaster', 'surgeon', 'executioner'].includes(cid) && !taken.has(cid))!
+  // class select: forced assignment (class-isolation mode) or each player picks
+  // their persona's highest available pref
+  for (let i = 0; i < players.length; i++) {
+    const pl = players[i]!
+    let pick: ClassId
+    if (forcedClasses) {
+      pick = forcedClasses[i]!
+    } else {
+      const p = personaById(pl.id)
+      const taken = new Set(Object.values(c.classPicks).filter(Boolean))
+      pick = p.classPref.find(cid =>
+        ['sentinel', 'quartermaster', 'surgeon', 'executioner'].includes(cid) && !taken.has(cid))!
+    }
     applyClassPick(c, pl.id, pick)
   }
+  rec.classes = players.map(pl => c.classPicks[pl.id]).join('+')
 
   let aliveBefore = c.heroes.map(h => h.alive)
   let cur: EncRecord | null = null
@@ -298,6 +312,8 @@ function runCampaign(
         if (cur) cur.deaths++
         const pid = personaOf(i).id
         deathTally.set(pid, (deathTally.get(pid) ?? 0) + 1)
+        const cls = c.heroes[i]!.classId
+        classDeathTally.set(cls, (classDeathTally.get(cls) ?? 0) + 1)
       }
     })
     aliveBefore = c.heroes.map(h => h.alive)
@@ -650,6 +666,7 @@ function runCampaign(
   rec.chapterReached = c.chapter
   if (c.chapter === 2 || rec.result === 'won') rec.beatCh1 = 1
   rec.deathsByPersona = [...deathTally.entries()].map(([k, v]) => `${k}:${v}`).join('|')
+  rec.deathsByClass = [...classDeathTally.entries()].map(([k, v]) => `${k}:${v}`).join('|')
   return rec
 }
 
@@ -681,10 +698,31 @@ function parseArgs() {
     seeds: parseInt(get('--seeds', '25')),
     counts: get('--counts', '1,2,3,4').split(',').map(Number),
     lineups: get('--lineups', 'slayer,bulwark,hoarder,sniper,steady,mixed').split(','),
+    // class-isolation mode: comma-separated combos of +-joined classes, all seats
+    // played by --persona (default steady). Overrides --counts/--lineups.
+    classCombos: get('--classes', '').split(',').filter(Boolean).map(s => s.split('+') as ClassId[]),
+    persona: get('--persona', 'steady'),
+    ownerOnly: args.includes('--owner-only'),
+    bossReshuffle: args.includes('--boss-reshuffle'),
+    castleHearts: args.includes('--castle-hearts'),
+    shortCastle: args.includes('--short-castle'),
+    province: args.includes('--province'),
   }
 }
 
-const { seeds, counts, lineups } = parseArgs()
+const { seeds, classCombos, persona: personaFlag, ownerOnly, bossReshuffle, castleHearts, shortCastle, province } = parseArgs()
+let { counts, lineups } = parseArgs()
+if (classCombos.length) {
+  lineups = classCombos.map(cc => cc.join('+'))
+  counts = [...new Set(classCombos.map(cc => cc.length))]
+}
+EXPERIMENTS.ownerOnlyClassTriggers = ownerOnly
+EXPERIMENTS.preBossReshuffle = bossReshuffle
+EXPERIMENTS.castleHearts = castleHearts
+EXPERIMENTS.shortCastle = shortCastle
+EXPERIMENTS.provinceMode = province
+const active = Object.entries(EXPERIMENTS).filter(([, v]) => v).map(([k]) => k)
+if (active.length) console.log(`experiments: ${active.join(', ')}`)
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = path.join(HERE, '..', 'data')
@@ -701,36 +739,47 @@ const encs: (EncRecord & { runId: string; playerCount: number; lineup: string })
 const t0 = Date.now()
 let runCounter = 0
 
-try {
-  for (const count of counts) {
-    for (const lineupId of lineups) {
-      if (lineupId === 'mixed' && count === 1) continue // mixed needs 2+
-      const personas: Persona[] =
-        lineupId === 'mixed'
-          ? Array.from({ length: count }, (_, i) => PERSONAS[MIXED_ORDER[i % MIXED_ORDER.length]!]!)
-          : Array.from({ length: count }, () => PERSONAS[lineupId]!)
-      if (personas.some(p => !p)) { console.error(`Unknown lineup: ${lineupId}`); process.exit(1) }
+function runBatch(lineupId: string, count: number, personas: Persona[], forcedClasses?: ClassId[]) {
+  for (let si = 0; si < seeds; si++) {
+    const kingdom: KingdomState = {
+      unlockedChapters: [1, 2],
+      unlockedClasses: ['sentinel', 'quartermaster', 'surgeon', 'executioner', 'commander', 'warden', 'gambler', 'exile', 'oracle'],
+      specializationsUnlocked: true, campaignsWon: 0, heroesLost: 0,
+    }
+    const runId = `r${++runCounter}`
+    const seed = `sim-${lineupId}-${count}p-${si}`
+    const encBuf: EncRecord[] = []
+    const r = runCampaign(lineupId, personas, seed, kingdom, encBuf, runId, forcedClasses)
+    runs.push(r)
+    for (const e of encBuf) {
+      const { ref: _ref, ...rest } = e
+      encs.push({ ...rest, runId, playerCount: count, lineup: lineupId } as typeof encs[number])
+    }
+    if (r.result.startsWith('error')) console.error(`  ⚠ ${runId} ${seed}: ${r.result}`)
+  }
+  const slice = runs.filter(r => r.playerCount === count && r.lineup === lineupId)
+  const w = slice.filter(r => r.result === 'won').length
+  console.log(`${count}p ${lineupId.padEnd(8)} — ${w}/${slice.length} won (${pct(w, slice.length)})`)
+}
 
-      for (let si = 0; si < seeds; si++) {
-        const kingdom: KingdomState = {
-          unlockedChapters: [1, 2],
-          unlockedClasses: ['sentinel', 'quartermaster', 'surgeon', 'executioner', 'commander', 'warden', 'gambler', 'exile', 'oracle'],
-          specializationsUnlocked: true, campaignsWon: 0, heroesLost: 0,
-        }
-        const runId = `r${++runCounter}`
-        const seed = `sim-${lineupId}-${count}p-${si}`
-        const encBuf: EncRecord[] = []
-        const r = runCampaign(lineupId, personas, seed, kingdom, encBuf, runId)
-        runs.push(r)
-        for (const e of encBuf) {
-          const { ref: _ref, ...rest } = e
-          encs.push({ ...rest, runId, playerCount: count, lineup: lineupId } as typeof encs[number])
-        }
-        if (r.result.startsWith('error')) console.error(`  ⚠ ${runId} ${seed}: ${r.result}`)
+try {
+  if (classCombos.length) {
+    const p = PERSONAS[personaFlag]
+    if (!p) { console.error(`Unknown persona: ${personaFlag}`); process.exit(1) }
+    for (const combo of classCombos) {
+      runBatch(combo.join('+'), combo.length, combo.map(() => p), combo)
+    }
+  } else {
+    for (const count of counts) {
+      for (const lineupId of lineups) {
+        if (lineupId === 'mixed' && count === 1) continue // mixed needs 2+
+        const personas: Persona[] =
+          lineupId === 'mixed'
+            ? Array.from({ length: count }, (_, i) => PERSONAS[MIXED_ORDER[i % MIXED_ORDER.length]!]!)
+            : Array.from({ length: count }, () => PERSONAS[lineupId]!)
+        if (personas.some(p => !p)) { console.error(`Unknown lineup: ${lineupId}`); process.exit(1) }
+        runBatch(lineupId, count, personas)
       }
-      const slice = runs.filter(r => r.playerCount === count && r.lineup === lineupId)
-      const w = slice.filter(r => r.result === 'won').length
-      console.log(`${count}p ${lineupId.padEnd(8)} — ${w}/${slice.length} won (${pct(w, slice.length)})`)
     }
   }
 } finally {

@@ -243,3 +243,122 @@ Designers use CT to:
 CT is the shared balancing language for the campaign.
 
 If Chapter 2 feels too difficult after testing, adjust CT values before redesigning systems.
+
+---
+
+# CT Version 2.0 — Dual-Axis Revision (simulation-calibrated, 2026-06-10)
+
+Calibrated against 20,000+ bot campaigns (`server/scripts/sim.ts`). Bot win
+rates are a floor for human play; relative comparisons are the trusted signal.
+
+## What v1 got right
+
+Road pressure is linear and additive. Assigned pressure vs observed loss rate
+correlates at Spearman 0.94 across all 15 implemented modifiers. The road side
+of v1 stands.
+
+## What v1 got wrong
+
+One CT currency cannot price both road fights and bosses. Bosses are
+win-or-wipe gauntlets where the deck depletes inside the fight; tolerance CT
+converts sub-linearly there (a 0.25 item buys ~0.25 CT of road progress but
+only ~0.05 CT of boss survival). The Ch1 castle ate 88% of all campaign losses
+despite a v1 net difficulty of ~1.
+
+## The two axes
+
+Every source of pressure or tolerance now carries two values:
+
+- **Road CT** — linear, additive, exactly as v1. Empirical anchor: +0.25 Road
+  CT of pressure ≈ +20 percentage points of road-fight loss rate.
+- **Siege CT** — boss-fight currency. Empirical anchor: 1.0 Siege CT ≈ +10
+  percentage points of castle conversion (chance to clear a boss the party has
+  reached). The castle demands roughly one full deck cycle per rank (Jacks,
+  Queens, Kings); anything that returns a deck cycle inside the fight is worth
+  ~3 Siege CT.
+
+Net Road Difficulty = Road Pressure − Road Tolerance (unchanged from v1).
+Castle conversion = base conversion + Σ Siege CT × 10pp.
+
+## Measured lever values (bot floor, 400 seeds per cell)
+
+| Lever | Win rate (weak/strong pilot) | Siege CT |
+|---|---|---|
+| baseline canon | 1% / 5% | 0 |
+| Hearts ×2 inside castle | 2% / 5% | ~0.2 (dead lever) |
+| Short castle (9 royals) | 5% / 14% | ~1.5 |
+| Mid-castle rest (checkpoint after each rank) | 15% / 28% | ~3.5 |
+
+## Repriced road modifiers (from observed loss rates)
+
+- starved-caravan: 0.5 → 0.65
+- banner-of-knives: 0.75 → 1.0 (hardest non-boss fight in the game)
+- garrison-crusher: 1.0 → 0.75
+- blackwall-captain: 0.75 → 0.65
+- all six skirmishes: 0.25 confirmed, keep
+
+## Repriced classes
+
+Under team-wide triggers the four base classes test near-equal (leave-one-out
+gap ≤ 6pp ≈ noise): flatten implemented values (0.6–1.0) back to 0.75 each
+until mechanics differentiate them. Surgeon was the least-missed class in 7 of
+8 experimental cells despite costing 0.85 — its Siege CT is effectively 0 and
+needs a mechanical fix, not a price fix.
+
+## Design rule v2
+
+For every new content element, answer all three:
+
+- How much Road CT does it generate or provide?
+- How much Siege CT does it provide?
+- If its Siege CT is 0, what kills the boss instead?
+
+The campaign currently has many Road levers and almost no Siege levers. New
+content should bias toward Siege CT until castle conversion reaches the target
+band (≥ 50% conversion per castle at the bot floor ≈ 15%+ campaign win rate).
+
+## Implemented siege package (2026-06-11) and where it landed
+
+Canon changes shipped against this scale:
+
+- Castle checkpoint: when the Queens fall, the discard shuffles back into the
+  Tavern (no hand redraw). Tuned down from two full rests, which overshot to
+  ~50% bot wins.
+- Nine class siege ultimates (once per castle, automatic) — see
+  `server/campaign/content.ts` `siegeText` / `siegeCt` per class.
+- Siege items: Banner of the Last March (prep, 1.5 Siege CT), War Drum
+  (relic, 1.0), Reliquary (relic, 0.3); existing recovery items tagged.
+- Base four classes flattened to 0.75 Road CT.
+
+Measured result (400 seeds × 2 personas): campaign wins 17% (weak pilot) /
+28% (strong pilot) — on target with bots as the floor. The full quartet now
+beats every trio (it did not before the ultimates), and missing the
+Quartermaster costs the most (−10pp), giving the classes measurable identity
+at the castle for the first time.
+
+## Gear-slot relic taxonomy (province direction, 2026-06-11)
+
+Relics are gear: each hero has slot capacities, and tolerance CT is budgeted
+per slot so total party CT stays bounded and predictable.
+
+- **armor** (1 slot): survival relics — Iron Stitch, Bastion Sigil, Iron
+  Reprieve. Slot budget ≈ 0.75 Road / 0.5 Siege CT.
+- **arms** (2 slots): active/attack relics — Duel Charm, Bone Thread, Sainted
+  Scalpel, War Drum. Budget ≈ 0.5 Road / 0.5 Siege CT per slot.
+- **trinket** (4 slots): utility — Field Satchel, Signal Whistle, Last
+  Lantern, Scry Band, Grand Provision, Reliquary. Budget ≈ 0.25 Road / 0.25
+  Siege CT per slot.
+
+Full kit ceiling per hero ≈ 2.75 Road / 2.25 Siege CT. Because relics persist
+between provinces, later provinces are priced against partial kits — and solo
+play (60-70% of runs) scales primarily through gear depth: a solo hero fills
+slots a 4-player party spreads across heroes. Implemented so far: `slot` tags
+on all relics; multi-slot equip is a UI/state refactor still to come (heroes
+hold one relic today).
+
+## Province prototype CT budgets (prov1-a)
+
+One run = 8 road stops + 3 rank gates (Gates 4J / Courtyard 4Q / Throne 4K,
+sized 2/3/4 royals at 1/2/3+ players). Death = full reset; one road
+second-wind per act; retreats give no rest; camps: one fork per act 2 and 3.
+Pressure: acts ≈ 0.5 / 1.6 / 1.9 Road CT + gates ≈ 1 / 2 / 3.5 Siege CT.

@@ -1,46 +1,59 @@
-import type { ClassDef, ClassId, EncounterDef, ItemDef } from './types'
+﻿import type { ClassDef, ClassId, EncounterDef, ItemDef } from './types'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Classes (v0 roster — core abilities only; specializations are post-Ch1 canon
 // and not implemented in this MVP)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Road CT flattened to 0.75 for the base four: leave-one-out simulation
+// (2026-06-10, 400 seeds × 2 personas) measured them near-equal under
+// team-wide triggers. Differentiation now lives in the siege ultimates
+// (once per castle, automatic). Siege CT per the v2 dual-axis scale.
 export const CLASSES: Record<ClassId, ClassDef> = {
   sentinel: {
-    id: 'sentinel', tier: 1, name: 'Sentinel', theme: 'Shield / Stability', suit: 'S', ct: 1.0,
+    id: 'sentinel', tier: 1, name: 'Sentinel', theme: 'Shield / Stability', suit: 'S', ct: 0.75, siegeCt: 0.5,
     abilityText: 'Once per enemy, your first Spade gains +2 shield value.',
+    siegeText: 'Hold the Gate — once per castle, a counterattack against the Sentinel is fully negated.',
   },
   quartermaster: {
-    id: 'quartermaster', tier: 1, name: 'Quartermaster', theme: 'Draw / Access', suit: 'D', ct: 1.0,
-    abilityText: 'The first Diamond trigger each enemy draws +1 extra card.',
+    id: 'quartermaster', tier: 1, name: 'Quartermaster', theme: 'Draw / Access', suit: 'D', ct: 0.75, siegeCt: 1.0,
+    abilityText: 'The first Diamond trigger each enemy draws +1 extra card, and the party’s hand cap is +1 while the Quartermaster stands.',
+    siegeText: 'Last Requisition — once per castle, when the Quartermaster’s hand empties, the whole party draws back to full.',
   },
   surgeon: {
-    id: 'surgeon', tier: 1, name: 'Surgeon', theme: 'Recovery / Precision', suit: 'H', ct: 0.85,
+    id: 'surgeon', tier: 1, name: 'Surgeon', theme: 'Recovery / Precision', suit: 'H', ct: 0.75, siegeCt: 1.0,
     abilityText: 'The first Heart trigger each enemy recovers +1 additional card.',
+    siegeText: 'Field Triage — once per castle, when the Tavern runs dry, return up to 8 discard cards to it.',
   },
   executioner: {
-    id: 'executioner', tier: 1, name: 'Executioner', theme: 'Thresholds / Initiative', suit: 'C', ct: 0.6,
+    id: 'executioner', tier: 1, name: 'Executioner', theme: 'Thresholds / Initiative', suit: 'C', ct: 0.75, siegeCt: 0.5,
     abilityText: 'Once per enemy, if your damage leaves the enemy at 1-2 HP, deal +2 finishing damage.',
+    siegeText: 'Regicide — in the castle, the Executioner’s own attacks finish royals from 1-4 HP.',
   },
   commander: {
-    id: 'commander', tier: 2, name: 'Commander', theme: 'Initiative / Sequencing', suit: null, ct: 1.0,
+    id: 'commander', tier: 2, name: 'Commander', theme: 'Initiative / Sequencing', suit: null, ct: 1.0, siegeCt: 0.3,
     abilityText: 'After any kill, the killer may pass the follow-up turn to any ally instead of playing again.',
+    siegeText: 'Rally the Line — the first castle handoff to an ally also re-arms them with 2 cards.',
   },
   warden: {
-    id: 'warden', tier: 2, name: 'Warden', theme: 'Death Mitigation', suit: null, ct: 1.1,
+    id: 'warden', tier: 2, name: 'Warden', theme: 'Death Mitigation', suit: null, ct: 1.1, siegeCt: 1.0,
     abilityText: 'Once per run, a death fork gains an extra option: Defiant Stand — the fallen hero survives with 2 cards.',
+    siegeText: 'Deathward — once per castle, the first death is prevented; the hero discards what they can and stands.',
   },
   gambler: {
-    id: 'gambler', tier: 3, name: 'Gambler', theme: 'Uncertainty / Tempo', suit: null, ct: 1.0,
+    id: 'gambler', tier: 3, name: 'Gambler', theme: 'Uncertainty / Tempo', suit: null, ct: 1.0, siegeCt: 0.3,
     abilityText: 'Once per chapter, wager before a play: if the enemy dies this turn, choose the next player; if not, discard 1 random card.',
+    siegeText: 'All In — once per castle, the Gambler’s first strike is doubled or halved on a coin flip.',
   },
   exile: {
-    id: 'exile', tier: 3, name: 'Exile', theme: 'Deck Evolution', suit: null, ct: 0.75,
+    id: 'exile', tier: 3, name: 'Exile', theme: 'Deck Evolution', suit: null, ct: 0.75, siegeCt: 0.5,
     abilityText: 'Once per camp, exile one card from the deck for the rest of the chapter. Every second exile adds Burden (harsher death forks).',
+    siegeText: 'Tithe of the Severed — at the castle gates, exile the top 2 Tavern cards forever; their value wounds the first royal.',
   },
   oracle: {
-    id: 'oracle', tier: 3, name: 'Oracle', theme: 'Hidden Information', suit: null, ct: 1.1,
+    id: 'oracle', tier: 3, name: 'Oracle', theme: 'Hidden Information', suit: null, ct: 1.1, siegeCt: 0.75,
     abilityText: 'At the start of each encounter, look at the top 3 Tavern cards and reorder them.',
+    siegeText: 'Unveil the Court — the hidden court modifier is read in advance and nullified.',
   },
 }
 
@@ -125,29 +138,33 @@ export const ITEMS: ItemDef[] = [
     text: 'Once per encounter, after your kill you may choose the next acting hero.' },
 
   // Relics — standard (hero-linked design intent, usable by holder)
-  { id: 'r-iron-stitch', kind: 'relic', tier: 'standard', name: 'Iron Stitch', ct: 0.25, category: 'Shield',
+  { id: 'r-iron-stitch', kind: 'relic', tier: 'standard', name: 'Iron Stitch', ct: 0.25, slot: 'armor', category: 'Shield',
     text: 'Your first Spade each encounter gains +1 shield.' },
-  { id: 'r-field-satchel', kind: 'relic', tier: 'standard', name: 'Field Satchel', ct: 0.25, category: 'Access',
+  { id: 'r-field-satchel', kind: 'relic', tier: 'standard', name: 'Field Satchel', ct: 0.25, slot: 'trinket', category: 'Access',
     text: 'Your first Diamond trigger each encounter draws +1 card.' },
-  { id: 'r-bone-thread', kind: 'relic', tier: 'standard', name: 'Bone Thread', ct: 0.25, category: 'Recovery',
+  { id: 'r-bone-thread', kind: 'relic', tier: 'standard', name: 'Bone Thread', ct: 0.25, siegeCt: 0.2, slot: 'arms', category: 'Recovery',
     text: 'Activate once per encounter: shuffle 2 discard cards back into the Tavern.' },
-  { id: 'r-duel-charm', kind: 'relic', tier: 'standard', name: 'Duel Charm', ct: 0.25, category: 'Initiative',
+  { id: 'r-reliquary', kind: 'relic', tier: 'standard', name: 'Reliquary', ct: 0.25, siegeCt: 0.3, slot: 'trinket', category: 'Access',
+    text: 'During castle assaults, the holder’s party hand cap is raised by 1.' },
+  { id: 'r-duel-charm', kind: 'relic', tier: 'standard', name: 'Duel Charm', ct: 0.25, slot: 'arms', category: 'Initiative',
     text: 'After your first exact kill each encounter, your next attack deals +2 damage.' },
-  { id: 'r-signal-whistle', kind: 'relic', tier: 'standard', name: 'Signal Whistle', ct: 0.25, category: 'Initiative',
+  { id: 'r-signal-whistle', kind: 'relic', tier: 'standard', name: 'Signal Whistle', ct: 0.25, slot: 'trinket', category: 'Initiative',
     text: 'Activate once per encounter on your turn: choose who acts after you.' },
-  { id: 'r-last-lantern', kind: 'relic', tier: 'standard', name: 'Last Lantern', ct: 0.25, category: 'Recovery',
+  { id: 'r-last-lantern', kind: 'relic', tier: 'standard', name: 'Last Lantern', ct: 0.25, siegeCt: 0.3, slot: 'trinket', category: 'Recovery',
     text: 'The first time you would die each encounter, the discard requirement is reduced by 2.' },
-  { id: 'r-scry-band', kind: 'relic', tier: 'standard', name: 'Scry Band', ct: 0.25, category: 'Consistency',
+  { id: 'r-scry-band', kind: 'relic', tier: 'standard', name: 'Scry Band', ct: 0.25, slot: 'trinket', category: 'Consistency',
     text: 'At encounter start, see the top 2 Tavern cards and optionally reorder them.' },
 
   // Relics — rare (Lair / elite rewards)
-  { id: 'r-grand-provision', kind: 'relic', tier: 'rare', name: 'Grand Provision', ct: 0.75, category: 'Access',
+  { id: 'r-grand-provision', kind: 'relic', tier: 'rare', name: 'Grand Provision', ct: 0.75, slot: 'trinket', category: 'Access',
     text: 'Your first two Diamond triggers each encounter draw +1 card each.' },
-  { id: 'r-sainted-scalpel', kind: 'relic', tier: 'rare', name: 'Sainted Scalpel', ct: 0.75, category: 'Recovery',
+  { id: 'r-sainted-scalpel', kind: 'relic', tier: 'rare', name: 'Sainted Scalpel', ct: 0.75, siegeCt: 0.5, slot: 'arms', category: 'Recovery',
     text: 'Activate once per encounter: shuffle up to 4 discard cards into the Tavern, then draw 1 card.' },
-  { id: 'r-bastion-sigil', kind: 'relic', tier: 'rare', name: 'Bastion Sigil', ct: 0.75, category: 'Shield',
+  { id: 'r-war-drum', kind: 'relic', tier: 'rare', name: 'War Drum', ct: 0.75, siegeCt: 1.0, slot: 'arms', category: 'Access',
+    text: 'During castle assaults, every fallen royal rallies the party: everyone draws 1 card.' },
+  { id: 'r-bastion-sigil', kind: 'relic', tier: 'rare', name: 'Bastion Sigil', ct: 0.75, slot: 'armor', category: 'Shield',
     text: 'Your first two Spades each encounter gain +1 shield each, and your first fully-shielded counterattack draws you 1 card.' },
-  { id: 'r-iron-reprieve', kind: 'relic', tier: 'rare', name: 'Iron Reprieve', ct: 0.75, category: 'Recovery',
+  { id: 'r-iron-reprieve', kind: 'relic', tier: 'rare', name: 'Iron Reprieve', ct: 0.75, siegeCt: 0.5, slot: 'armor', category: 'Recovery',
     text: 'Once per chapter (automatic): prevent your death and set that discard check to 1.' },
 
   // Spells — team owned, one-shot, cast on your turn
@@ -155,7 +172,7 @@ export const ITEMS: ItemDef[] = [
     text: 'Your next play this turn deals double damage.' },
   { id: 's-quick-muster', kind: 'spell', tier: 'standard', name: 'Quick Muster', ct: 0.25, category: 'Access',
     text: 'Draw 2 cards.' },
-  { id: 's-refit', kind: 'spell', tier: 'standard', name: 'Refit', ct: 0.25, category: 'Recovery',
+  { id: 's-refit', kind: 'spell', tier: 'standard', name: 'Refit', ct: 0.25, siegeCt: 0.2, category: 'Recovery',
     text: 'Shuffle up to 3 discard cards back into the Tavern.' },
   { id: 's-guard-up', kind: 'spell', tier: 'standard', name: 'Guard Up', ct: 0.25, category: 'Shield',
     text: 'Add +3 shield to the current enemy immediately.' },
@@ -163,11 +180,11 @@ export const ITEMS: ItemDef[] = [
     text: 'The next counterattack this encounter deals 2 less.' },
   { id: 's-calm-pulse', kind: 'spell', tier: 'standard', name: 'Calm Pulse', ct: 0.25, category: 'Recovery',
     text: 'Reduce your current discard check by 2 (cast during your discard).' },
-  { id: 's-tactical-surge', kind: 'spell', tier: 'rare', name: 'Tactical Surge', ct: 0.75, category: 'Access',
+  { id: 's-tactical-surge', kind: 'spell', tier: 'rare', name: 'Tactical Surge', ct: 0.75, siegeCt: 0.3, category: 'Access',
     text: 'Every hero draws 1 card.' },
   { id: 's-crownbreaker', kind: 'spell', tier: 'rare', name: 'Crownbreaker', ct: 0.75, category: 'Initiative',
     text: 'Your next play this turn deals triple damage.' },
-  { id: 's-full-recycle', kind: 'spell', tier: 'rare', name: 'Full Recycle', ct: 0.75, category: 'Recovery',
+  { id: 's-full-recycle', kind: 'spell', tier: 'rare', name: 'Full Recycle', ct: 0.75, siegeCt: 0.5, category: 'Recovery',
     text: 'Shuffle up to 6 discard cards into the Tavern, then draw 2 cards.' },
 
   // Preparations — camp activations, apply at next encounter start (cap 2)
@@ -186,10 +203,12 @@ export const ITEMS: ItemDef[] = [
   // NOTE: the pool's discard-recovery preps (Reserve Kits, Full Logistics) stay
   // out of v0 — preps fire at the first post-camp encounter, where the camp
   // rest has just emptied the discard, so they would never do anything.
-  { id: 'p-fortified-entry', kind: 'preparation', tier: 'rare', name: 'Fortified Entry', ct: 0.75, category: 'Shield',
+  { id: 'p-fortified-entry', kind: 'preparation', tier: 'rare', name: 'Fortified Entry', ct: 0.75, siegeCt: 0.4, category: 'Shield',
     text: 'The first counterattack this encounter deals 0.' },
-  { id: 'p-surgical-reserve', kind: 'preparation', tier: 'rare', name: 'Surgical Reserve', ct: 0.75, category: 'Recovery',
+  { id: 'p-surgical-reserve', kind: 'preparation', tier: 'rare', name: 'Surgical Reserve', ct: 0.75, siegeCt: 0.4, category: 'Recovery',
     text: 'The first time a hero would die this encounter, that discard requirement is reduced by 3 (min 1).' },
+  { id: 'p-last-march', kind: 'preparation', tier: 'rare', name: 'Banner of the Last March', ct: 0.25, siegeCt: 1.5, category: 'Recovery',
+    text: 'Next encounter: if it is a castle assault, the first time the Tavern runs dry the party takes a full rest.' },
 ]
 
 // ── Lookup helpers ───────────────────────────────────────────────────────────
