@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { socket, myId } from '../socket'
 import type { ClientGameState, RoomInfo, ClientCampaignState, SaveSummary } from '../types'
 import GameBoard from './GameBoard.vue'
 import CampaignView from './campaign/CampaignView.vue'
+import OverlayModal from './campaign/OverlayModal.vue'
 
 const route  = useRoute()
+const router = useRouter()
 const code   = (route.params.code as string).toUpperCase()
 const room   = ref<RoomInfo | null>(null)
 const game   = ref<ClientGameState | null>(null)
@@ -31,6 +33,19 @@ socket.on('campaign_saves', (data: { saves: SaveSummary[]; kingdom: { unlockedCh
 })
 socket.on('error',       (msg: string) => { error.value = msg })
 socket.on('game_reset',  () => { game.value = null })
+socket.on('room_closed', () => {
+  campaign.value = null
+  game.value = null
+  room.value = null
+  router.push('/')
+})
+
+// ── Leave / kill room (any state) ────────────────────────────────────────────
+const confirmLeave = ref(false)
+function leaveRoom() {
+  confirmLeave.value = false
+  socket.emit('leave_room', { code })
+}
 
 onMounted(() => {
   socket.emit('get_room', { code })
@@ -63,6 +78,25 @@ function copyCode() {
 </script>
 
 <template>
+  <!-- Leave / kill room — reachable from every state -->
+  <button
+    class="fixed top-1.5 right-1.5 z-40 w-8 h-8 rounded-full flex items-center justify-center text-base-content/35 hover:text-error hover:bg-error/10 transition-colors"
+    :title="isHost ? 'Close the room for everyone' : 'Leave the room'"
+    @click="confirmLeave = true"
+  >🚪</button>
+
+  <OverlayModal v-if="confirmLeave" tone="error" dismissable @close="confirmLeave = false">
+    <h3 class="text-lg font-bold text-center">{{ isHost ? '🚪 Close the room?' : '🚪 Leave the room?' }}</h3>
+    <p class="text-sm text-center text-base-content/60">
+      {{ isHost
+        ? 'The room ends for everyone and all players return to the lobby.'
+        : 'You return to the lobby; the others play on.' }}
+      <span v-if="campaign" class="block mt-1 text-success/80">Campaign progress is saved — resume any time.</span>
+    </p>
+    <button class="btn btn-error w-full" @click="leaveRoom">{{ isHost ? 'Close the room' : 'Leave' }}</button>
+    <button class="btn btn-ghost btn-sm" @click="confirmLeave = false">Stay</button>
+  </OverlayModal>
+
   <!-- Campaign mode -->
   <CampaignView v-if="campaign" :state="campaign" :code="code" />
 

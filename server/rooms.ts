@@ -139,6 +139,23 @@ export function playerDisconnect(playerId: string, keepRoom?: (code: string) => 
   }
 }
 
+/** Host tears the room down — everyone gets sent home. */
+export function deleteRoom(code: string) {
+  rooms.delete(code)
+}
+
+/** A player walks out. Host seat passes on; empty rooms evaporate. */
+export function leaveRoom(code: string, playerId: string): RoomInfo | null {
+  const room = rooms.get(code)
+  if (!room) return null
+  room.players = room.players.filter(p => p.id !== playerId)
+  const sp = room.state?.players.find(p => p.id === playerId)
+  if (sp) sp.connected = false
+  if (room.players.length === 0) { rooms.delete(code); return null }
+  if (room.hostId === playerId) room.hostId = room.players[0]!.id
+  return roomInfo(code)
+}
+
 export function roomInfo(code: string): RoomInfo | null {
   const room = rooms.get(code)
   if (!room) return null

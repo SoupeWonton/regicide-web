@@ -4,7 +4,7 @@ import { Server } from 'socket.io'
 import {
   createRoom, joinRoom, setReady, startGame, playCards, discardDamage, yieldTurn,
   chooseNext, restartGame, playerDisconnect, roomInfo, findRoomsByPlayer,
-  markConnected, gameStateFor,
+  markConnected, gameStateFor, leaveRoom, deleteRoom,
 } from './rooms'
 import {
   startCampaignSession, resumeCampaignSession, dispatchCampaignAction,
@@ -172,6 +172,23 @@ io.on('connection', socket => {
       return
     }
     broadcastCampaign(code)
+  })
+
+  socket.on('leave_room', ({ code }: { code: string }) => {
+    const info = roomInfo(code)
+    if (!info) { socket.emit('room_closed'); return }
+    if (info.hostId === cid) {
+      // host kills the room for everyone (campaign progress stays saved on disk)
+      endSession(code)
+      deleteRoom(code)
+      io.to(code).emit('room_closed')
+      io.in(code).socketsLeave(code)
+    } else {
+      const remaining = leaveRoom(code, cid)
+      socket.leave(code)
+      socket.emit('room_closed')
+      if (remaining) io.to(code).emit('room_update', remaining)
+    }
   })
 
   socket.on('end_campaign_session', ({ code }: { code: string }) => {
