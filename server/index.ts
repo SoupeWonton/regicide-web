@@ -2,7 +2,7 @@ import express from 'express'
 import { createServer } from 'http'
 import { Server } from 'socket.io'
 import {
-  createRoom, joinRoom, setReady, startGame, playCards, discardDamage, yieldTurn,
+  createRoom, joinRoom, setReady, startGame, pickClassQuick, playCards, discardDamage, yieldTurn,
   chooseNext, restartGame, playerDisconnect, roomInfo, findRoomsByPlayer,
   markConnected, gameStateFor, leaveRoom, deleteRoom,
 } from './rooms'
@@ -118,6 +118,11 @@ io.on('connection', socket => {
     const { states, error } = startGame(code, cid)
     if (error) { socket.emit('error', error); return }
     broadcast(states!)
+  })
+
+  socket.on('pick_class_quick', ({ code, classId }: { code: string; classId: string | null }) => {
+    const room = pickClassQuick(code, cid, classId)
+    if (room) io.to(code).emit('room_update', room)
   })
 
   socket.on('play_cards', ({ code, cardIndices }: { code: string; cardIndices: number[] }) => {

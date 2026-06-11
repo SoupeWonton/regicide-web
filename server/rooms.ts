@@ -7,6 +7,7 @@ interface Room {
   hostId: string
   players: { id: string; name: string; ready: boolean }[]
   state: GameState | null
+  classSelections: Map<string, string>  // playerId → classId
 }
 
 const rooms = new Map<string, Room>()
@@ -43,12 +44,14 @@ export function buildClientState(state: GameState, forPlayerId: string): ClientG
     log: state.log,
     lastPlayed: state.lastPlayed,
     myIndex,
+    classIds: state.classIds,
+    myClassId: state.classIds ? (state.classIds[myIndex] ?? null) : undefined,
   }
 }
 
 export function createRoom(hostId: string, hostName: string): RoomInfo {
   const code = genCode()
-  rooms.set(code, { code, hostId, players: [{ id: hostId, name: hostName, ready: false }], state: null })
+  rooms.set(code, { code, hostId, players: [{ id: hostId, name: hostName, ready: false }], state: null, classSelections: new Map() })
   return roomInfo(code)!
 }
 
@@ -74,8 +77,18 @@ export function startGame(code: string, requesterId: string): { states?: Map<str
   const room = rooms.get(code)
   if (!room) return { error: 'Room not found.' }
   if (room.hostId !== requesterId) return { error: 'Only the host can start.' }
-  room.state = createGame(room.players.map(p => ({ id: p.id, name: p.name })))
+  const classIds = room.players.map(p => room.classSelections.get(p.id) ?? null)
+  const hasClasses = classIds.some(c => c !== null)
+  room.state = createGame(room.players.map(p => ({ id: p.id, name: p.name })), hasClasses ? classIds : undefined)
   return { states: buildAllStates(room) }
+}
+
+export function pickClassQuick(code: string, playerId: string, classId: string | null): RoomInfo | null {
+  const room = rooms.get(code)
+  if (!room || room.state) return null
+  if (classId) room.classSelections.set(playerId, classId)
+  else room.classSelections.delete(playerId)
+  return roomInfo(code)!
 }
 
 export function playCards(code: string, playerId: string, cardIndices: number[]): { states?: Map<string, ClientGameState>; error?: string } {
@@ -122,6 +135,7 @@ export function restartGame(code: string): { room?: RoomInfo; error?: string } {
   const room = rooms.get(code)
   if (!room) return { error: 'Room not found.' }
   room.state = null
+  room.classSelections.clear()
   for (const p of room.players) p.ready = false
   return { room: roomInfo(code)! }
 }
@@ -159,7 +173,12 @@ export function leaveRoom(code: string, playerId: string): RoomInfo | null {
 export function roomInfo(code: string): RoomInfo | null {
   const room = rooms.get(code)
   if (!room) return null
-  return { code, hostId: room.hostId, players: room.players }
+  const sel: Record<string, string> = {}
+  room.classSelections.forEach((v, k) => { sel[k] = v })
+  return {
+    code, hostId: room.hostId, players: room.players,
+    ...(room.classSelections.size > 0 ? { classSelections: sel } : {}),
+  }
 }
 
 /** Room codes this player belongs to (for reconnect auto-rejoin). */

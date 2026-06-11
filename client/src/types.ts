@@ -39,12 +39,15 @@ export interface ClientGameState {
   log: string[]
   lastPlayed: Card[]
   myIndex: number
+  classIds?: (string | null)[]
+  myClassId?: string | null
 }
 
 export interface RoomInfo {
   code: string
   hostId: string
   players: { id: string; name: string; ready: boolean }[]
+  classSelections?: Record<string, string>  // playerId → classId
 }
 
 // ── Campaign mode ────────────────────────────────────────────────────────────
