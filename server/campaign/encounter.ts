@@ -2,7 +2,8 @@ import type { Card, Enemy, Suit } from '../types'
 import { cardValue, cardLabel, suitSymbol, enemyStats, jesterCount } from '../deck'
 import { createRng } from '../rng'
 import type { CampaignState, EncounterState, EncounterTier, EncounterEvent, Hero } from './types'
-import { getEncounterDef, getItem, encountersOf, BOSS_MODIFIERS } from './content'
+import { getEncounterDef, getItem, encountersOf, BOSS_MODIFIERS, CLASSES } from './content'
+import { EXPERIMENTS, CURATION_CUT } from './experiments'
 
 // Campaign encounter engine. A superset of the base Regicide rules with hook
 // points for encounter modifiers, class core abilities, relics, spells,
@@ -42,6 +43,11 @@ export function maxHandSize(c: CampaignState): number {
   let size = base
   if (s?.flags['shrineBlessing']) size += 1
   if (s?.bossModifierId === 'starving-court') size -= 1
+  // Reliquary relic: hand cap +1 during boss fights
+  if (s?.tier === 'boss' && c.heroes.some(h => h.alive && h.relicId === 'r-reliquary')) size += 1
+  // Quartermaster: the party's hand cap is +1 while the Quartermaster stands
+  // (Access identity; solo parity fix — measured weakest solo class 2026-06-11)
+  if (c.heroes.some(h => h.alive && h.classId === 'quartermaster')) size += 1
   return Math.max(2, size)
 }
 
@@ -85,7 +91,24 @@ function buildCampaignDeck(c: CampaignState, shuffler: <T>(a: T[]) => T[]): Card
 /** Chapter start: fresh full deck, full hands. */
 export function setupChapterDeck(c: CampaignState) {
   const { r, done } = rng(c)
-  const tavern = buildCampaignDeck(c, a => r.shuffle(a))
+  let tavern = buildCampaignDeck(c, a => r.shuffle(a))
+  // Province mode — class curation (deckbuild option B): each suited class
+  // removes its N lowest own-suit cards. Quality up, total runway down.
+  if (EXPERIMENTS.provinceMode) {
+    const cut = CURATION_CUT[c.heroes.length] ?? 2
+    for (const h of c.heroes) {
+      const suit = CLASSES[h.classId].suit
+      if (!suit) continue
+      const lowest = tavern
+        .filter(cd => cd.suit === suit && cd.rank !== 'Jo')
+        .sort((a, b) => cardValue(a.rank) - cardValue(b.rank))
+        .slice(0, cut)
+      const ids = new Set(lowest.map(cd => cd.id))
+      tavern = tavern.filter(cd => !ids.has(cd.id))
+      if (lowest.length)
+        clog(c, `🃏 ${h.playerName} curates the deck: ${lowest.length} low ${suitSymbol(suit as Suit)} cards are cut.`)
+    }
+  }
   c.deck = { tavern, discard: [], hands: c.heroes.map(() => []) }
   const max = maxHandSize(c)
   for (const hi of aliveIndices(c))
@@ -112,6 +135,20 @@ export function campRest(c: CampaignState) {
   clog(c, '🔄 The party rests — the deck is reshuffled and hands are redrawn.')
 }
 
+/** In-fight full rest: shuffle everything into the Tavern, redraw all hands. */
+function castleCheckpoint(c: CampaignState, s: EncounterState) {
+  const pool = [...s.tavern, ...s.discard, ...s.hands.flat()]
+  const { r, done } = rng(c)
+  s.tavern = r.shuffle(pool)
+  s.discard = []
+  s.hands = c.heroes.map(() => [])
+  const max = maxHandSize(c)
+  for (const hi of aliveIndices(c))
+    for (let i = 0; i < max; i++)
+      if (s.tavern.length) s.hands[hi]!.push(s.tavern.pop()!)
+  done()
+}
+
 /** Camp replacement: the new hero draws a full hand. */
 export function dealReplacementHand(c: CampaignState, heroIdx: number) {
   const deck = c.deck
@@ -125,9 +162,15 @@ export function dealReplacementHand(c: CampaignState, heroIdx: number) {
 // Encounter composition scales with party size (balance-testing): the boss
 // castle is canon and never scales, but road fights shed a body at low
 // counts so pressure tracks the party's total hand capacity.
-function buildEnemyStack(tier: EncounterTier, isLair: boolean, players: number, shuffler: <T>(a: T[]) => T[]): Card[] {
+function buildEnemyStack(tier: EncounterTier, isLair: boolean, players: number, shuffler: <T>(a: T[]) => T[], rankOnly?: 'J' | 'Q' | 'K'): Card[] {
   const mk = (rank: 'J' | 'Q' | 'K', suits: Suit[]) => suits.map(suit => ({ suit, rank: rank as Card['rank'], id: uid() }))
   if (tier === 'boss') {
+    // province rank fight: one rank, sized by party (solo 2 / duo 3 / party 4)
+    if (rankOnly) return shuffler(mk(rankOnly, shuffler([...SUITS]).slice(0, players === 1 ? 2 : players === 2 ? 3 : 4)))
+    if (EXPERIMENTS.shortCastle) {
+      const ranks: ('J' | 'Q' | 'K')[] = ['J', 'Q', 'K']
+      return ranks.flatMap(rank => shuffler(mk(rank, shuffler([...SUITS]).slice(0, 3))))
+    }
     return [
       ...shuffler(mk('J', [...SUITS])),
       ...shuffler(mk('Q', [...SUITS])),
@@ -135,8 +178,12 @@ function buildEnemyStack(tier: EncounterTier, isLair: boolean, players: number, 
     ]
   }
   const pickSuits = (n: number) => shuffler([...SUITS]).slice(0, n)
-  if (tier === 'skirmish') return mk('J', pickSuits(2))
+  // Province mode: solo road fights are single-royal duels (a solo "skirmish"
+  // of 2 Jacks was effectively a gate fight — measurement 2026-06-11).
+  const soloProvince = EXPERIMENTS.provinceMode && players === 1
+  if (tier === 'skirmish') return mk('J', pickSuits(soloProvince ? 1 : 2))
   if (tier === 'veteran') {
+    if (soloProvince) return mk('Q', pickSuits(1))
     return players <= 2
       ? [...mk('J', pickSuits(1)), ...mk('Q', pickSuits(1))]
       : [...mk('J', pickSuits(2)), ...mk('Q', pickSuits(1))]
@@ -166,6 +213,22 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
     c.debug.forceNextEncounterId = undefined
   } else if (c.chapter === 2) {
     bossModifierId = r.pick(BOSS_MODIFIERS).id
+    // Oracle siege ultimate — Unveil the Court: the hidden court modifier is
+    // read in advance and nullified.
+    if (c.heroes.some(h => h.alive && h.classId === 'oracle')) {
+      const unveiled = BOSS_MODIFIERS.find(m => m.id === bossModifierId)!
+      clog(c, `🔮 UNVEIL THE COURT! The Oracle reads the court's secret — ${unveiled.name} is nullified.`)
+      bossModifierId = null
+    }
+  }
+
+  // Province mode: a boss node is one rank of the split castle — which rank
+  // depends on how many rank gates lie behind us (Gates → Courtyard → Throne).
+  let rankOnly: 'J' | 'Q' | 'K' | undefined
+  if (tier === 'boss' && EXPERIMENTS.provinceMode) {
+    const node = c.map!.nodes.find(n => n.id === nodeId)!
+    const ranksBefore = c.map!.nodes.filter(n => n.kind === 'boss' && n.layer < node.layer).length
+    rankOnly = (['J', 'Q', 'K'] as const)[Math.min(ranksBefore, 2)]
   }
 
   const heroesAlive = aliveIndices(c)
@@ -176,7 +239,7 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
     turnPhase: 'setup',
     currentPlayerIndex: heroesAlive[0]!,
     nextPlayerIndex: heroesAlive[1 % heroesAlive.length]!,
-    enemyDeck: buildEnemyStack(tier, !!opts.isLair, heroesAlive.length, shuffler),
+    enemyDeck: buildEnemyStack(tier, !!opts.isLair, heroesAlive.length, shuffler, rankOnly),
     currentEnemy: null,
     defeatedCount: 0,
     totalEnemies: 0,
@@ -201,6 +264,10 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
   // adopt the persistent deck — no reshuffle between road encounters (canon:
   // only encounters entered from camp/interlude start from a fresh state, and
   // the camp rest itself performs that reset)
+  if (tier === 'boss' && EXPERIMENTS.preBossReshuffle) {
+    campRest(c)
+    clog(c, '🏰 The party regroups at the castle gates — full rest before the assault.')
+  }
   const deck = c.deck!
   s.tavern = deck.tavern
   s.discard = deck.discard
@@ -234,12 +301,17 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
     if (pid === 'p-fortified-entry') s.flags['prepFortifiedEntry'] = true
     if (pid === 'p-surgical-reserve') s.flags['prepSurgicalReserve'] = true
     if (pid === 'p-route-intel') s.flags['prepRouteIntel'] = true
+    if (pid === 'p-last-march') s.flags['prepLastMarch'] = true
     // p-brace-command is consumed at camp (starting hero choice)
   }
   c.activePreparations = []
 
   const def = modifierId ? getEncounterDef(modifierId) : null
-  clog(c, `⚔️ ${tier === 'boss' ? (c.chapter === 1 ? 'The Castle stands before you — 12 royals.' : 'The Broken Court awaits — 12 royals, and something is wrong.') : `Encounter: ${def?.name ?? tier}`}`)
+  const bossLabel = rankOnly === 'J' ? 'THE GATES — four Jacks bar the way.'
+    : rankOnly === 'Q' ? 'THE COURTYARD — four Queens hold the yard.'
+    : rankOnly === 'K' ? 'THE THRONE — four Kings. No retreat.'
+    : c.chapter === 1 ? 'The Castle stands before you — 12 royals.' : 'The Broken Court awaits — 12 royals, and something is wrong.'
+  clog(c, `⚔️ ${tier === 'boss' ? bossLabel : `Encounter: ${def?.name ?? tier}`}`)
   if (def) clog(c, `   ${def.mechanicText}`)
 
   revealNextEnemy(c, s)
@@ -317,6 +389,18 @@ function revealNextEnemy(c: CampaignState, s: EncounterState) {
   if (s.bossModifierId === 'iron-court') { enemy.hp += 5; enemy.maxHp += 5 }
   if (s.bossModifierId === 'cruel-court') enemy.attack += 2
 
+  // Exile siege ultimate — Tithe of the Severed: at the first royal's reveal,
+  // permanently exile the top 2 Tavern cards; their value wounds the royal
+  // (cannot kill outright).
+  if (s.tier === 'boss' && !EXPERIMENTS.provinceMode && c.heroes.some(h => h.alive && h.classId === 'exile') &&
+      s.tavern.length >= 2 && once(s, 'ult.exile')) {
+    const sacrificed = [s.tavern.pop()!, s.tavern.pop()!]
+    const wound = Math.min(sacrificed.reduce((t, cd) => t + cardValue(cd.rank), 0), enemy.hp - 1)
+    enemy.hp -= wound
+    clog(c, `🗡 TITHE OF THE SEVERED! Two cards are exiled forever — ${cardLabel(enemy.card)} takes ${wound} damage.`)
+    ev(s, 'proc', `🗡 TITHE — ${wound} damage`, 'gold', true)
+  }
+
   // per-enemy hooks reset
   for (const k of Object.keys(s.flags)) if (k.startsWith('enemy.')) delete s.flags[k]
   if (s.modifierId === 'blackwall-captain') s.flags['enemy.guard'] = 3
@@ -360,8 +444,10 @@ function resolveDiamonds(c: CampaignState, s: EncounterState, playerIdx: number,
     }
   }
   // class / relic / memory access boosts
-  const qm = c.heroes.findIndex(h => h.alive && h.classId === 'quartermaster')
-  if (qm >= 0 && once(s, 'enemy.qmDiamond')) { amount += 1; clog(c, '   📦 Quartermaster: +1 draw.'); ev(s, 'proc', '📦 Quartermaster +1 draw', 'gold') }
+  const qmActive = EXPERIMENTS.ownerOnlyClassTriggers
+    ? c.heroes[playerIdx]!.classId === 'quartermaster'
+    : c.heroes.some(h => h.alive && h.classId === 'quartermaster')
+  if (qmActive && once(s, 'enemy.qmDiamond')) { amount += 1; clog(c, '   📦 Quartermaster: +1 draw.'); ev(s, 'proc', '📦 Quartermaster +1 draw', 'gold') }
   const holder = c.heroes[playerIdx]!
   if (holder.relicId === 'r-field-satchel' && once(s, flagKey('satchel', playerIdx))) amount += 1
   if (holder.relicId === 'r-grand-provision') {
@@ -398,8 +484,14 @@ function resolveHearts(c: CampaignState, s: EncounterState, playerIdx: number, a
       clog(c, '   🦠 Rot Ward: recovery reduced by 1.')
     }
   }
-  const surgeon = c.heroes.findIndex(h => h.alive && h.classId === 'surgeon')
-  if (surgeon >= 0 && once(s, 'enemy.surgeonHeart')) { amount += 1; clog(c, '   ⚕️ Surgeon: +1 recovery.'); ev(s, 'proc', '⚕️ Surgeon +1 recovery', 'gold') }
+  if (s.tier === 'boss' && EXPERIMENTS.castleHearts) {
+    amount *= 2
+    clog(c, '   🏰 Castle Hearts: recovery doubled.')
+  }
+  const surgeonActive = EXPERIMENTS.ownerOnlyClassTriggers
+    ? c.heroes[playerIdx]!.classId === 'surgeon'
+    : c.heroes.some(h => h.alive && h.classId === 'surgeon')
+  if (surgeonActive && once(s, 'enemy.surgeonHeart')) { amount += 1; clog(c, '   ⚕️ Surgeon: +1 recovery.'); ev(s, 'proc', '⚕️ Surgeon +1 recovery', 'gold') }
   const holder = c.heroes[playerIdx]!
   if (heroHasMemory(holder, 'm-surgical-notes') && once(s, flagKey('m-notes', playerIdx))) amount += 1
 
@@ -526,6 +618,23 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   if (activeSuits.has('H')) resolveHearts(c, s, pi, base)
   if (activeSuits.has('D')) resolveDiamonds(c, s, pi, base)
 
+  // Gambler siege ultimate — All In: once per castle, the Gambler's first
+  // strike is doubled or halved on a coin flip.
+  if (s.tier === 'boss' && !EXPERIMENTS.provinceMode && hero.classId === 'gambler' && damage > 0 && once(s, 'ult.gambler')) {
+    const { r, done } = rng(c)
+    const jackpot = r.next() < 0.5
+    done()
+    if (jackpot) {
+      damage *= 2
+      clog(c, `🎲 ALL IN — jackpot! Damage doubled to ${damage}.`)
+      ev(s, 'proc', `🎲 ALL IN — ${damage} damage!`, 'gold', true)
+    } else {
+      damage = Math.max(1, Math.floor(damage / 2))
+      clog(c, `🎲 ALL IN — bust. Damage halved to ${damage}.`)
+      ev(s, 'proc', '🎲 ALL IN — bust', 'blood', true)
+    }
+  }
+
   // ── Damage + threshold abilities ──────────────────────────────────────────
   enemy.hp -= damage
   ev(s, 'damage', `💥 ${damage} damage`, 'blood', true)
@@ -534,7 +643,17 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
     clog(c, '   📜 Clean Finish: +1 finishing damage.')
     ev(s, 'proc', '📜 Clean Finish +1', 'gold')
   }
-  if ((enemy.hp === 1 || enemy.hp === 2) && c.heroes.some(h => h.alive && h.classId === 'executioner') && once(s, 'enemy.execFinish')) {
+  const execActive = EXPERIMENTS.ownerOnlyClassTriggers
+    ? hero.classId === 'executioner'
+    : c.heroes.some(h => h.alive && h.classId === 'executioner')
+  // Siege upgrade — Regicide: in the castle, the Executioner's OWN attacks
+  // finish royals from 1-4 HP (still once per enemy).
+  const regicideWindow = s.tier === 'boss' && !EXPERIMENTS.provinceMode && hero.classId === 'executioner' && enemy.hp >= 1 && enemy.hp <= 4
+  if (regicideWindow && once(s, 'enemy.execFinish')) {
+    clog(c, `   🪓 REGICIDE! The Executioner finishes the royal from ${enemy.hp} HP.`)
+    ev(s, 'proc', '🪓 REGICIDE — finished!', 'gold', true)
+    enemy.hp = 0
+  } else if ((enemy.hp === 1 || enemy.hp === 2) && execActive && once(s, 'enemy.execFinish')) {
     enemy.hp -= 2
     clog(c, '   🪓 Executioner: +2 finishing damage.')
     ev(s, 'proc', '🪓 Executioner +2 — finish!', 'gold', true)
@@ -595,12 +714,30 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
     clog(c, `✅ ${cardLabel(enemy.card)} defeated!`)
     ev(s, 'kill', `☠️ ${cardLabel(enemy.card)} DEFEATED`, 'gold', true)
   }
+  // War Drum relic: in the castle, every fallen royal rallies the party.
+  if (s.tier === 'boss' && c.heroes.some(h => h.alive && h.relicId === 'r-war-drum')) {
+    for (const hi of aliveIndices(c)) drawForHero(c, s, hi, 1)
+    clog(c, '🥁 The War Drum sounds — everyone draws 1.')
+  }
+
   s.currentEnemy = null
   revealNextEnemy(c, s)
   if (s.outcome === 'won') {
     clog(c, '🎉 Encounter cleared!')
     ev(s, 'kill', '🎉 ENCOUNTER CLEARED', 'gold', true)
     return
+  }
+
+  // Castle checkpoint (canon): once the Queens fall, the discard is shuffled
+  // back into the Tavern — fuel for the Kings, but hands are not redrawn.
+  // (Tuned down from two full rests, which overshot to ~50% bot wins; the
+  // siege ultimates cover hand recovery.)
+  if (s.tier === 'boss' && !EXPERIMENTS.provinceMode && s.defeatedCount === Math.ceil((2 * s.totalEnemies) / 3) && s.discard.length > 0) {
+    const { r, done } = rng(c)
+    s.tavern.push(...r.shuffle(s.discard.splice(0)))
+    done()
+    clog(c, '🏰 The Queens have fallen — the party gathers its strength for the Kings (discard returns to the Tavern).')
+    ev(s, 'proc', '🏰 CHECKPOINT — Tavern refilled', 'gold', true)
   }
 
   // follow-up turn: killer continues unless initiative is transferred
@@ -687,6 +824,13 @@ function counterattack(c: CampaignState, s: EncounterState, pi: number): { error
     net = 2
     clog(c, '   🪝 Hooked Blades: 1 damage becomes 2.')
   }
+  // Sentinel siege ultimate — Hold the Gate: once per castle, a counterattack
+  // against the Sentinel is fully negated.
+  if (net > 0 && s.tier === 'boss' && !EXPERIMENTS.provinceMode && c.heroes[pi]!.classId === 'sentinel' && once(s, 'ult.sentinel')) {
+    net = 0
+    clog(c, '🛡 HOLD THE GATE! The Sentinel turns the blow aside completely.')
+    ev(s, 'proc', '🛡 HOLD THE GATE — negated', 'gold', true)
+  }
 
   if (net === 0) {
     clog(c, '🛡 Fully shielded — no damage taken.')
@@ -728,6 +872,16 @@ function counterattack(c: CampaignState, s: EncounterState, pi: number): { error
     c.ironReprieveUsed = true
     needed = 1
     clog(c, '   ⚙️ Iron Reprieve: death prevented — discard check set to 1.')
+  }
+
+  // Warden siege ultimate — Deathward: once per castle, the first death is
+  // prevented; the hero discards what they can and stands.
+  if (coverable < needed && s.tier === 'boss' && !EXPERIMENTS.provinceMode &&
+      c.heroes.some(h => h.alive && h.classId === 'warden') && once(s, 'ult.warden')) {
+    clog(c, `🕯 DEATHWARD! The Warden pulls ${hero.playerName} back from the brink.`)
+    ev(s, 'proc', '🕯 DEATHWARD — death prevented', 'gold', true)
+    if (coverable === 0) { advanceTurn(c, s); return {} }
+    needed = coverable
   }
 
   if (coverable < needed) {
@@ -808,6 +962,16 @@ export function applyEncounterChooseNext(c: CampaignState, playerId: string, tar
     s.turnPhase = 'play'
     s.lastPlayed = []
     clog(c, `⚜️ Initiative passes to ${c.heroes[targetIndex]!.playerName}.`)
+    // Commander siege ultimate — Rally the Line: the first castle handoff to
+    // an ally also re-arms them with 2 cards.
+    if (s.tier === 'boss' && !EXPERIMENTS.provinceMode && targetIndex !== pi &&
+        c.heroes.some(h => h.alive && h.classId === 'commander') && once(s, 'ult.commander')) {
+      const got = drawForHero(c, s, targetIndex, 2)
+      if (got > 0) {
+        clog(c, `⚜️ RALLY THE LINE! ${c.heroes[targetIndex]!.playerName} draws ${got}.`)
+        ev(s, 'proc', `⚜️ RALLY — +${got} cards`, 'gold', true)
+      }
+    }
     return {}
   }
 
@@ -824,6 +988,41 @@ function advanceTurn(c: CampaignState, s: EncounterState) {
   // round/turn bookkeeping for round-based modifiers
   const turnCount = ((s.flags['turnCount'] as number) ?? 0) + 1
   s.flags['turnCount'] = turnCount
+
+  // ── Siege ultimates + siege items (boss fights only, once per castle) ─────
+  // (Class ultimates are canon-mode only; province mode replaces class power
+  // with deck curation. Item effects stay live in both modes.)
+  if (s.tier === 'boss') {
+    // Surgeon — Field Triage: when the Tavern first runs dry, return up to 8
+    // discard cards to it.
+    if (!EXPERIMENTS.provinceMode &&
+        c.heroes.some(h => h.alive && h.classId === 'surgeon') &&
+        s.tavern.length === 0 && s.discard.length > 0 && once(s, 'ult.surgeon')) {
+      const take = Math.min(8, s.discard.length)
+      const back = s.discard.splice(0, take)
+      const { r, done } = rng(c)
+      s.tavern.push(...r.shuffle(back))
+      done()
+      clog(c, `⚕️ Field Triage! The Surgeon returns ${take} cards to the Tavern.`)
+      ev(s, 'proc', `⚕️ FIELD TRIAGE — ${take} cards back`, 'gold', true)
+    }
+    // Quartermaster — Last Requisition: when the Quartermaster's hand first
+    // empties, the whole party draws back to full.
+    const qmIdx = EXPERIMENTS.provinceMode ? -1 : c.heroes.findIndex(h => h.alive && h.classId === 'quartermaster')
+    if (qmIdx >= 0 && s.hands[qmIdx]!.length === 0 && s.tavern.length > 0 && once(s, 'ult.quartermaster')) {
+      for (const hi of aliveIndices(c)) drawForHero(c, s, hi, maxHandSize(c))
+      clog(c, '📦 Last Requisition! The Quartermaster re-arms the whole party.')
+      ev(s, 'proc', '📦 LAST REQUISITION — party draws to full', 'gold', true)
+    }
+    // Banner of the Last March (preparation): one full rest when the Tavern
+    // first runs dry.
+    if (s.flags['prepLastMarch'] && s.tavern.length === 0 && (s.discard.length > 0 || s.hands.some(h => h.length > 0))) {
+      s.flags['prepLastMarch'] = false
+      castleCheckpoint(c, s)
+      clog(c, '🚩 The Banner of the Last March is raised — the party takes a full rest.')
+      ev(s, 'proc', '🚩 LAST MARCH — full rest', 'gold', true)
+    }
+  }
   if (s.modifierId === 'shieldbreaker-line') {
     if (!s.flags['spadeThisTurn']) {
       const noSpade = ((s.flags['noSpadeTurns'] as number) ?? 0) + 1
@@ -859,6 +1058,30 @@ function heroDies(c: CampaignState, s: EncounterState, pi: number, unpayable: nu
   clog(c, `💀 ${hero.playerName} the ${hero.classId} falls — ${unpayable} damage could not be paid.`)
   clog(c, `   Their memories fade with them.`)
   hero.memories = []
+
+  // Province mode: any death is a full run reset — no votes, no replacements.
+  // The Kingdom records where the run ended (rewards-on-death hook).
+  if (EXPERIMENTS.provinceMode) {
+    // Second wind (once per act, road fights only): the first death is a
+    // collapse — the hero stands back up at the cost of their hand and the
+    // fight. Rank gates grant no such mercy, and the second fall is final.
+    // (Clearing a rank gate restores the mercy — see campaign.ts.)
+    const cx = c as CampaignState & { secondWindUsed?: boolean }
+    if (s.tier !== 'boss' && !cx.secondWindUsed) {
+      cx.secondWindUsed = true
+      hero.alive = true
+      s.outcome = 'retreated'
+      s.turnPhase = 'over'
+      clog(c, `🩸 ${hero.playerName} collapses — and crawls back up. One mercy per act; the next fall is final.`)
+      ev(s, 'proc', '🩸 SECOND WIND — spent', 'blood', true)
+      return
+    }
+    s.outcome = 'wiped'
+    s.turnPhase = 'over'
+    c.phase = 'campaign_lost'
+    clog(c, '☠️ The run ends here. The Kingdom remembers where.')
+    return
+  }
 
   const alive = aliveIndices(c)
   if (alive.length === 0) {

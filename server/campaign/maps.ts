@@ -1,5 +1,6 @@
 import type { NodeKind, RoadMapState, RoadNode } from './types'
 import type { Rng } from '../rng'
+import { EXPERIMENTS } from './experiments'
 
 // Handcrafted chapter maps (road canon: authored variants + deterministic
 // permutations that preserve the authored budgets). Each layer lists node
@@ -62,8 +63,30 @@ const CHAPTER_2: ChapterSpec = {
   ],
 }
 
+// Province prototype: one run = 8 road stops + 3 rank fights. The 12-royal
+// base-Regicide castle is split across the acts — Gates (4 Jacks), Courtyard
+// (4 Queens), Throne (4 Kings). The camp/lair fork in act 2 is the central
+// routing dilemma: rest, or gamble for a rare with no rest until the Throne.
+const PROVINCE_1: ChapterSpec = {
+  variant: 'prov1-a',
+  layers: [
+    { kinds: ['start'] },
+    { kinds: ['skirmish', 'skirmish'] },          // stop 1
+    { kinds: ['forge', 'market', 'abbey'] },      // stop 2
+    { kinds: ['boss'] },                          // THE GATES — 4 Jacks
+    { kinds: ['veteran', 'skirmish'] },           // stop 3
+    { kinds: ['camp', 'lair'] },                  // stop 4 — rest or gamble
+    { kinds: ['veteran', 'veteran'] },            // stop 5
+    { kinds: ['boss'] },                          // THE COURTYARD — 4 Queens
+    { kinds: ['veteran', 'elite'] },              // stop 6
+    { kinds: ['camp', 'shrine', 'tower'] },       // stop 7 — breather before the Kings (or push on for blessings)
+    { kinds: ['elite', 'veteran'] },              // stop 8
+    { kinds: ['boss'] },                          // THE THRONE — 4 Kings
+  ],
+}
+
 export function buildMap(chapter: 1 | 2, rng: Rng): RoadMapState {
-  const spec = chapter === 1 ? CHAPTER_1 : CHAPTER_2
+  const spec = EXPERIMENTS.provinceMode && chapter === 1 ? PROVINCE_1 : chapter === 1 ? CHAPTER_1 : CHAPTER_2
   const nodes: RoadNode[] = []
   const layerIds: string[][] = []
 

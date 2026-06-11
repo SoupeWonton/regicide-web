@@ -9,6 +9,7 @@ import {
   startEncounter, maxHandSize, setupChapterDeck, campRest, dealReplacementHand,
 } from './encounter'
 import { loadKingdom, saveKingdom, saveCampaign } from './store'
+import { EXPERIMENTS } from './experiments'
 
 function clog(c: CampaignState, msg: string) {
   c.log.unshift(msg)
@@ -308,6 +309,30 @@ export function checkEncounterEnd(c: CampaignState) {
   if (s.outcome === 'won') {
     const node = c.map!.nodes.find(n => n.id === s.nodeId)!
     if (s.tier === 'boss') {
+      // Province mode: the Gates and the Courtyard are intermediate rank
+      // fights — pay spoils and march on. Only the Throne completes the run.
+      if (EXPERIMENTS.provinceMode && node.next.length > 0) {
+        const { r, done } = rng(c)
+        const isCourtyard = c.map!.nodes.some(n => n.kind === 'boss' && n.layer < node.layer)
+        const pool = (isCourtyard
+          ? [...itemsOf('relic', 'rare'), ...itemsOf('spell', 'rare')]
+          : [...itemsOf('spell', 'standard'), ...itemsOf('preparation', 'standard'), ...itemsOf('relic', 'standard')])
+          .filter(i => !c.spells.includes(i.id) && !c.preparations.includes(i.id) && !c.heroes.some(h => h.relicId === i.id))
+        const options = r.shuffle(pool).slice(0, 3 + rewardBonus(c))
+        done()
+        c.encounter = null
+        ;(c as CampaignState & { secondWindUsed?: boolean }).secondWindUsed = false   // mercy renews each act
+        clog(c, isCourtyard ? '👑 The Courtyard is yours. The Throne room lies ahead.' : '🏰 The Gates have fallen. The Courtyard awaits.')
+        if (options.length) {
+          c.phase = 'landmark'
+          c.pendingChoice = {
+            kind: 'landmark_reward', forPlayerId: null,
+            prompt: isCourtyard ? 'Spoils of the Courtyard — claim a rare prize.' : 'Spoils of the Gates — choose your reward.',
+            options: options.map(i => ({ id: i.id, label: `${i.name}${i.tier === 'rare' ? ' ★' : ''}`, detail: i.text })),
+          }
+        } else c.phase = 'road'
+        return
+      }
       c.encounter = null
       beginMemoryDraft(c)
       return
@@ -363,8 +388,14 @@ export function checkEncounterEnd(c: CampaignState) {
   if (s.outcome === 'retreated') {
     c.encounter = null
     c.phase = 'camp'
-    campRest(c)   // emergency camp is an interlude: full rest applies
-    clog(c, '🏕 The party falls back to an emergency camp. The fight can be retaken from here.')
+    if (EXPERIMENTS.provinceMode) {
+      // Province canon: retreating buys another attempt but NO rest — camps
+      // are scarce, and a retreat must not be a free one.
+      clog(c, '🏳 The party falls back, winded. No rest — the fight can be retaken as you stand.')
+    } else {
+      campRest(c)   // emergency camp is an interlude: full rest applies
+      clog(c, '🏕 The party falls back to an emergency camp. The fight can be retaken from here.')
+    }
   }
 }
 
@@ -529,7 +560,7 @@ export function beginReplacement(c: CampaignState, kingdom: KingdomState): { err
   c.pendingChoice = {
     kind: 'replacement', forPlayerId: dead.playerId,
     prompt: `A new hero answers ${dead.playerName}'s lineage. Choose their class.`,
-    options: offers.map(cid => ({ id: cid, label: CLASSES[cid].name, detail: CLASSES[cid].abilityText })),
+    options: offers.map(cid => ({ id: cid, label: CLASSES[cid].name, detail: CLASSES[cid].abilityText + (CLASSES[cid].siegeText ? ` ⚔ Siege: ${CLASSES[cid].siegeText}` : '') })),
   }
   return {}
 }
@@ -594,6 +625,18 @@ export function applyMemoryPick(c: CampaignState, playerId: string, memoryId: st
 }
 
 function completeChapter(c: CampaignState, kingdom: KingdomState) {
+  if (EXPERIMENTS.provinceMode && c.chapter === 1) {
+    // Province 1 liberated: the run is complete; further provinces unlock at
+    // the kingdom level (chapter 2 content is out of scope for the prototype).
+    if (!kingdom.unlockedChapters.includes(2)) kingdom.unlockedChapters.push(2)
+    for (const cid of ['commander', 'warden', 'gambler', 'exile', 'oracle'] as ClassId[])
+      if (!kingdom.unlockedClasses.includes(cid)) kingdom.unlockedClasses.push(cid)
+    kingdom.campaignsWon++
+    saveKingdom(kingdom)
+    c.phase = 'campaign_won'
+    clog(c, '👑 The Throne is taken — the province is liberated. New provinces open to the Kingdom.')
+    return
+  }
   if (c.chapter === 1) {
     // kingdom unlocks: chapter 2, specializations, Tier 2 classes
     if (!kingdom.unlockedChapters.includes(2)) kingdom.unlockedChapters.push(2)
@@ -646,7 +689,8 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
     classId: h.classId,
     picked: c.phase !== 'class_select' || c.classPicks[h.playerId] !== null,
     className: CLASSES[h.classId].name,
-    abilityText: CLASSES[h.classId].abilityText,
+    abilityText: CLASSES[h.classId].abilityText +
+      (CLASSES[h.classId].siegeText ? ` ⚔ Siege: ${CLASSES[h.classId].siegeText}` : ''),
     alive: h.alive,
     memories: h.memories.map(m => ({ id: m, name: getItem(m).name, text: getItem(m).text })),
     relic: h.relicId ? { id: h.relicId, name: getItem(h.relicId).name, text: getItem(h.relicId).text, tier: getItem(h.relicId).tier } : null,

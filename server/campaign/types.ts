@@ -12,12 +12,16 @@ export type CtCategory = 'Shield' | 'Access' | 'Recovery' | 'Initiative' | 'Cons
 export type ItemKind = 'relic' | 'spell' | 'preparation' | 'memory'
 export type ItemTier = 'standard' | 'rare'
 
+export type GearSlot = 'armor' | 'arms' | 'trinket'
+
 export interface ItemDef {
   id: string
   kind: ItemKind
   tier: ItemTier
   name: string
-  ct: number
+  ct: number          // Road CT (linear axis — see systems/catastrophe-tolerance.md v2)
+  siegeCt?: number    // Siege CT (castle axis; 1.0 ≈ +10pp castle conversion). Omitted = 0.
+  slot?: GearSlot     // relics only — gear-slot taxonomy (armor 1 / arms 2 / trinket 4 per hero)
   category: CtCategory
   text: string
 }
@@ -28,8 +32,10 @@ export interface ClassDef {
   name: string
   theme: string
   suit: string | null
-  ct: number
+  ct: number          // Road CT
+  siegeCt?: number    // Siege CT of the class's once-per-castle ultimate
   abilityText: string
+  siegeText?: string  // once-per-castle ultimate description
 }
 
 // ── Encounter modifiers (Chapter 1 encounter pack) ──────────────────────────
