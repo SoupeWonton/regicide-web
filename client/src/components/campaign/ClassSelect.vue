@@ -143,7 +143,7 @@ function pick(classId: string) {
       <template v-if="waitingOn.length">
         <span class="soft-pulse">Waiting on {{ waitingOn.join(', ') }}…</span>
       </template>
-      Tier 2 &amp; 3 heroes (Commander, Warden, Gambler, Exile, Oracle) join mid-campaign through the replacement flow once unlocked.
+      The Exile joins the roster once earned — every other banner answers from the start.
     </p>
     <p class="text-center text-[11px] text-primary/50 font-flavor tracking-wide">
       ⚔ Province rules: each suited hero curates the deck at setup — their lowest cards of their own suit are cut.
