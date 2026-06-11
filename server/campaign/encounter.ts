@@ -98,15 +98,16 @@ export function setupChapterDeck(c: CampaignState) {
     const cut = CURATION_CUT[c.heroes.length] ?? 2
     for (const h of c.heroes) {
       const suit = CLASSES[h.classId].suit
-      if (!suit) continue
-      const lowest = tavern
-        .filter(cd => cd.suit === suit && cd.rank !== 'Jo')
+      // suited classes cut their own suit's lowest; suitless (support/weird)
+      // classes trim the lowest cards deck-wide — generalist quality
+      const pool = tavern
+        .filter(cd => cd.rank !== 'Jo' && (!suit || cd.suit === suit))
         .sort((a, b) => cardValue(a.rank) - cardValue(b.rank))
         .slice(0, cut)
-      const ids = new Set(lowest.map(cd => cd.id))
+      const ids = new Set(pool.map(cd => cd.id))
       tavern = tavern.filter(cd => !ids.has(cd.id))
-      if (lowest.length)
-        clog(c, `🃏 ${h.playerName} curates the deck: ${lowest.length} low ${suitSymbol(suit as Suit)} cards are cut.`)
+      if (pool.length)
+        clog(c, `🃏 ${h.playerName} curates the deck: ${pool.length} low ${suit ? suitSymbol(suit as Suit) : ''} cards are cut.`)
     }
   }
   c.deck = { tavern, discard: [], hands: c.heroes.map(() => []) }
@@ -341,7 +342,10 @@ function setupPeekPhase(c: CampaignState, s: EncounterState) {
 
   if (s.flags['prepRouteIntel'] && peek(s.currentPlayerIndex, 3, true, 'Route Intel')) return
   const oracle = c.heroes.findIndex(h => h.alive && h.classId === 'oracle')
-  if (oracle >= 0 && peek(oracle, 3, true, 'the Oracle’s sight')) return
+  if (oracle >= 0 && peek(oracle, 3, true, 'the Oracle’s sight')) {
+    s.flags['oracleForesight'] = oracle   // Foresight: their first play deals +1
+    return
+  }
   const scry = c.heroes.findIndex(h => h.alive && h.relicId === 'r-scry-band')
   if (scry >= 0 && peek(scry, 2, true, 'the Scry Band')) return
   const recon = c.heroes.findIndex(h => h.alive && heroHasMemory(h, 'm-court-recon'))
@@ -613,6 +617,13 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   if (activeSuits.has('H')) resolveHearts(c, s, pi, base)
   if (activeSuits.has('D')) resolveDiamonds(c, s, pi, base)
 
+  // Oracle — Foresight: the first play after their peek deals +1 damage
+  if (s.flags['oracleForesight'] === pi && damage > 0 && once(s, 'foresightSpent')) {
+    damage += 1
+    clog(c, '   🔮 Foresight: +1 damage.')
+    ev(s, 'proc', '🔮 Foresight +1', 'gold')
+  }
+
   // Gambler siege ultimate — All In: once per castle, the Gambler's first
   // strike is doubled or halved on a coin flip.
   if (s.tier === 'boss' && !EXPERIMENTS.provinceMode && hero.classId === 'gambler' && damage > 0 && once(s, 'ult.gambler')) {
@@ -660,9 +671,11 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
     resolveKill(c, s, pi, enemy.hp === 0)
     if (wagered) {
       s.wagerArmedBy = null
-      clog(c, '🎲 Wager won! Choose who acts next.')
-      ev(s, 'wager', '🎲 WAGER WON', 'gold', true)
-      if (s.outcome === 'active') { s.turnPhase = 'choose_next'; s.pendingChooseNext = false }
+      const got = drawForHero(c, s, pi, 2)
+      clog(c, `🎲 Wager won! The Gambler draws ${got}.`)
+      ev(s, 'wager', '🎲 WAGER WON — draw 2', 'gold', true)
+      // choose-next is a multiplayer privilege; solo the Gambler just plays on
+      if (s.outcome === 'active' && aliveIndices(c).length > 1) { s.turnPhase = 'choose_next'; s.pendingChooseNext = false }
     }
     return {}
   }
@@ -737,9 +750,15 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
   // follow-up turn: killer continues unless initiative is transferred
   s.lastPlayed = []
   const hero = c.heroes[killerIdx]!
-  const commanderAlive = c.heroes.some(h => h.alive && h.classId === 'commander')
+  // owner-only (playtest canon): the handoff is the Commander's own privilege,
+  // and their kill presses the advantage — draw 1
+  const commanderKiller = hero.classId === 'commander'
+  if (commanderKiller && drawForHero(c, s, killerIdx, 1) > 0) {
+    clog(c, '   ⚜️ Press the Advantage: the Commander draws 1.')
+    ev(s, 'proc', '⚜️ Press the Advantage +1', 'gold')
+  }
   const guardRotation = heroHasMemory(hero, 'm-guard-rotation') && !s.flags[flagKey('m-rotation', killerIdx)]
-  if (commanderAlive || guardRotation) {
+  if ((commanderKiller && aliveIndices(c).length > 1) || guardRotation) {
     s.turnPhase = 'choose_next'
     s.pendingChooseNext = true   // optional handoff: may keep the turn
     clog(c, `   ⚜️ Initiative may be handed off — ${hero.playerName} chooses who continues.`)
@@ -1060,7 +1079,18 @@ function heroDies(c: CampaignState, s: EncounterState, pi: number, unpayable: nu
     // collapse — the hero stands back up at the cost of their hand and the
     // fight. Rank gates grant no such mercy, and the second fall is final.
     // (Clearing a rank gate restores the mercy — see campaign.ts.)
-    const cx = c as CampaignState & { secondWindUsed?: boolean }
+    const cx = c as CampaignState & { secondWindUsed?: boolean; wardenVigilUsed?: boolean }
+    // Warden — Vigil: once per act, the Warden's own collapse is free; the
+    // party's second wind is not spent (death-mitigation identity, owner-only)
+    if (s.tier !== 'boss' && hero.classId === 'warden' && !cx.wardenVigilUsed) {
+      cx.wardenVigilUsed = true
+      hero.alive = true
+      s.outcome = 'retreated'
+      s.turnPhase = 'over'
+      clog(c, `🕯 Vigil! The Warden refuses to fall — the party's second wind is preserved.`)
+      ev(s, 'proc', '🕯 VIGIL — free collapse', 'gold', true)
+      return
+    }
     if (s.tier !== 'boss' && !cx.secondWindUsed) {
       cx.secondWindUsed = true
       hero.alive = true
@@ -1252,7 +1282,7 @@ export function computeBoosts(c: CampaignState, s: EncounterState, hi: number): 
   if (s.flags[flagKey('crownbreaker', hi)]) b.dmgMult *= 3
   if (s.flags['prepSpareEdge'] && !s.flags['spareEdgeDone']) b.dmgPlus += 2
   if (s.flags[flagKey('duelCharmReady', hi)]) b.dmgPlus += 2
-  b.execReady = c.heroes.some(h => h.alive && h.classId === 'executioner') && !s.flags['enemy.execFinish']
+  b.execReady = c.heroes[hi]?.classId === 'executioner' && !s.flags['enemy.execFinish']   // owner-only canon
   return b
 }
 

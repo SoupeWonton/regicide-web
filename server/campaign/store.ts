@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import type { CampaignState, KingdomState } from './types'
-import { TIER1_CLASSES } from './content'
+import { STARTING_CLASSES } from './content'
 
 // File-backed persistence (v0 canon: saves must survive reload; Kingdom unlocks
 // are permanent; campaign saves are independent from each other).
@@ -23,7 +23,7 @@ export function loadKingdom(): KingdomState {
   } catch {
     return {
       unlockedChapters: [1],
-      unlockedClasses: [...TIER1_CLASSES],
+      unlockedClasses: [...STARTING_CLASSES],
       specializationsUnlocked: false,
       campaignsWon: 0,
       heroesLost: 0,

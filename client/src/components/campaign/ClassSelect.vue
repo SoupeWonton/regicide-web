@@ -6,7 +6,8 @@ import HeroPortrait from './HeroPortrait.vue'
 
 const props = defineProps<{ state: ClientCampaignState; code: string }>()
 
-// campaign start canon: core (Tier 1) roster only — flavor from the class docs
+// province canon 2026-06-11: core four + support (Commander, Warden) + weird
+// (Gambler, Oracle) are start-available; Exile remains a later unlock
 const CORE = [
   {
     id: 'sentinel', name: 'Sentinel', theme: 'Shield · Stability', suit: '♠',
@@ -18,23 +19,51 @@ const CORE = [
   {
     id: 'quartermaster', name: 'Quartermaster', theme: 'Draw · Access', suit: '♦',
     question: 'How do we keep options?',
-    text: 'The first Diamond trigger each enemy draws +1 extra card, and the party’s hand cap is +1 while the Quartermaster stands.',
+    text: 'Your first Diamond trigger each enemy draws +1 extra card, and your hand cap is +1.',
     pillars: [['Access', 3], ['Consistency', 1]] as const,
     accent: 'quartermaster-accent',
   },
   {
     id: 'surgeon', name: 'Surgeon', theme: 'Recovery · Precision', suit: '♥',
     question: 'How do we recover mistakes?',
-    text: 'The first Heart trigger each enemy recovers +1 additional card.',
+    text: 'Your first Heart trigger each enemy recovers +1 additional card.',
     pillars: [['Recovery', 3], ['Consistency', 1]] as const,
     accent: 'surgeon-accent',
   },
   {
     id: 'executioner', name: 'Executioner', theme: 'Thresholds · Initiative', suit: '♣',
     question: 'When should the enemy die?',
-    text: 'Once per enemy, if damage leaves the enemy at 1-2 HP, deal +2 finishing damage.',
+    text: 'Once per enemy, if your damage leaves the enemy at 1-2 HP, deal +2 finishing damage.',
     pillars: [['Initiative', 2], ['Consistency', 1]] as const,
     accent: 'executioner-accent',
+  },
+  {
+    id: 'commander', name: 'Commander', theme: 'Initiative · Sequencing', suit: '⚜',
+    question: 'Who strikes next?',
+    text: 'After your kill, pass the turn to any ally — and draw 1 card (Press the Advantage).',
+    pillars: [['Initiative', 3], ['Access', 1]] as const,
+    accent: 'commander-accent',
+  },
+  {
+    id: 'warden', name: 'Warden', theme: 'Death Mitigation', suit: '🕯',
+    question: 'Who carries the fallen?',
+    text: 'Vigil: once per act, your collapse does not spend the party’s second wind.',
+    pillars: [['Shield', 2], ['Recovery', 2]] as const,
+    accent: 'warden-accent',
+  },
+  {
+    id: 'gambler', name: 'Gambler', theme: 'Uncertainty · Tempo', suit: '🎲',
+    question: 'What is it worth to you?',
+    text: 'Once per chapter, wager: if the enemy dies this turn, draw 2 and choose who acts next; if not, lose a random card.',
+    pillars: [['Initiative', 2], ['Access', 2]] as const,
+    accent: 'gambler-accent',
+  },
+  {
+    id: 'oracle', name: 'Oracle', theme: 'Hidden Information', suit: '🔮',
+    question: 'What does the road hide?',
+    text: 'Peek the top 3 Tavern cards each encounter and reorder them. Foresight: your first play after a peek deals +1.',
+    pillars: [['Consistency', 3], ['Initiative', 1]] as const,
+    accent: 'oracle-accent',
   },
 ]
 
@@ -59,14 +88,14 @@ function pick(classId: string) {
       <h2 class="text-3xl font-display font-bold gold-title mt-1">Assemble the Lineage</h2>
       <div class="splash-rule h-px mt-3 mx-auto w-56 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
       <p class="text-sm text-base-content/50 mt-2 font-flavor tracking-wide">
-        Chapter {{ state.chapter }} — the campaign starts with the core roster.
+        Chapter {{ state.chapter }} — eight banners answer the call. The Exile has not yet been earned.
       </p>
     </div>
 
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <button
         v-for="(cls, i) in CORE" :key="cls.id"
-        :class="[`rise-in-${i + 1}`, 'class-card group relative text-left flex flex-col',
+        :class="[`rise-in-${Math.min(i + 1, 4)}`, 'class-card group relative text-left flex flex-col',
           myHero?.picked && myHero?.classId === cls.id ? 'class-card-chosen' : '',
           takenBy[cls.id] && takenBy[cls.id] !== myHero?.playerName ? 'class-card-taken' : '']"
         @click="pick(cls.id)"

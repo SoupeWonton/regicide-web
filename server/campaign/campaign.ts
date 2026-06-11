@@ -3,7 +3,7 @@ import type {
   CampaignState, ClassId, ClientCampaignState, ClientHero, ClientRoadNode,
   Hero, KingdomState, NodeKind, PendingChoice,
 } from './types'
-import { CLASSES, TIER1_CLASSES, getItem, itemsOf, MEMORY_POOL, ACTIVE_PREP_CAP, getEncounterDef, BOSS_MODIFIERS } from './content'
+import { CLASSES, TIER1_CLASSES, STARTING_CLASSES, getItem, itemsOf, MEMORY_POOL, ACTIVE_PREP_CAP, getEncounterDef, BOSS_MODIFIERS } from './content'
 import { buildMap } from './maps'
 import {
   startEncounter, maxHandSize, setupChapterDeck, campRest, dealReplacementHand,
@@ -82,8 +82,9 @@ export function createCampaign(
 
 export function applyClassPick(c: CampaignState, playerId: string, classId: ClassId): { error?: string } {
   if (c.phase !== 'class_select') return { error: 'Not selecting classes.' }
-  // campaign start canon: core (Tier 1) heroes only; Tier 2/3 enter via replacement
-  if (!TIER1_CLASSES.includes(classId)) return { error: 'Campaigns start with core heroes only.' }
+  // province canon 2026-06-11: support (commander, warden) and weird (gambler,
+  // oracle) classes are start-available; exile remains a later unlock
+  if (!STARTING_CLASSES.includes(classId)) return { error: 'That class has not been unlocked yet.' }
   if (!(playerId in c.classPicks)) return { error: 'You are not in this campaign.' }
   const taken = Object.entries(c.classPicks).some(([pid, cid]) => pid !== playerId && cid === classId)
   if (taken) return { error: 'That class is already claimed.' }
@@ -139,6 +140,24 @@ export function applyRoadChoose(c: CampaignState, playerId: string, nodeId: stri
   clog(c, `🥾 The party commits to ${labelOf(node.kind)}.`)
   resolveNode(c, node.id, node.kind)
   return {}
+}
+
+// Province canon: the fall of a rank gate sweeps the party forward — the road
+// out of a gate commits automatically (pursuit, not planning). Self-guards on
+// phase and node kind, so it is safe to call after any choice resolution.
+function autoAdvanceAfterGate(c: CampaignState) {
+  if (!EXPERIMENTS.provinceMode || c.phase !== 'road' || !c.map) return
+  const cur = c.map.nodes.find(n => n.id === c.map!.currentNodeId)
+  if (!cur || cur.kind !== 'boss' || cur.next.length === 0) return
+  const { r, done } = rng(c)
+  const nextId = cur.next.length === 1 ? cur.next[0]! : r.pick(cur.next)
+  done()
+  const node = c.map.nodes.find(n => n.id === nextId)!
+  c.map.currentNodeId = node.id
+  node.visited = true
+  node.known = true
+  clog(c, `🥾 The momentum of the breach carries the party onward — ${labelOf(node.kind)} ahead.`)
+  resolveNode(c, node.id, node.kind)
 }
 
 function labelOf(kind: NodeKind): string {
@@ -268,6 +287,7 @@ export function applyChoice(c: CampaignState, playerId: string, optionId: string
     }
     c.pendingChoice = null
     c.phase = 'road'
+    autoAdvanceAfterGate(c)   // province: gates sweep the party forward
     return {}
   }
 
@@ -440,7 +460,9 @@ export function checkEncounterEnd(c: CampaignState) {
         const options = r.shuffle(pool).slice(0, 3 + rewardBonus(c))
         done()
         c.encounter = null
-        ;(c as CampaignState & { secondWindUsed?: boolean }).secondWindUsed = false   // mercy renews each act
+        const cx = c as CampaignState & { secondWindUsed?: boolean; wardenVigilUsed?: boolean }
+        cx.secondWindUsed = false      // mercy renews each act
+        cx.wardenVigilUsed = false     // the Warden's vigil renews with it
         clog(c, isCourtyard ? '👑 The Courtyard is yours. The Throne room lies ahead.' : '🏰 The Gates have fallen. The Courtyard awaits.')
         if (options.length) {
           c.phase = 'landmark'
@@ -449,7 +471,10 @@ export function checkEncounterEnd(c: CampaignState) {
             prompt: isCourtyard ? 'Spoils of the Courtyard — claim a rare prize.' : 'Spoils of the Gates — choose your reward.',
             options: options.map(i => ({ id: i.id, label: `${i.name}${i.tier === 'rare' ? ' ★' : ''}`, detail: i.text })),
           }
-        } else c.phase = 'road'
+        } else {
+          c.phase = 'road'
+          autoAdvanceAfterGate(c)
+        }
         return
       }
       c.encounter = null
