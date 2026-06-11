@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import type { CampaignState, KingdomState } from './types'
-import { TIER1_CLASSES } from './content'
+import { STARTING_CLASSES } from './content'
 
 // File-backed persistence (v0 canon: saves must survive reload; Kingdom unlocks
 // are permanent; campaign saves are independent from each other).
@@ -23,7 +23,7 @@ export function loadKingdom(): KingdomState {
   } catch {
     return {
       unlockedChapters: [1],
-      unlockedClasses: [...TIER1_CLASSES],
+      unlockedClasses: [...STARTING_CLASSES],
       specializationsUnlocked: false,
       campaignsWon: 0,
       heroesLost: 0,
@@ -34,6 +34,19 @@ export function loadKingdom(): KingdomState {
 export function saveKingdom(k: KingdomState) {
   ensureDirs()
   fs.writeFileSync(KINGDOM_FILE, JSON.stringify(k, null, 2))
+}
+
+// Full game chronicle on disk — the UI no longer shows a log, but every line
+// is kept per campaign so games can be reviewed and argued about afterwards.
+const LOG_DIR = path.join(DATA_DIR, 'logs')
+export function appendGameLog(campaignId: string, line: string) {
+  try {
+    fs.mkdirSync(LOG_DIR, { recursive: true })
+    fs.appendFileSync(
+      path.join(LOG_DIR, `${campaignId.replace(/[^a-zA-Z0-9_-]/g, '')}.log`),
+      `${new Date().toISOString()} ${line}\n`,
+    )
+  } catch { /* logging never breaks the game */ }
 }
 
 export function saveCampaign(c: CampaignState) {

@@ -102,7 +102,7 @@ function evalPlay(c: CampaignState, s: EncounterState, pi: number, idxs: number[
 
   let hpAfter = enemy.hp - damage
   const execReady = hpAfter > 0 && hpAfter <= 2 &&
-    c.heroes.some(h => h.alive && h.classId === 'executioner') && !s.flags['enemy.execFinish']
+    hero.classId === 'executioner' && !s.flags['enemy.execFinish']   // owner-only canon
   if (execReady) hpAfter -= 2
   const kills = hpAfter <= 0
   const exact = hpAfter === 0
@@ -260,6 +260,32 @@ function runCampaign(
   const personaOf = (pi: number) => personas[pi]!
   const personaById = (pid: string) => personas[players.findIndex(pl => pl.id === pid)]!
 
+  // landmark_reward: items by category pref; tower/brace = hero pick or intel
+  function scoreLandmarkOption(c: CampaignState, pc: NonNullable<CampaignState['pendingChoice']>, p: Persona): string {
+    let optId = pc.options[0]!.id
+    let bestScore = -Infinity
+    for (const o of pc.options) {
+      let score: number
+      if (o.id.startsWith('ev:')) {
+        // road events (test-grade): greedy personas take the first
+        // (active) option, cautious ones lean toward refusing
+        score = pc.options.indexOf(o) === 0 ? p.routeGreed * 0.8 : p.riskAversion * 0.6
+      } else if (o.id.startsWith('hero-')) {
+        const hi = parseInt(o.id.slice(5))
+        const hands = c.encounter ? c.encounter.hands : c.deck?.hands ?? []
+        score = (handVal(hands[hi] ?? []) / 10) + 0.5
+      } else if (o.id === 'intel') {
+        score = c.chapter === 2 ? 0.5 + p.riskAversion * 0.6 : -1
+      } else {
+        const item = getItem(o.id)
+        score = p.catPrefs[item.category] + (item.tier === 'rare' ? p.rarePref : 0)
+      }
+      score += decide.next() * 0.1
+      if (score > bestScore) { bestScore = score; optId = o.id }
+    }
+    return optId
+  }
+
   const rec: RunRecord = {
     runId, seed, playerCount: personas.length, lineup: lineupId,
     personas: personas.map(p => p.id).join('+'),
@@ -397,6 +423,19 @@ function runCampaign(
       case 'landmark':
       case 'replace_hero': {
         const pc = c.pendingChoice!
+        // team rewards are a vote: every persona votes its own preference
+        // (disagreements + tie wheels are part of what we're measuring)
+        if (pc.kind === 'landmark_reward' && pc.forPlayerId === null && c.heroes.length > 1) {
+          let okAll = true
+          for (let hi = 0; hi < c.heroes.length; hi++) {
+            if (!c.pendingChoice) break
+            const voter = c.heroes[hi]!.playerId
+            const choiceId = scoreLandmarkOption(c, pc, personaOf(hi))
+            if (!act(() => applyChoice(c, voter, choiceId, HOST), `vote:${pc.kind}`)) { okAll = false; break }
+          }
+          if (!okAll) return rec
+          break
+        }
         const deciderId = pc.forPlayerId ?? HOST
         const p = personaById(deciderId) ?? personaOf(0)
         let optId = pc.options[0]!.id
@@ -413,23 +452,7 @@ function runCampaign(
             if (cost < best) { best = cost; optId = o.id }
           }
         } else {
-          // landmark_reward: items by category pref; tower/brace = hero pick or intel
-          let bestScore = -Infinity
-          for (const o of pc.options) {
-            let score: number
-            if (o.id.startsWith('hero-')) {
-              const hi = parseInt(o.id.slice(5))
-              const hands = c.encounter ? c.encounter.hands : c.deck?.hands ?? []
-              score = (handVal(hands[hi] ?? []) / 10) + 0.5
-            } else if (o.id === 'intel') {
-              score = c.chapter === 2 ? 0.5 + p.riskAversion * 0.6 : -1
-            } else {
-              const item = getItem(o.id)
-              score = p.catPrefs[item.category] + (item.tier === 'rare' ? p.rarePref : 0)
-            }
-            score += decide.next() * 0.1
-            if (score > bestScore) { bestScore = score; optId = o.id }
-          }
+          optId = scoreLandmarkOption(c, pc, p)
         }
         if (!act(() => applyChoice(c, deciderId, optId, HOST), `choice:${pc.kind}`)) return rec
         break
@@ -702,7 +725,6 @@ function parseArgs() {
     // played by --persona (default steady). Overrides --counts/--lineups.
     classCombos: get('--classes', '').split(',').filter(Boolean).map(s => s.split('+') as ClassId[]),
     persona: get('--persona', 'steady'),
-    ownerOnly: args.includes('--owner-only'),
     bossReshuffle: args.includes('--boss-reshuffle'),
     castleHearts: args.includes('--castle-hearts'),
     shortCastle: args.includes('--short-castle'),
@@ -710,13 +732,12 @@ function parseArgs() {
   }
 }
 
-const { seeds, classCombos, persona: personaFlag, ownerOnly, bossReshuffle, castleHearts, shortCastle, province } = parseArgs()
+const { seeds, classCombos, persona: personaFlag, bossReshuffle, castleHearts, shortCastle, province } = parseArgs()
 let { counts, lineups } = parseArgs()
 if (classCombos.length) {
   lineups = classCombos.map(cc => cc.join('+'))
   counts = [...new Set(classCombos.map(cc => cc.length))]
 }
-EXPERIMENTS.ownerOnlyClassTriggers = ownerOnly
 EXPERIMENTS.preBossReshuffle = bossReshuffle
 EXPERIMENTS.castleHearts = castleHearts
 EXPERIMENTS.shortCastle = shortCastle

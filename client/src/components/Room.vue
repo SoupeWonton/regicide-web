@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { socket, myId } from '../socket'
 import type { ClientGameState, RoomInfo, ClientCampaignState, SaveSummary } from '../types'
+import { CLASS_DEFS } from './campaign/classData'
 import GameBoard from './GameBoard.vue'
 import CampaignView from './campaign/CampaignView.vue'
+import HeroPortrait from './campaign/HeroPortrait.vue'
+import OverlayModal from './campaign/OverlayModal.vue'
 
 const route  = useRoute()
+const router = useRouter()
 const code   = (route.params.code as string).toUpperCase()
 const room   = ref<RoomInfo | null>(null)
 const game   = ref<ClientGameState | null>(null)
@@ -31,6 +35,19 @@ socket.on('campaign_saves', (data: { saves: SaveSummary[]; kingdom: { unlockedCh
 })
 socket.on('error',       (msg: string) => { error.value = msg })
 socket.on('game_reset',  () => { game.value = null })
+socket.on('room_closed', () => {
+  campaign.value = null
+  game.value = null
+  room.value = null
+  router.push('/')
+})
+
+// ── Leave / kill room (any state) ────────────────────────────────────────────
+const confirmLeave = ref(false)
+function leaveRoom() {
+  confirmLeave.value = false
+  socket.emit('leave_room', { code })
+}
 
 onMounted(() => {
   socket.emit('get_room', { code })
@@ -60,9 +77,40 @@ function copyCode() {
   copied.value = true
   setTimeout(() => (copied.value = false), 1500)
 }
+
+// ── Quick-game class picking ──────────────────────────────────────────────────
+const myClassId = computed(() => room.value?.classSelections?.[myId] ?? null)
+
+function pickClass(classId: string) {
+  const next = myClassId.value === classId ? null : classId
+  socket.emit('pick_class_quick', { code, classId: next })
+}
+
+function classNameFor(id: string) {
+  return CLASS_DEFS.find(c => c.id === id)?.name ?? id
+}
 </script>
 
 <template>
+  <!-- Leave / kill room — reachable from every state -->
+  <button
+    class="fixed top-1.5 right-1.5 z-40 w-8 h-8 rounded-full flex items-center justify-center text-base-content/35 hover:text-error hover:bg-error/10 transition-colors"
+    :title="isHost ? 'Close the room for everyone' : 'Leave the room'"
+    @click="confirmLeave = true"
+  >🚪</button>
+
+  <OverlayModal v-if="confirmLeave" tone="error" dismissable @close="confirmLeave = false">
+    <h3 class="text-lg font-bold text-center">{{ isHost ? '🚪 Close the room?' : '🚪 Leave the room?' }}</h3>
+    <p class="text-sm text-center text-base-content/60">
+      {{ isHost
+        ? 'The room ends for everyone and all players return to the lobby.'
+        : 'You return to the lobby; the others play on.' }}
+      <span v-if="campaign" class="block mt-1 text-success/80">Campaign progress is saved — resume any time.</span>
+    </p>
+    <button class="btn btn-error w-full" @click="leaveRoom">{{ isHost ? 'Close the room' : 'Leave' }}</button>
+    <button class="btn btn-ghost btn-sm" @click="confirmLeave = false">Stay</button>
+  </OverlayModal>
+
   <!-- Campaign mode -->
   <CampaignView v-if="campaign" :state="campaign" :code="code" />
 
@@ -70,7 +118,9 @@ function copyCode() {
   <GameBoard v-else-if="game && game.phase !== 'lobby'" :state="game" :code="code" />
 
   <!-- Lobby -->
-  <div v-else class="min-h-screen flex items-center justify-center p-4">
+  <div v-else class="min-h-screen flex flex-col items-center justify-start p-4 pt-8 gap-6">
+
+    <!-- Main lobby card -->
     <div class="card bg-base-100 shadow-2xl w-full max-w-sm">
       <div class="card-body gap-4">
 
@@ -91,12 +141,16 @@ function copyCode() {
             :key="p.id"
             class="flex items-center justify-between px-3 py-2 rounded-lg bg-base-200"
           >
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-medium">{{ p.name }}</span>
-              <span v-if="p.id === room?.hostId" class="badge badge-xs badge-primary">host</span>
-              <span v-if="p.id === myId"    class="badge badge-xs badge-ghost">you</span>
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="text-sm font-medium truncate">{{ p.name }}</span>
+              <span v-if="p.id === room?.hostId" class="badge badge-xs badge-primary shrink-0">host</span>
+              <span v-if="p.id === myId"    class="badge badge-xs badge-ghost shrink-0">you</span>
+              <span
+                v-if="room?.classSelections?.[p.id]"
+                class="badge badge-xs badge-accent shrink-0"
+              >{{ classNameFor(room!.classSelections![p.id]) }}</span>
             </div>
-            <span :class="['badge badge-sm', p.ready ? 'badge-success' : 'badge-ghost']">
+            <span :class="['badge badge-sm shrink-0', p.ready ? 'badge-success' : 'badge-ghost']">
               {{ p.ready ? 'Ready' : 'Waiting' }}
             </span>
           </div>
@@ -166,5 +220,68 @@ function copyCode() {
 
       </div>
     </div>
+
+    <!-- Class picker -->
+    <div class="w-full max-w-3xl pb-8">
+      <div class="text-center mb-4 rise-in">
+        <p class="font-flavor text-primary/60 text-xs tracking-[0.3em] uppercase">quick game</p>
+        <h2 class="text-2xl font-display font-bold gold-title mt-1">Choose Your Class</h2>
+        <div class="h-px mt-2 mx-auto w-40 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+        <p class="text-xs text-base-content/40 mt-2">Optional · Sentinel, QM, Surgeon &amp; Executioner abilities are active</p>
+      </div>
+
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        <button
+          v-for="(cls, i) in CLASS_DEFS" :key="cls.id"
+          :class="[`rise-in-${Math.min(i + 1, 4)}`, 'class-card group relative text-left flex flex-col',
+            myClassId === cls.id ? 'class-card-chosen' : '',
+            room?.classSelections?.[cls.id] && room.classSelections[cls.id] !== myId ? 'class-card-taken' : '']"
+          @click="pickClass(cls.id)"
+        >
+          <!-- suit watermark -->
+          <span class="absolute bottom-1 right-2 text-6xl opacity-[0.07] font-black select-none pointer-events-none"
+            :class="cls.suit === '♥' || cls.suit === '♦' ? 'text-error' : 'text-base-content'">{{ cls.suit }}</span>
+
+          <!-- portrait -->
+          <div class="class-medallion class-medallion-lg mx-auto mt-4 group-hover:scale-110 transition-transform">
+            <HeroPortrait :class-id="cls.id" />
+          </div>
+
+          <div class="px-3 pb-3 pt-2 text-center flex-1 flex flex-col">
+            <h3 class="font-display font-black tracking-wide text-base text-primary/95">{{ cls.name }}</h3>
+            <p class="text-[10px] uppercase tracking-[0.2em] text-base-content/40">{{ cls.theme }} {{ cls.suit }}</p>
+            <p class="font-flavor text-xs text-base-content/60 italic mt-1.5 leading-snug">"{{ cls.question }}"</p>
+            <p class="text-[11px] text-base-content/70 mt-2 leading-snug flex-1">{{ cls.text }}</p>
+
+            <!-- pillar dots -->
+            <div class="flex justify-center gap-3 mt-2.5">
+              <div v-for="[pillar, dots] in cls.pillars" :key="pillar" class="text-center">
+                <div class="flex gap-0.5 justify-center">
+                  <span v-for="d in 3" :key="d" class="w-1.5 h-1.5 rounded-full"
+                    :class="d <= dots ? 'bg-primary' : 'bg-base-content/15'" />
+                </div>
+                <span class="text-[8px] uppercase tracking-wider text-base-content/40">{{ pillar }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- claimed ribbon / chosen seal -->
+          <div v-if="myClassId === cls.id || (room?.classSelections && Object.entries(room.classSelections).some(([pid, cid]) => cid === cls.id))"
+            class="absolute top-2 left-0 right-0 flex justify-center pointer-events-none">
+            <span class="px-2 py-0.5 text-[10px] font-bold rounded-full border shadow"
+              :class="myClassId === cls.id
+                ? 'bg-primary text-primary-content border-primary'
+                : 'bg-base-300 text-base-content/70 border-base-content/20'">
+              {{ myClassId === cls.id ? '⚜ YOURS' : room?.players.find(p => p.id === Object.entries(room!.classSelections!).find(([, cid]) => cid === cls.id)?.[0])?.name }}
+            </span>
+          </div>
+        </button>
+      </div>
+
+      <p class="text-center text-xs text-base-content/40 mt-4">
+        Tap a class to pick it · tap again to unpick · classes are shared with everyone in the room.
+      </p>
+    </div>
+
   </div>
 </template>

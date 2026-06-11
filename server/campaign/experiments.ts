@@ -2,9 +2,8 @@
 // via CLI flags (scripts/sim.ts --owner-only / --boss-reshuffle) so live play
 // is never affected.
 export const EXPERIMENTS = {
-  // B2/B3 alternative reading: quartermaster / surgeon / executioner triggers
-  // fire only on the owning hero's own play. (Sentinel is already owner-only.)
-  ownerOnlyClassTriggers: false,
+  // (ownerOnlyClassTriggers was promoted to canon 2026-06-11 — playtest note:
+  // "classes should only affect the player playing that class". B2/B3 settled.)
   // Entering a boss encounter performs a full camp-style rest first
   // (discard + hands reshuffled into the Tavern, hands redrawn).
   preBossReshuffle: false,
@@ -19,7 +18,11 @@ export const EXPERIMENTS = {
   // 4 Queens / 4 Kings) with road acts between them. Any hero death = full
   // run reset. Classes curate the deck at setup (option B) instead of siege
   // ultimates. Castle checkpoint off (the roads between ranks are the rest).
-  provinceMode: false,
+  // LIVE for playtesting (2026-06-11, Gab) — smoke.ts pins canon for tests.
+  provinceMode: true,
+  // Gates sweep the party forward without a route choice (random on forks).
+  // OFF for now (2026-06-11, Gab): players keep agency after a gate falls.
+  autoMarchAfterGates: false,
 }
 
 // Class curation (province mode): each suited class removes its N lowest

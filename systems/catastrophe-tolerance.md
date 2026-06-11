@@ -356,6 +356,30 @@ slots a 4-player party spreads across heroes. Implemented so far: `slot` tags
 on all relics; multi-slot equip is a UI/state refactor still to come (heroes
 hold one relic today).
 
+## Class roster scaling (province, 2026-06-11)
+
+Eight classes are start-available (core four + Commander, Warden, Gambler,
+Oracle; Exile stays a rewards-on-death unlock). All eight are priced at the
+measured-parity baseline of **0.75 Road CT** — the leave-one-out experiments
+showed outcome-level class differences smaller than the noise floor, so any
+value above 0.75 must be earned by measurement, not assigned by intuition.
+Every class power is owner-only (playtest canon).
+
+Scaling rules for the four newly unlocked:
+
+- Suitless classes curate deck-wide (lowest cards of any suit, same
+  CURATION_CUT budget as suited classes) — identical curation CT cost.
+- Commander: Press the Advantage (draw 1 on own kill) replaces the dead
+  solo handoff. Initiative axis.
+- Warden: Vigil (own collapse spends no second wind, once per act) prices
+  death mitigation in the run-reset economy — roughly one extra road life
+  per act, est. +0.25-0.5 Road CT solo; verify by sim.
+- Gambler: wager pays draw 2 (solo-functional); choose-next stays a
+  multiplayer rider.
+- Oracle: Foresight (+1 damage on first post-peek play) gives the
+  information class a measurable floor; the peek itself remains
+  human-valued (bots can't price it — treat sim numbers as a low floor).
+
 ## Province prototype CT budgets (prov1-a)
 
 One run = 8 road stops + 3 rank gates (Gates 4J / Courtyard 4Q / Throne 4K,

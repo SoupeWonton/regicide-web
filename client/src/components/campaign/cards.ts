@@ -30,13 +30,14 @@ export const CLASS_ICONS: Record<string, string> = {
 export const NODE_ICONS: Record<string, string> = {
   start: '🏁', camp: '🏕', boss: '👑', skirmish: '⚔️', veteran: '🗡',
   elite: '💀', forge: '⚒️', abbey: '⛪', market: '🛒', tower: '🗼',
-  shrine: '⛩', lair: '🕸', unknown: '❓',
+  shrine: '⛩', lair: '🕸', event: '🎭', unknown: '❓',
 }
 
 export const NODE_LABELS: Record<string, string> = {
   start: 'Trailhead', camp: 'Camp', boss: 'The Castle', skirmish: 'Skirmish',
   veteran: 'Veterans', elite: 'Elite', forge: 'Forge', abbey: 'Abbey',
-  market: 'Market', tower: 'Tower', shrine: 'Shrine', lair: 'Lair', unknown: '???',
+  market: 'Market', tower: 'Tower', shrine: 'Shrine', lair: 'Lair',
+  event: 'Event', unknown: '???',
 }
 
 export const NODE_DESCRIPTIONS: Record<string, string> = {
@@ -52,5 +53,6 @@ export const NODE_DESCRIPTIONS: Record<string, string> = {
   tower: 'The Tower grants initiative — pick who starts the next fight, or study the boss for intel.',
   shrine: 'A blessing: next encounter everyone draws 1 and the hand cap is +1.',
   lair: 'An elite gate guards a rare prize. High risk, rare reward.',
+  event: 'A strange happening on the road. A choice with real consequences — fortune, bargains, or chaos.',
   unknown: 'Unscouted. You will only know what it is once you commit.',
 }

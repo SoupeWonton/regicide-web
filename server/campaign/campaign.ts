@@ -3,18 +3,29 @@ import type {
   CampaignState, ClassId, ClientCampaignState, ClientHero, ClientRoadNode,
   Hero, KingdomState, NodeKind, PendingChoice,
 } from './types'
-import { CLASSES, TIER1_CLASSES, getItem, itemsOf, MEMORY_POOL, ACTIVE_PREP_CAP, getEncounterDef, BOSS_MODIFIERS } from './content'
+import { CLASSES, TIER1_CLASSES, STARTING_CLASSES, getItem, itemsOf, MEMORY_POOL, ACTIVE_PREP_CAP, getEncounterDef, BOSS_MODIFIERS } from './content'
 import { buildMap } from './maps'
 import {
   startEncounter, maxHandSize, setupChapterDeck, campRest, dealReplacementHand,
   computeBoosts,
 } from './encounter'
-import { loadKingdom, saveKingdom, saveCampaign } from './store'
+import { loadKingdom, saveKingdom, saveCampaign, appendGameLog } from './store'
 import { EXPERIMENTS } from './experiments'
+import { RUN_EVENTS } from './events'
+
+// item pool with party-size gating: relics that need bodies to matter are
+// skipped at low counts (Signal Whistle is dead weight under 3 players)
+function itemPool(c: CampaignState, kind: 'relic' | 'spell' | 'preparation' | 'memory', tier?: 'standard' | 'rare') {
+  return itemsOf(kind, tier).filter(i => !(i.id === 'r-signal-whistle' && c.heroes.length < 3))
+}
+
+let _evUid = 50000
+const evUid = () => `evc${++_evUid}`
 
 function clog(c: CampaignState, msg: string) {
   c.log.unshift(msg)
   if (c.log.length > 60) c.log.pop()
+  appendGameLog(c.id, msg)
 }
 
 function rng(c: CampaignState) {
@@ -72,8 +83,9 @@ export function createCampaign(
 
 export function applyClassPick(c: CampaignState, playerId: string, classId: ClassId): { error?: string } {
   if (c.phase !== 'class_select') return { error: 'Not selecting classes.' }
-  // campaign start canon: core (Tier 1) heroes only; Tier 2/3 enter via replacement
-  if (!TIER1_CLASSES.includes(classId)) return { error: 'Campaigns start with core heroes only.' }
+  // province canon 2026-06-11: support (commander, warden) and weird (gambler,
+  // oracle) classes are start-available; exile remains a later unlock
+  if (!STARTING_CLASSES.includes(classId)) return { error: 'That class has not been unlocked yet.' }
   if (!(playerId in c.classPicks)) return { error: 'You are not in this campaign.' }
   const taken = Object.entries(c.classPicks).some(([pid, cid]) => pid !== playerId && cid === classId)
   if (taken) return { error: 'That class is already claimed.' }
@@ -89,7 +101,7 @@ export function applyClassPick(c: CampaignState, playerId: string, classId: Clas
     // starts with a standard relic to close the party-CT gap vs 4 players
     if (c.heroes.length <= 2) {
       for (const h of c.heroes) {
-        const pool = itemsOf('relic', 'standard').filter(i => !c.heroes.some(o => o.relicId === i.id))
+        const pool = itemPool(c, 'relic', 'standard').filter(i => !c.heroes.some(o => o.relicId === i.id))
         if (pool.length) {
           h.relicId = r.pick(pool).id
           clog(c, `🏺 Small company provisions: ${h.playerName} sets out with ${getItem(h.relicId).name}.`)
@@ -131,12 +143,32 @@ export function applyRoadChoose(c: CampaignState, playerId: string, nodeId: stri
   return {}
 }
 
+// Province canon: the fall of a rank gate sweeps the party forward — the road
+// out of a gate commits automatically (pursuit, not planning). Self-guards on
+// phase and node kind, so it is safe to call after any choice resolution.
+function autoAdvanceAfterGate(c: CampaignState) {
+  if (!EXPERIMENTS.autoMarchAfterGates) return
+  if (!EXPERIMENTS.provinceMode || c.phase !== 'road' || !c.map) return
+  const cur = c.map.nodes.find(n => n.id === c.map!.currentNodeId)
+  if (!cur || cur.kind !== 'boss' || cur.next.length === 0) return
+  const { r, done } = rng(c)
+  const nextId = cur.next.length === 1 ? cur.next[0]! : r.pick(cur.next)
+  done()
+  const node = c.map.nodes.find(n => n.id === nextId)!
+  c.map.currentNodeId = node.id
+  node.visited = true
+  node.known = true
+  clog(c, `🥾 The momentum of the breach carries the party onward — ${labelOf(node.kind)} ahead.`)
+  resolveNode(c, node.id, node.kind)
+}
+
 function labelOf(kind: NodeKind): string {
   return {
     start: 'the trailhead', camp: 'a camp', boss: 'the castle gates',
     skirmish: 'a skirmish', veteran: 'a veteran patrol', elite: 'an elite warband',
     forge: 'the Forge', abbey: 'the Abbey', market: 'the Market',
     tower: 'the Tower', shrine: 'the Shrine', lair: 'a Lair',
+    event: 'a strange happening',
   }[kind]
 }
 
@@ -182,6 +214,19 @@ function resolveNode(c: CampaignState, nodeId: string, kind: NodeKind) {
       clog(c, '⛩ The Shrine blesses the party: next encounter, everyone draws 1 and the hand cap is raised by 1.')
       c.phase = 'road'
       break
+    case 'event': {
+      const { r, done } = rng(c)
+      const event = r.pick(RUN_EVENTS)
+      done()
+      c.phase = 'landmark'
+      c.pendingChoice = {
+        kind: 'landmark_reward', forPlayerId: null,
+        prompt: `${event.name} — ${event.prompt}`,
+        options: event.options.map(o => ({ id: `ev:${event.id}:${o.id}`, label: o.label, detail: o.detail })),
+      }
+      clog(c, `🎭 ${event.name}.`)
+      break
+    }
     default:
       c.phase = 'road'
   }
@@ -196,7 +241,7 @@ function rewardBonus(c: CampaignState): number {
 function offerItems(c: CampaignState, kind: 'relic' | 'spell' | 'preparation', tier: 'standard' | 'rare', n: number, prompt: string) {
   const { r, done } = rng(c)
   const owned = new Set([...c.spells, ...c.preparations, ...c.heroes.map(h => h.relicId).filter(Boolean) as string[]])
-  let pool = itemsOf(kind, tier).filter(i => !owned.has(i.id))
+  let pool = itemPool(c, kind, tier).filter(i => !owned.has(i.id))
   if (c.debug.forceNextRewardId) {
     pool = [getItem(c.debug.forceNextRewardId)]
     c.debug.forceNextRewardId = undefined
@@ -214,31 +259,51 @@ function offerItems(c: CampaignState, kind: 'relic' | 'spell' | 'preparation', t
 export function applyChoice(c: CampaignState, playerId: string, optionId: string, hostId: string): { error?: string } {
   const pc = c.pendingChoice
   if (!pc) return { error: 'Nothing to choose.' }
-  const decider = pc.forPlayerId ?? hostId
-  if (playerId !== decider) return { error: 'Not your decision.' }
+  const teamVote = pc.kind === 'landmark_reward' && pc.forPlayerId === null && c.heroes.length > 1
+  if (!teamVote) {
+    const decider = pc.forPlayerId ?? hostId
+    if (playerId !== decider) return { error: 'Not your decision.' }
+  } else if (!c.heroes.some(h => h.playerId === playerId)) {
+    return { error: 'You are not in this campaign.' }
+  }
   if (!pc.options.some(o => o.id === optionId)) return { error: 'Invalid option.' }
 
   if (pc.kind === 'landmark_reward') {
-    if (optionId.startsWith('hero-')) {
-      c.nextStarterIndex = parseInt(optionId.slice(5))
-      clog(c, `🗼 ${c.heroes[c.nextStarterIndex]!.playerName} will take the first turn of the next encounter.`)
-      c.pendingChoice = null
-      c.phase = pc.returnTo ?? 'road'   // Brace Command picks return to camp
-      return {}
-    } else if (optionId === 'intel') {
-      clog(c, c.chapter === 2 ? '🗼 The Tower reveals the court’s corruption.' : '🗼 The Tower reveals little — the First Ascension hides no tricks.')
-      c.debug = { ...c.debug }
-      c.pendingChoice = null
-      c.phase = 'road'
-      // reveal applies to the *next* boss encounter — store on campaign
-      ;(c as CampaignState & { bossIntel?: boolean }).bossIntel = true
-      return {}
-    } else {
-      grantItem(c, optionId)
+    if (teamVote) {
+      // team rewards are a secret ballot: everyone votes, majority wins,
+      // ties go to the wheel of fate (client plays the casino draw)
+      pc.votes = pc.votes ?? {}
+      const firstVote = !(playerId in pc.votes)
+      pc.votes[playerId] = optionId
+      if (firstVote) {
+        const who = c.heroes.find(h => h.playerId === playerId)!
+        clog(c, `🗳 ${who.playerName} locks a vote (${Object.keys(pc.votes).length}/${c.heroes.length}).`)
+      }
+      if (Object.keys(pc.votes).length < c.heroes.length) return {}
+
+      const tally = new Map<string, number>()
+      for (const v of Object.values(pc.votes)) tally.set(v, (tally.get(v) ?? 0) + 1)
+      const top = Math.max(...tally.values())
+      const leaders = [...tally.entries()].filter(([, n]) => n === top).map(([id]) => id)
+      let winner = leaders[0]!
+      const tie = leaders.length > 1
+      if (tie) {
+        const { r, done } = rng(c)
+        winner = r.pick(leaders)
+        done()
+        clog(c, '🎰 The vote is tied — fate spins the wheel.')
+      } else {
+        clog(c, '🗳 The vote settles it.')
+      }
+      c.rewardDraw = {
+        seq: (c.rewardDraw?.seq ?? 0) + 1,
+        options: pc.options.filter(o => leaders.includes(o.id)).map(o => ({ id: o.id, label: o.label, detail: o.detail })),
+        winnerId: winner,
+        tie,
+      }
+      return resolveRewardOption(c, winner, pc)
     }
-    c.pendingChoice = null
-    c.phase = 'road'
-    return {}
+    return resolveRewardOption(c, optionId, pc)
   }
 
   if (pc.kind === 'replacement') {
@@ -272,6 +337,114 @@ export function applyChoice(c: CampaignState, playerId: string, optionId: string
   }
 
   return { error: 'Unhandled choice.' }
+}
+
+// resolve a landmark_reward option (after a vote or a direct pick)
+function resolveRewardOption(c: CampaignState, optionId: string, pc: PendingChoice): { error?: string } {
+  if (optionId.startsWith('hero-')) {
+    c.nextStarterIndex = parseInt(optionId.slice(5))
+    clog(c, `🗼 ${c.heroes[c.nextStarterIndex]!.playerName} will take the first turn of the next encounter.`)
+    c.pendingChoice = null
+    c.phase = pc.returnTo ?? 'road'   // Brace Command picks return to camp
+    return {}
+  }
+  if (optionId.startsWith('ev:')) {
+    const [, eventId, optId] = optionId.split(':')
+    applyRunEvent(c, eventId!, optId!)
+    c.pendingChoice = null
+    c.phase = 'road'
+    return {}
+  }
+  if (optionId === 'intel') {
+    clog(c, c.chapter === 2 ? '🗼 The Tower reveals the court’s corruption.' : '🗼 The Tower reveals little — the First Ascension hides no tricks.')
+    c.debug = { ...c.debug }
+    c.pendingChoice = null
+    c.phase = 'road'
+    // reveal applies to the *next* boss encounter — store on campaign
+    ;(c as CampaignState & { bossIntel?: boolean }).bossIntel = true
+    return {}
+  }
+  grantItem(c, optionId)
+  c.pendingChoice = null
+  c.phase = 'road'
+  autoAdvanceAfterGate(c)   // province: gates sweep the party forward
+  return {}
+}
+
+// ── Road events: non-battle run impact (TEST-GRADE, see events.ts) ──────────
+
+const SUITS = ['C', 'D', 'H', 'S'] as const
+const cardVal = (rank: string) => (rank === 'A' ? 1 : rank === 'Jo' ? 0 : parseInt(rank) || 0)
+
+function applyRunEvent(c: CampaignState, eventId: string, optId: string) {
+  const deck = c.deck
+  if (!deck) { clog(c, '🎭 The moment passes — nothing happens mid-fight.'); return }
+  const { r, done } = rng(c)
+  const finish = (msg: string) => { done(); clog(c, `🎭 ${msg}`) }
+  const key = `${eventId}:${optId}`
+
+  switch (key) {
+    case 'bonepicker:cull': {
+      const sorted = [...deck.tavern].filter(card => card.rank !== 'Jo')
+        .sort((a, b) => cardVal(a.rank) - cardVal(b.rank)).slice(0, 4)
+      const ids = new Set(sorted.map(card => card.id))
+      deck.tavern = deck.tavern.filter(card => !ids.has(card.id))
+      return finish(`The Bonepicker feeds: ${sorted.map(card => card.rank + card.suit).join(', ')} are devoured.`)
+    }
+    case 'counterfeiter:commission': {
+      for (let i = 0; i < 2; i++) deck.tavern.splice(r.int(deck.tavern.length + 1), 0, { suit: r.pick([...SUITS]), rank: '10', id: evUid() })
+      return finish('Two counterfeit 10s slip into the Tavern. They look... fine.')
+    }
+    case 'counterfeiter:small-bills': {
+      for (let i = 0; i < 3; i++) deck.tavern.splice(r.int(deck.tavern.length + 1), 0, { suit: r.pick([...SUITS]), rank: '5', id: evUid() })
+      return finish('Three counterfeit 5s slip into the Tavern.')
+    }
+    case 'chaos-font:drink': {
+      const from = r.pick([...SUITS])
+      const to = r.pick(SUITS.filter(su => su !== from))
+      let n = 0
+      for (const card of deck.tavern) if (card.suit === from && card.rank !== 'Jo') { card.suit = to; n++ }
+      return finish(`The font surges — ${n} ${from} cards in the Tavern turn to ${to}.`)
+    }
+    case 'chaos-font:sip': {
+      const pool = deck.tavern.filter(card => card.rank !== 'Jo')
+      for (const card of r.shuffle(pool).slice(0, 3)) card.suit = r.pick(SUITS.filter(su => su !== card.suit))
+      return finish('A sip. Three Tavern cards shimmer into new suits.')
+    }
+    case 'whetstone:hone': {
+      const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+      const pool = deck.tavern.filter(card => card.rank !== 'Jo' && card.rank !== '10')
+      const picks = r.shuffle(pool).slice(0, 3)
+      for (const card of picks) card.rank = RANKS[RANKS.indexOf(card.rank) + 1]! as typeof card.rank
+      return finish(`${picks.length} Tavern cards are honed +1.`)
+    }
+    case 'whetstone:temper': {
+      const low = [...deck.tavern].filter(card => card.rank !== 'Jo')
+        .sort((a, b) => cardVal(a.rank) - cardVal(b.rank))[0]
+      if (low) { const was = low.rank + low.suit; low.rank = '10'; return finish(`${was} is tempered into a 10${low.suit}.`) }
+      return finish('Nothing worth tempering.')
+    }
+    case 'tithe:pay': {
+      for (let hi = 0; hi < c.heroes.length; hi++) {
+        if (!c.heroes[hi]!.alive || !deck.hands[hi]?.length) continue
+        const hand = deck.hands[hi]!
+        const top = hand.reduce((best, card, i) => (cardVal(card.rank) > cardVal(hand[best]!.rank) ? i : best), 0)
+        deck.discard.push(...hand.splice(top, 1))
+      }
+      const pool = itemPool(c, 'spell', 'rare').filter(i => !c.spells.includes(i.id))
+      if (pool.length) { const sp = r.pick(pool); c.spells.push(sp.id); return finish(`The tithe is paid. The clerk hands over ${sp.name} ★.`) }
+      return finish('The tithe is paid. The clerk has nothing left to give.')
+    }
+    case 'tithe:haggle': {
+      const hand = deck.hands.find((h, i) => c.heroes[i]?.alive && h.length > 0)
+      if (hand) deck.discard.push(...hand.splice(r.int(hand.length), 1))
+      const pool = itemPool(c, 'spell', 'standard').filter(i => !c.spells.includes(i.id))
+      if (pool.length) { const sp = r.pick(pool); c.spells.push(sp.id); return finish(`A deal is struck: ${sp.name} for pocket change.`) }
+      return finish('A deal is struck for... nothing. The clerk smirks.')
+    }
+    default:
+      return finish('The party walks on. Nothing happens.')
+  }
 }
 
 function grantItem(c: CampaignState, itemId: string) {
@@ -308,6 +481,18 @@ export function checkEncounterEnd(c: CampaignState) {
   if (s.outcome === 'wiped') { c.encounter = null; return }
 
   if (s.outcome === 'won') {
+    // snapshot the killing turn's end result before the encounter is nulled —
+    // the client shows it in the victory moment (playtest note 2026-06-11)
+    const rankNode = c.map?.nodes.find(n => n.id === s.nodeId)
+    c.lastFight = {
+      tier: s.tier,
+      rank: s.tier === 'boss' && EXPERIMENTS.provinceMode && rankNode
+        ? (['J', 'Q', 'K'] as const)[Math.min(c.map!.nodes.filter(n => n.kind === 'boss' && n.layer < rankNode.layer).length, 2)]!
+        : null,
+      handSizes: s.hands.map(h => h.length),
+      tavern: s.tavern.length,
+      discard: s.discard.length,
+    }
     const node = c.map!.nodes.find(n => n.id === s.nodeId)!
     if (s.tier === 'boss') {
       // Province mode: the Gates and the Courtyard are intermediate rank
@@ -316,13 +501,15 @@ export function checkEncounterEnd(c: CampaignState) {
         const { r, done } = rng(c)
         const isCourtyard = c.map!.nodes.some(n => n.kind === 'boss' && n.layer < node.layer)
         const pool = (isCourtyard
-          ? [...itemsOf('relic', 'rare'), ...itemsOf('spell', 'rare')]
-          : [...itemsOf('spell', 'standard'), ...itemsOf('preparation', 'standard'), ...itemsOf('relic', 'standard')])
+          ? [...itemPool(c, 'relic', 'rare'), ...itemPool(c, 'spell', 'rare')]
+          : [...itemPool(c, 'spell', 'standard'), ...itemPool(c, 'preparation', 'standard'), ...itemPool(c, 'relic', 'standard')])
           .filter(i => !c.spells.includes(i.id) && !c.preparations.includes(i.id) && !c.heroes.some(h => h.relicId === i.id))
         const options = r.shuffle(pool).slice(0, 3 + rewardBonus(c))
         done()
         c.encounter = null
-        ;(c as CampaignState & { secondWindUsed?: boolean }).secondWindUsed = false   // mercy renews each act
+        const cx = c as CampaignState & { secondWindUsed?: boolean; wardenVigilUsed?: boolean }
+        cx.secondWindUsed = false      // mercy renews each act
+        cx.wardenVigilUsed = false     // the Warden's vigil renews with it
         clog(c, isCourtyard ? '👑 The Courtyard is yours. The Throne room lies ahead.' : '🏰 The Gates have fallen. The Courtyard awaits.')
         if (options.length) {
           c.phase = 'landmark'
@@ -331,7 +518,10 @@ export function checkEncounterEnd(c: CampaignState) {
             prompt: isCourtyard ? 'Spoils of the Courtyard — claim a rare prize.' : 'Spoils of the Gates — choose your reward.',
             options: options.map(i => ({ id: i.id, label: `${i.name}${i.tier === 'rare' ? ' ★' : ''}`, detail: i.text })),
           }
-        } else c.phase = 'road'
+        } else {
+          c.phase = 'road'
+          autoAdvanceAfterGate(c)
+        }
         return
       }
       c.encounter = null
@@ -341,7 +531,7 @@ export function checkEncounterEnd(c: CampaignState) {
     // encounter rewards (controlled drop tables)
     if (node.kind === 'lair') {
       const { r, done } = rng(c)
-      const pool = [...itemsOf('relic', 'rare'), ...itemsOf('spell', 'rare')]
+      const pool = [...itemPool(c, 'relic', 'rare'), ...itemPool(c, 'spell', 'rare')]
         .filter(i => !c.spells.includes(i.id) && !c.heroes.some(h => h.relicId === i.id))
       const options = r.shuffle(pool).slice(0, 2 + rewardBonus(c))
       done()
@@ -359,7 +549,7 @@ export function checkEncounterEnd(c: CampaignState) {
     // standard encounter drops: skirmish → random standard prep; veteran/elite → choice
     const { r, done } = rng(c)
     if (node.kind === 'skirmish') {
-      const pool = itemsOf('preparation', 'standard').filter(i => !c.preparations.includes(i.id))
+      const pool = itemPool(c, 'preparation', 'standard').filter(i => !c.preparations.includes(i.id))
       if (pool.length) {
         const item = r.pick(pool)
         c.preparations.push(item.id)
@@ -370,7 +560,7 @@ export function checkEncounterEnd(c: CampaignState) {
       c.phase = 'road'
       return
     }
-    const pool = [...itemsOf('spell', 'standard'), ...itemsOf('preparation', 'standard'), ...(node.kind === 'elite' ? itemsOf('relic', 'rare') : [])]
+    const pool = [...itemPool(c, 'spell', 'standard'), ...itemPool(c, 'preparation', 'standard'), ...(node.kind === 'elite' ? itemPool(c, 'relic', 'rare') : [])]
       .filter(i => !c.spells.includes(i.id) && !c.preparations.includes(i.id) && !c.heroes.some(h => h.relicId === i.id))
     const options = r.shuffle(pool).slice(0, (node.kind === 'elite' ? 3 : 2) + rewardBonus(c))
     done()
@@ -570,6 +760,7 @@ function applyReplacementPick(c: CampaignState, playerId: string, classId: strin
   const deadIdx = c.heroes.findIndex(h => !h.alive && h.playerId === playerId)
   if (deadIdx < 0) return { error: 'No fallen hero of yours.' }
   const hero = c.heroes[deadIdx]!
+  const prevRelic = hero.relicId   // died with the hero — don't deal it right back
   hero.classId = classId as ClassId
   hero.alive = true
   hero.memories = []
@@ -577,7 +768,8 @@ function applyReplacementPick(c: CampaignState, playerId: string, classId: strin
 
   // camp join canon: stronger onboarding bonus — a standard relic
   const { r, done } = rng(c)
-  const pool = itemsOf('relic', 'standard').filter(i => !c.heroes.some(h => h.relicId === i.id))
+  const pool = itemPool(c, 'relic', 'standard')
+    .filter(i => i.id !== prevRelic && !c.heroes.some(h => h.relicId === i.id))
   if (pool.length) {
     hero.relicId = r.pick(pool).id
     clog(c, `   Onboarding: equipped ${getItem(hero.relicId).name}.`)
@@ -680,6 +872,15 @@ export function applyContinueChapter(c: CampaignState, playerId: string, hostId:
 
 // ── Client projection ────────────────────────────────────────────────────────
 
+// pile contents for the viewer: sorted by suit then value so the actual
+// draw order leaks nothing
+function sortedPile(cards: { suit: string; rank: string; id: string }[]) {
+  const suitOrder: Record<string, number> = { C: 0, D: 1, H: 2, S: 3 }
+  const val = (rank: string) => (rank === 'A' ? 1 : rank === 'Jo' ? 0 : parseInt(rank) || 0)
+  return [...cards].sort((a, b) =>
+    (suitOrder[a.suit] ?? 9) - (suitOrder[b.suit] ?? 9) || val(a.rank) - val(b.rank))
+}
+
 export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostId: string, kingdom: KingdomState): ClientCampaignState {
   const myHeroIndex = c.heroes.findIndex(h => h.playerId === forPlayerId)
   const s = c.encounter
@@ -755,6 +956,17 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
       canWager: !!me && me.classId === 'gambler' && me.alive && !c.gamblerWagerUsed && s.outcome === 'active',
       myRelicActivatable: !!me?.relicId && activatable.includes(me.relicId) && !s.flags[`relicUsed:${myHeroIndex}`],
       myBoosts: computeBoosts(c, s, myHeroIndex),
+      // pile contents are public knowledge, but SORTED — draw order stays hidden
+      tavernCards: sortedPile(s.tavern),
+      discardCards: sortedPile(s.discard),
+      siegeRank: (() => {
+        // province mode: which rank gate this boss node is (Gates/Courtyard/Throne)
+        if (s.tier !== 'boss' || !EXPERIMENTS.provinceMode || !c.map) return null
+        const node = c.map.nodes.find(n => n.id === s.nodeId)
+        if (!node) return null
+        const before = c.map.nodes.filter(n => n.kind === 'boss' && n.layer < node.layer).length
+        return (['J', 'Q', 'K'] as const)[Math.min(before, 2)]!
+      })(),
     }
   }
 
@@ -775,12 +987,25 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
     isHost: forPlayerId === hostId,
     map,
     encounter,
+    lastFight: c.lastFight ?? null,
     spells: c.spells.map(itemView),
     preparations: c.preparations.map(itemView),
     activePreparations: c.activePreparations.map(itemView),
     pendingChoice: c.pendingChoice
-      ? { ...c.pendingChoice, mine: (c.pendingChoice.forPlayerId ?? hostId) === forPlayerId }
+      ? (() => {
+          const { votes, ...pub } = c.pendingChoice
+          const teamVote = c.pendingChoice.kind === 'landmark_reward' && c.pendingChoice.forPlayerId === null && c.heroes.length > 1
+          return {
+            ...pub,
+            mine: teamVote || (c.pendingChoice.forPlayerId ?? hostId) === forPlayerId,
+            teamVote,
+            myVote: votes?.[forPlayerId] ?? null,   // ballots stay secret — you only see your own
+            votesIn: Object.keys(votes ?? {}).length,
+            votesNeeded: c.heroes.length,
+          }
+        })()
       : null,
+    rewardDraw: c.rewardDraw ?? null,
     deathVote: c.deathVote
       ? {
           deadHeroName: c.heroes[c.deathVote.deadHeroIndex]!.playerName,

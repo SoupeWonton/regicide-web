@@ -3,10 +3,11 @@ import { createServer } from 'http'
 import { Server } from 'socket.io'
 import { fileURLToPath } from 'url'
 import path from 'path'
+import fs from 'fs'
 import {
-  createRoom, joinRoom, setReady, startGame, playCards, discardDamage, yieldTurn,
+  createRoom, joinRoom, setReady, startGame, pickClassQuick, playCards, discardDamage, yieldTurn,
   chooseNext, restartGame, playerDisconnect, roomInfo, findRoomsByPlayer,
-  markConnected, gameStateFor,
+  markConnected, gameStateFor, leaveRoom, deleteRoom,
 } from './rooms'
 import {
   startCampaignSession, resumeCampaignSession, dispatchCampaignAction,
@@ -20,12 +21,15 @@ const io = new Server(http, { cors: { origin: '*' } })
 
 app.get('/health', (_, res) => res.json({ ok: true }))
 
-// Serve Vue client build in production
-if (process.env.NODE_ENV === 'production') {
-  const __dirname = path.dirname(fileURLToPath(import.meta.url))
-  const clientDist = path.join(__dirname, '../client/dist')
-  app.use(express.static(clientDist))
-  app.get('*', (_, res) => res.sendFile(path.join(clientDist, 'index.html')))
+// Production (Render / tunnel): serve the built client from this server so a
+// single origin carries both the app and the websocket. Gated on dist
+// existing rather than NODE_ENV — dev keeps using Vite on :5173 either way.
+const HERE = path.dirname(fileURLToPath(import.meta.url))
+const DIST = path.join(HERE, '..', 'client', 'dist')
+if (fs.existsSync(DIST)) {
+  app.use(express.static(DIST))
+  app.get(/^\/(?!socket\.io|health).*/, (_, res) => res.sendFile(path.join(DIST, 'index.html')))
+  console.log('Serving built client from client/dist')
 }
 
 // Players are keyed by a stable client id (sent via socket auth, persisted in
@@ -116,6 +120,11 @@ io.on('connection', socket => {
     broadcast(states!)
   })
 
+  socket.on('pick_class_quick', ({ code, classId }: { code: string; classId: string | null }) => {
+    const room = pickClassQuick(code, cid, classId)
+    if (room) io.to(code).emit('room_update', room)
+  })
+
   socket.on('play_cards', ({ code, cardIndices }: { code: string; cardIndices: number[] }) => {
     const { states, error } = playCards(code, cid, cardIndices)
     if (error) { socket.emit('error', error); return }
@@ -182,6 +191,23 @@ io.on('connection', socket => {
       return
     }
     broadcastCampaign(code)
+  })
+
+  socket.on('leave_room', ({ code }: { code: string }) => {
+    const info = roomInfo(code)
+    if (!info) { socket.emit('room_closed'); return }
+    if (info.hostId === cid) {
+      // host kills the room for everyone (campaign progress stays saved on disk)
+      endSession(code)
+      deleteRoom(code)
+      io.to(code).emit('room_closed')
+      io.in(code).socketsLeave(code)
+    } else {
+      const remaining = leaveRoom(code, cid)
+      socket.leave(code)
+      socket.emit('room_closed')
+      if (remaining) io.to(code).emit('room_update', remaining)
+    }
   })
 
   socket.on('end_campaign_session', ({ code }: { code: string }) => {

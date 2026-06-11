@@ -57,6 +57,7 @@ export type NodeKind =
   | 'start' | 'camp' | 'boss'
   | 'skirmish' | 'veteran' | 'elite'
   | 'forge' | 'abbey' | 'market' | 'tower' | 'shrine' | 'lair'
+  | 'event'
 
 export interface RoadNode {
   id: string
@@ -102,10 +103,11 @@ export type CampaignPhase =
 
 export interface PendingChoice {
   kind: 'landmark_reward' | 'replacement' | 'exile_pick' | 'memory'
-  forPlayerId: string | null   // null → host decides
+  forPlayerId: string | null   // null → team vote (or host when solo)
   prompt: string
   options: { id: string; label: string; detail?: string }[]
   returnTo?: 'camp' | 'road'   // phase to restore after the pick (default road)
+  votes?: Record<string, string>   // team rewards: playerId → optionId (secret ballot)
 }
 
 export interface DeathVoteState {
@@ -191,6 +193,17 @@ export interface CampaignState {
   // active (the live state lives in encounter.* and is written back on end).
   deck: { tavern: Card[]; discard: Card[]; hands: Card[][] } | null
 
+  // Final tableau of the last WON fight — the encounter is nulled on win, so
+  // this lets the client show the killing turn's end result (hands/tavern)
+  // before the spoils appear.
+  lastFight?: {
+    tier: EncounterTier
+    rank: 'J' | 'Q' | 'K' | null
+    handSizes: number[]
+    tavern: number
+    discard: number
+  } | null
+
   spells: string[]               // team-owned spell inventory (item ids)
   preparations: string[]         // owned, not yet activated
   activePreparations: string[]   // activated at camp; consumed at next encounter start (cap 2)
@@ -205,6 +218,14 @@ export interface CampaignState {
   shrineBlessing: boolean         // +1 hand size next encounter
 
   pendingChoice: PendingChoice | null
+  // last resolved team-reward vote — the client confirms the winner (and
+  // plays the casino draw on ties)
+  rewardDraw?: {
+    seq: number
+    options: { id: string; label: string; detail?: string }[]
+    winnerId: string
+    tie: boolean
+  } | null
   deathVote: DeathVoteState | null
   memoryDraft: MemoryDraftState | null
 
@@ -279,6 +300,11 @@ export interface ClientEncounterState {
     dmgPlus: number; dmgMult: number
     execReady: boolean; dCap: number | null; hHalf: boolean
   }
+  // province mode: which rank gate a boss fight is (J=Gates, Q=Courtyard, K=Throne)
+  siegeRank: 'J' | 'Q' | 'K' | null
+  // pile contents, sorted (draw order hidden) — players may inspect the piles
+  tavernCards: Card[]
+  discardCards: Card[]
   events: EncounterEvent[]
   eventSeq: number
 }
@@ -295,10 +321,18 @@ export interface ClientCampaignState {
   isHost: boolean
   map: { nodes: ClientRoadNode[]; currentNodeId: string } | null
   encounter: ClientEncounterState | null
+  lastFight: { tier: EncounterTier; rank: 'J' | 'Q' | 'K' | null; handSizes: number[]; tavern: number; discard: number } | null
   spells: { id: string; name: string; text: string; tier: ItemTier }[]
   preparations: { id: string; name: string; text: string; tier: ItemTier }[]
   activePreparations: { id: string; name: string; text: string }[]
-  pendingChoice: (PendingChoice & { mine: boolean }) | null
+  pendingChoice: (Omit<PendingChoice, 'votes'> & {
+    mine: boolean
+    teamVote: boolean
+    myVote: string | null
+    votesIn: number
+    votesNeeded: number
+  }) | null
+  rewardDraw: { seq: number; options: { id: string; label: string; detail?: string }[]; winnerId: string; tie: boolean } | null
   deathVote: { deadHeroName: string; options: string[]; votes: Record<string, string>; myVote: string | null; isBoss: boolean } | null
   memoryDraft: { myOptions: { id: string; name: string; text: string }[] | null; waitingOn: string[] } | null
   exileAvailable: boolean

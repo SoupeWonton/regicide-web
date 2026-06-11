@@ -32,6 +32,7 @@ const NODE_CT: Record<NodeKind, { reward: number; pressure: number }> = {
   tower:    { reward: 0.25, pressure: 0 },
   shrine:   { reward: 0.25, pressure: 0 },
   lair:     { reward: 1.0,  pressure: 1.1 },
+  event:    { reward: 0.25, pressure: 0.1 },   // run events: impact varies (test-grade)
 }
 
 const CHAPTER_1: ChapterSpec = {
@@ -74,11 +75,11 @@ const PROVINCE_1: ChapterSpec = {
     { kinds: ['skirmish', 'skirmish'] },          // stop 1
     { kinds: ['forge', 'market', 'abbey'] },      // stop 2
     { kinds: ['boss'] },                          // THE GATES — 4 Jacks
-    { kinds: ['veteran', 'skirmish'] },           // stop 3
+    { kinds: ['veteran', 'event', 'skirmish'] },  // stop 3 — fight, or roll the dice
     { kinds: ['camp', 'lair'] },                  // stop 4 — rest or gamble
     { kinds: ['veteran', 'veteran'] },            // stop 5
     { kinds: ['boss'] },                          // THE COURTYARD — 4 Queens
-    { kinds: ['veteran', 'elite'] },              // stop 6
+    { kinds: ['veteran', 'elite', 'event'] },     // stop 6 — fight, or roll the dice
     { kinds: ['camp', 'shrine', 'tower'] },       // stop 7 — breather before the Kings (or push on for blessings)
     { kinds: ['elite', 'veteran'] },              // stop 8
     { kinds: ['boss'] },                          // THE THRONE — 4 Kings

@@ -2,6 +2,12 @@
 import { ref, computed } from 'vue'
 import { socket } from '../socket'
 import type { ClientGameState, Card } from '../types'
+import { CLASS_DEFS } from './campaign/classData'
+import HeroPortrait from './campaign/HeroPortrait.vue'
+
+function classDef(id: string | null | undefined) {
+  return id ? CLASS_DEFS.find(c => c.id === id) : undefined
+}
 
 const props = defineProps<{ state: ClientGameState; code: string }>()
 
@@ -184,8 +190,23 @@ const rankDisplayName: Record<string, string> = { J: 'Jack', Q: 'Queen', K: 'Kin
               : 'border-base-content/10 bg-base-100 text-base-content/60'
           ]"
         >
+          <div v-if="state.classIds?.[i]" class="w-8 h-8 mx-auto mb-1 rounded-full overflow-hidden class-medallion">
+            <HeroPortrait :class-id="state.classIds[i]!" />
+          </div>
           <div class="font-semibold truncate">{{ p.name }}</div>
+          <div v-if="state.classIds?.[i]" class="text-[10px] text-primary/60 truncate">{{ classDef(state.classIds[i])?.name }}</div>
           <div class="text-base-content/40 mt-0.5">{{ p.handSize }} cards</div>
+        </div>
+      </div>
+
+      <!-- My class ability reminder -->
+      <div v-if="state.myClassId && classDef(state.myClassId)" class="rounded-lg bg-base-100 border border-primary/20 px-3 py-2 flex items-center gap-3">
+        <div class="w-8 h-8 shrink-0 rounded-full overflow-hidden class-medallion">
+          <HeroPortrait :class-id="state.myClassId" />
+        </div>
+        <div class="min-w-0">
+          <p class="text-xs font-bold text-primary/80">{{ classDef(state.myClassId)!.name }}</p>
+          <p class="text-[11px] text-base-content/55 leading-snug">{{ classDef(state.myClassId)!.text }}</p>
         </div>
       </div>
 

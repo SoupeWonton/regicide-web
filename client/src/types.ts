@@ -39,12 +39,15 @@ export interface ClientGameState {
   log: string[]
   lastPlayed: Card[]
   myIndex: number
+  classIds?: (string | null)[]
+  myClassId?: string | null
 }
 
 export interface RoomInfo {
   code: string
   hostId: string
   players: { id: string; name: string; ready: boolean }[]
+  classSelections?: Record<string, string>  // playerId → classId
 }
 
 // ── Campaign mode ────────────────────────────────────────────────────────────
@@ -103,6 +106,9 @@ export interface ClientEncounterState {
   canWager: boolean
   myRelicActivatable: boolean
   myBoosts: SuitBoosts
+  siegeRank: 'J' | 'Q' | 'K' | null
+  tavernCards: Card[]
+  discardCards: Card[]
   events: EncounterEvent[]
   eventSeq: number
 }
@@ -131,6 +137,10 @@ export interface PendingChoiceView {
   prompt: string
   options: { id: string; label: string; detail?: string }[]
   mine: boolean
+  teamVote: boolean
+  myVote: string | null
+  votesIn: number
+  votesNeeded: number
 }
 
 export interface ClientCampaignState {
@@ -145,10 +155,12 @@ export interface ClientCampaignState {
   isHost: boolean
   map: { nodes: ClientRoadNode[]; currentNodeId: string } | null
   encounter: ClientEncounterState | null
+  lastFight: { tier: string; rank: 'J' | 'Q' | 'K' | null; handSizes: number[]; tavern: number; discard: number } | null
   spells: ItemView[]
   preparations: ItemView[]
   activePreparations: ItemView[]
   pendingChoice: PendingChoiceView | null
+  rewardDraw: { seq: number; options: { id: string; label: string; detail?: string }[]; winnerId: string; tie: boolean } | null
   deathVote: { deadHeroName: string; options: string[]; votes: Record<string, string>; myVote: string | null; isBoss: boolean } | null
   memoryDraft: { myOptions: ItemView[] | null; waitingOn: string[] } | null
   exileAvailable: boolean

@@ -17,12 +17,12 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   },
   quartermaster: {
     id: 'quartermaster', tier: 1, name: 'Quartermaster', theme: 'Draw / Access', suit: 'D', ct: 0.75, siegeCt: 1.0,
-    abilityText: 'The first Diamond trigger each enemy draws +1 extra card, and the party’s hand cap is +1 while the Quartermaster stands.',
+    abilityText: 'Your first Diamond trigger each enemy draws +1 extra card, and your hand cap is +1.',
     siegeText: 'Last Requisition — once per castle, when the Quartermaster’s hand empties, the whole party draws back to full.',
   },
   surgeon: {
     id: 'surgeon', tier: 1, name: 'Surgeon', theme: 'Recovery / Precision', suit: 'H', ct: 0.75, siegeCt: 1.0,
-    abilityText: 'The first Heart trigger each enemy recovers +1 additional card.',
+    abilityText: 'Your first Heart trigger each enemy recovers +1 additional card.',
     siegeText: 'Field Triage — once per castle, when the Tavern runs dry, return up to 8 discard cards to it.',
   },
   executioner: {
@@ -31,18 +31,18 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     siegeText: 'Regicide — in the castle, the Executioner’s own attacks finish royals from 1-4 HP.',
   },
   commander: {
-    id: 'commander', tier: 2, name: 'Commander', theme: 'Initiative / Sequencing', suit: null, ct: 1.0, siegeCt: 0.3,
-    abilityText: 'After any kill, the killer may pass the follow-up turn to any ally instead of playing again.',
+    id: 'commander', tier: 2, name: 'Commander', theme: 'Initiative / Sequencing', suit: null, ct: 0.75, siegeCt: 0.3,
+    abilityText: 'After your kill, you may pass the follow-up turn to any ally — and you draw 1 card (Press the Advantage).',
     siegeText: 'Rally the Line — the first castle handoff to an ally also re-arms them with 2 cards.',
   },
   warden: {
-    id: 'warden', tier: 2, name: 'Warden', theme: 'Death Mitigation', suit: null, ct: 1.1, siegeCt: 1.0,
-    abilityText: 'Once per run, a death fork gains an extra option: Defiant Stand — the fallen hero survives with 2 cards.',
+    id: 'warden', tier: 2, name: 'Warden', theme: 'Death Mitigation', suit: null, ct: 0.75, siegeCt: 1.0,
+    abilityText: 'Vigil — once per act, the Warden’s own collapse does not spend the party’s second wind. Once per run, death forks gain Defiant Stand.',
     siegeText: 'Deathward — once per castle, the first death is prevented; the hero discards what they can and stands.',
   },
   gambler: {
-    id: 'gambler', tier: 3, name: 'Gambler', theme: 'Uncertainty / Tempo', suit: null, ct: 1.0, siegeCt: 0.3,
-    abilityText: 'Once per chapter, wager before a play: if the enemy dies this turn, choose the next player; if not, discard 1 random card.',
+    id: 'gambler', tier: 3, name: 'Gambler', theme: 'Uncertainty / Tempo', suit: null, ct: 0.75, siegeCt: 0.3,
+    abilityText: 'Once per chapter, wager before a play: if the enemy dies this turn, draw 2 cards and choose who acts next; if not, discard 1 random card.',
     siegeText: 'All In — once per castle, the Gambler’s first strike is doubled or halved on a coin flip.',
   },
   exile: {
@@ -51,8 +51,8 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     siegeText: 'Tithe of the Severed — at the castle gates, exile the top 2 Tavern cards forever; their value wounds the first royal.',
   },
   oracle: {
-    id: 'oracle', tier: 3, name: 'Oracle', theme: 'Hidden Information', suit: null, ct: 1.1, siegeCt: 0.75,
-    abilityText: 'At the start of each encounter, look at the top 3 Tavern cards and reorder them.',
+    id: 'oracle', tier: 3, name: 'Oracle', theme: 'Hidden Information', suit: null, ct: 0.75, siegeCt: 0.75,
+    abilityText: 'At the start of each encounter, look at the top 3 Tavern cards and reorder them. Foresight: your first play after a peek deals +1 damage.',
     siegeText: 'Unveil the Court — the hidden court modifier is read in advance and nullified.',
   },
 }
@@ -60,6 +60,12 @@ export const CLASSES: Record<ClassId, ClassDef> = {
 export const TIER1_CLASSES: ClassId[] = ['sentinel', 'quartermaster', 'surgeon', 'executioner']
 export const TIER2_CLASSES: ClassId[] = ['commander', 'warden']
 export const TIER3_CLASSES: ClassId[] = ['gambler', 'exile', 'oracle']
+
+// Province direction 2026-06-11: the two support (commander, warden) and two
+// weird (gambler, oracle) classes are start-available. Exile's deck-exile
+// identity overlaps class curation and is being rethought, but for playtest
+// coverage ALL classes are unlocked for now (2026-06-11, Gab).
+export const STARTING_CLASSES: ClassId[] = [...TIER1_CLASSES, 'commander', 'warden', 'gambler', 'oracle', 'exile']
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Encounter modifiers — implemented subset of the Chapter 1 encounter pack.

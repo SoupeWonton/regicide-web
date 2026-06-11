@@ -4,6 +4,7 @@ import { createRng } from '../rng'
 import type { CampaignState, EncounterState, EncounterTier, EncounterEvent, Hero } from './types'
 import { getEncounterDef, getItem, encountersOf, BOSS_MODIFIERS, CLASSES } from './content'
 import { EXPERIMENTS, CURATION_CUT } from './experiments'
+import { appendGameLog } from './store'
 
 // Campaign encounter engine. A superset of the base Regicide rules with hook
 // points for encounter modifiers, class core abilities, relics, spells,
@@ -19,6 +20,7 @@ const uid = () => `c${++_uid}`
 function clog(c: CampaignState, msg: string) {
   c.log.unshift(msg)
   if (c.log.length > 60) c.log.pop()
+  appendGameLog(c.id, msg)
 }
 
 // ── Event stream (Balatro-style playback on the client) ─────────────────────
@@ -37,7 +39,7 @@ function aliveIndices(c: CampaignState): number[] {
   return c.heroes.map((h, i) => (h.alive ? i : -1)).filter(i => i >= 0)
 }
 
-export function maxHandSize(c: CampaignState): number {
+export function maxHandSize(c: CampaignState, heroIdx?: number): number {
   const base = { 1: 8, 2: 7, 3: 6, 4: 5 }[c.heroes.length] ?? 5
   const s = c.encounter
   let size = base
@@ -45,9 +47,9 @@ export function maxHandSize(c: CampaignState): number {
   if (s?.bossModifierId === 'starving-court') size -= 1
   // Reliquary relic: hand cap +1 during boss fights
   if (s?.tier === 'boss' && c.heroes.some(h => h.alive && h.relicId === 'r-reliquary')) size += 1
-  // Quartermaster: the party's hand cap is +1 while the Quartermaster stands
-  // (Access identity; solo parity fix — measured weakest solo class 2026-06-11)
-  if (c.heroes.some(h => h.alive && h.classId === 'quartermaster')) size += 1
+  // Quartermaster: hand cap +1 for the Quartermaster's OWN hand (playtest
+  // canon 2026-06-11: class powers affect only the player running the class)
+  if (heroIdx !== undefined && c.heroes[heroIdx]?.alive && c.heroes[heroIdx]!.classId === 'quartermaster') size += 1
   return Math.max(2, size)
 }
 
@@ -98,21 +100,21 @@ export function setupChapterDeck(c: CampaignState) {
     const cut = CURATION_CUT[c.heroes.length] ?? 2
     for (const h of c.heroes) {
       const suit = CLASSES[h.classId].suit
-      if (!suit) continue
-      const lowest = tavern
-        .filter(cd => cd.suit === suit && cd.rank !== 'Jo')
+      // suited classes cut their own suit's lowest; suitless (support/weird)
+      // classes trim the lowest cards deck-wide — generalist quality
+      const pool = tavern
+        .filter(cd => cd.rank !== 'Jo' && (!suit || cd.suit === suit))
         .sort((a, b) => cardValue(a.rank) - cardValue(b.rank))
         .slice(0, cut)
-      const ids = new Set(lowest.map(cd => cd.id))
+      const ids = new Set(pool.map(cd => cd.id))
       tavern = tavern.filter(cd => !ids.has(cd.id))
-      if (lowest.length)
-        clog(c, `🃏 ${h.playerName} curates the deck: ${lowest.length} low ${suitSymbol(suit as Suit)} cards are cut.`)
+      if (pool.length)
+        clog(c, `🃏 ${h.playerName} curates the deck: ${pool.length} low ${suit ? suitSymbol(suit as Suit) : ''} cards are cut.`)
     }
   }
   c.deck = { tavern, discard: [], hands: c.heroes.map(() => []) }
-  const max = maxHandSize(c)
   for (const hi of aliveIndices(c))
-    for (let i = 0; i < max; i++)
+    for (let i = 0; i < maxHandSize(c, hi); i++)
       if (c.deck.tavern.length) c.deck.hands[hi]!.push(c.deck.tavern.pop()!)
   done()
   clog(c, '🃏 The expedition deck is assembled and hands are drawn.')
@@ -127,9 +129,8 @@ export function campRest(c: CampaignState) {
   deck.tavern = r.shuffle(pool)
   deck.discard = []
   deck.hands = c.heroes.map(() => [])
-  const max = maxHandSize(c)
   for (const hi of aliveIndices(c))
-    for (let i = 0; i < max; i++)
+    for (let i = 0; i < maxHandSize(c, hi); i++)
       if (deck.tavern.length) deck.hands[hi]!.push(deck.tavern.pop()!)
   done()
   clog(c, '🔄 The party rests — the deck is reshuffled and hands are redrawn.')
@@ -142,9 +143,8 @@ function castleCheckpoint(c: CampaignState, s: EncounterState) {
   s.tavern = r.shuffle(pool)
   s.discard = []
   s.hands = c.heroes.map(() => [])
-  const max = maxHandSize(c)
   for (const hi of aliveIndices(c))
-    for (let i = 0; i < max; i++)
+    for (let i = 0; i < maxHandSize(c, hi); i++)
       if (s.tavern.length) s.hands[hi]!.push(s.tavern.pop()!)
   done()
 }
@@ -153,7 +153,7 @@ function castleCheckpoint(c: CampaignState, s: EncounterState) {
 export function dealReplacementHand(c: CampaignState, heroIdx: number) {
   const deck = c.deck
   if (!deck) return
-  const max = maxHandSize(c)
+  const max = maxHandSize(c, heroIdx)
   deck.hands[heroIdx] = []
   for (let i = 0; i < max; i++)
     if (deck.tavern.length) deck.hands[heroIdx]!.push(deck.tavern.pop()!)
@@ -165,8 +165,9 @@ export function dealReplacementHand(c: CampaignState, heroIdx: number) {
 function buildEnemyStack(tier: EncounterTier, isLair: boolean, players: number, shuffler: <T>(a: T[]) => T[], rankOnly?: 'J' | 'Q' | 'K'): Card[] {
   const mk = (rank: 'J' | 'Q' | 'K', suits: Suit[]) => suits.map(suit => ({ suit, rank: rank as Card['rank'], id: uid() }))
   if (tier === 'boss') {
-    // province rank fight: one rank, sized by party (solo 2 / duo 3 / party 4)
-    if (rankOnly) return shuffler(mk(rankOnly, shuffler([...SUITS]).slice(0, players === 1 ? 2 : players === 2 ? 3 : 4)))
+    // province rank fight: one rank — solo fields 3 royals, parties the full 4
+    // (playtest 2026-06-11: 2-royal gates at low counts were too easy)
+    if (rankOnly) return shuffler(mk(rankOnly, shuffler([...SUITS]).slice(0, players === 1 ? 3 : 4)))
     if (EXPERIMENTS.shortCastle) {
       const ranks: ('J' | 'Q' | 'K')[] = ['J', 'Q', 'K']
       return ranks.flatMap(rank => shuffler(mk(rank, shuffler([...SUITS]).slice(0, 3))))
@@ -343,7 +344,10 @@ function setupPeekPhase(c: CampaignState, s: EncounterState) {
 
   if (s.flags['prepRouteIntel'] && peek(s.currentPlayerIndex, 3, true, 'Route Intel')) return
   const oracle = c.heroes.findIndex(h => h.alive && h.classId === 'oracle')
-  if (oracle >= 0 && peek(oracle, 3, true, 'the Oracle’s sight')) return
+  if (oracle >= 0 && peek(oracle, 3, true, 'the Oracle’s sight')) {
+    s.flags['oracleForesight'] = oracle   // Foresight: their first play deals +1
+    return
+  }
   const scry = c.heroes.findIndex(h => h.alive && h.relicId === 'r-scry-band')
   if (scry >= 0 && peek(scry, 2, true, 'the Scry Band')) return
   const recon = c.heroes.findIndex(h => h.alive && heroHasMemory(h, 'm-court-recon'))
@@ -416,7 +420,7 @@ function drawForHero(c: CampaignState, s: EncounterState, heroIdx: number, n: nu
   // No automatic discard recycling: Hearts and camp rests are the only ways
   // the discard returns to the Tavern (attrition canon).
   let drawn = 0
-  const max = maxHandSize(c)
+  const max = maxHandSize(c, heroIdx)
   for (let i = 0; i < n; i++) {
     if (s.tavern.length === 0) {
       if (!s.flags['tavernDryLogged']) { s.flags['tavernDryLogged'] = true; clog(c, '🫗 The Tavern runs dry — only ♥ Hearts or a camp rest can refill it.') }
@@ -444,9 +448,8 @@ function resolveDiamonds(c: CampaignState, s: EncounterState, playerIdx: number,
     }
   }
   // class / relic / memory access boosts
-  const qmActive = EXPERIMENTS.ownerOnlyClassTriggers
-    ? c.heroes[playerIdx]!.classId === 'quartermaster'
-    : c.heroes.some(h => h.alive && h.classId === 'quartermaster')
+  // owner-only (playtest canon 2026-06-11): only the Quartermaster's own Diamonds proc
+  const qmActive = c.heroes[playerIdx]!.classId === 'quartermaster'
   if (qmActive && once(s, 'enemy.qmDiamond')) { amount += 1; clog(c, '   📦 Quartermaster: +1 draw.'); ev(s, 'proc', '📦 Quartermaster +1 draw', 'gold') }
   const holder = c.heroes[playerIdx]!
   if (holder.relicId === 'r-field-satchel' && once(s, flagKey('satchel', playerIdx))) amount += 1
@@ -460,9 +463,8 @@ function resolveDiamonds(c: CampaignState, s: EncounterState, playerIdx: number,
   let remaining = amount
   let idx = playerIdx
   let passes = 0
-  const max = maxHandSize(c)
   while (remaining > 0 && passes < c.heroes.length && s.tavern.length > 0) {
-    if (c.heroes[idx]!.alive && s.hands[idx]!.length < max) {
+    if (c.heroes[idx]!.alive && s.hands[idx]!.length < maxHandSize(c, idx)) {
       if (drawForHero(c, s, idx, 1) > 0) { remaining--; passes = 0 } else passes++
     } else passes++
     idx = (idx + 1) % c.heroes.length
@@ -488,9 +490,8 @@ function resolveHearts(c: CampaignState, s: EncounterState, playerIdx: number, a
     amount *= 2
     clog(c, '   🏰 Castle Hearts: recovery doubled.')
   }
-  const surgeonActive = EXPERIMENTS.ownerOnlyClassTriggers
-    ? c.heroes[playerIdx]!.classId === 'surgeon'
-    : c.heroes.some(h => h.alive && h.classId === 'surgeon')
+  // owner-only (playtest canon 2026-06-11): only the Surgeon's own Hearts proc
+  const surgeonActive = c.heroes[playerIdx]!.classId === 'surgeon'
   if (surgeonActive && once(s, 'enemy.surgeonHeart')) { amount += 1; clog(c, '   ⚕️ Surgeon: +1 recovery.'); ev(s, 'proc', '⚕️ Surgeon +1 recovery', 'gold') }
   const holder = c.heroes[playerIdx]!
   if (heroHasMemory(holder, 'm-surgical-notes') && once(s, flagKey('m-notes', playerIdx))) amount += 1
@@ -618,6 +619,13 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   if (activeSuits.has('H')) resolveHearts(c, s, pi, base)
   if (activeSuits.has('D')) resolveDiamonds(c, s, pi, base)
 
+  // Oracle — Foresight: the first play after their peek deals +1 damage
+  if (s.flags['oracleForesight'] === pi && damage > 0 && once(s, 'foresightSpent')) {
+    damage += 1
+    clog(c, '   🔮 Foresight: +1 damage.')
+    ev(s, 'proc', '🔮 Foresight +1', 'gold')
+  }
+
   // Gambler siege ultimate — All In: once per castle, the Gambler's first
   // strike is doubled or halved on a coin flip.
   if (s.tier === 'boss' && !EXPERIMENTS.provinceMode && hero.classId === 'gambler' && damage > 0 && once(s, 'ult.gambler')) {
@@ -643,9 +651,8 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
     clog(c, '   📜 Clean Finish: +1 finishing damage.')
     ev(s, 'proc', '📜 Clean Finish +1', 'gold')
   }
-  const execActive = EXPERIMENTS.ownerOnlyClassTriggers
-    ? hero.classId === 'executioner'
-    : c.heroes.some(h => h.alive && h.classId === 'executioner')
+  // owner-only (playtest canon 2026-06-11): only the Executioner's own attacks finish
+  const execActive = hero.classId === 'executioner'
   // Siege upgrade — Regicide: in the castle, the Executioner's OWN attacks
   // finish royals from 1-4 HP (still once per enemy).
   const regicideWindow = s.tier === 'boss' && !EXPERIMENTS.provinceMode && hero.classId === 'executioner' && enemy.hp >= 1 && enemy.hp <= 4
@@ -666,9 +673,11 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
     resolveKill(c, s, pi, enemy.hp === 0)
     if (wagered) {
       s.wagerArmedBy = null
-      clog(c, '🎲 Wager won! Choose who acts next.')
-      ev(s, 'wager', '🎲 WAGER WON', 'gold', true)
-      if (s.outcome === 'active') { s.turnPhase = 'choose_next'; s.pendingChooseNext = false }
+      const got = drawForHero(c, s, pi, 2)
+      clog(c, `🎲 Wager won! The Gambler draws ${got}.`)
+      ev(s, 'wager', '🎲 WAGER WON — draw 2', 'gold', true)
+      // choose-next is a multiplayer privilege; solo the Gambler just plays on
+      if (s.outcome === 'active' && aliveIndices(c).length > 1) { s.turnPhase = 'choose_next'; s.pendingChooseNext = false }
     }
     return {}
   }
@@ -743,9 +752,15 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
   // follow-up turn: killer continues unless initiative is transferred
   s.lastPlayed = []
   const hero = c.heroes[killerIdx]!
-  const commanderAlive = c.heroes.some(h => h.alive && h.classId === 'commander')
+  // owner-only (playtest canon): the handoff is the Commander's own privilege,
+  // and their kill presses the advantage — draw 1
+  const commanderKiller = hero.classId === 'commander'
+  if (commanderKiller && drawForHero(c, s, killerIdx, 1) > 0) {
+    clog(c, '   ⚜️ Press the Advantage: the Commander draws 1.')
+    ev(s, 'proc', '⚜️ Press the Advantage +1', 'gold')
+  }
   const guardRotation = heroHasMemory(hero, 'm-guard-rotation') && !s.flags[flagKey('m-rotation', killerIdx)]
-  if (commanderAlive || guardRotation) {
+  if ((commanderKiller && aliveIndices(c).length > 1) || guardRotation) {
     s.turnPhase = 'choose_next'
     s.pendingChooseNext = true   // optional handoff: may keep the turn
     clog(c, `   ⚜️ Initiative may be handed off — ${hero.playerName} chooses who continues.`)
@@ -1066,7 +1081,18 @@ function heroDies(c: CampaignState, s: EncounterState, pi: number, unpayable: nu
     // collapse — the hero stands back up at the cost of their hand and the
     // fight. Rank gates grant no such mercy, and the second fall is final.
     // (Clearing a rank gate restores the mercy — see campaign.ts.)
-    const cx = c as CampaignState & { secondWindUsed?: boolean }
+    const cx = c as CampaignState & { secondWindUsed?: boolean; wardenVigilUsed?: boolean }
+    // Warden — Vigil: once per act, the Warden's own collapse is free; the
+    // party's second wind is not spent (death-mitigation identity, owner-only)
+    if (s.tier !== 'boss' && hero.classId === 'warden' && !cx.wardenVigilUsed) {
+      cx.wardenVigilUsed = true
+      hero.alive = true
+      s.outcome = 'retreated'
+      s.turnPhase = 'over'
+      clog(c, `🕯 Vigil! The Warden refuses to fall — the party's second wind is preserved.`)
+      ev(s, 'proc', '🕯 VIGIL — free collapse', 'gold', true)
+      return
+    }
     if (s.tier !== 'boss' && !cx.secondWindUsed) {
       cx.secondWindUsed = true
       hero.alive = true
@@ -1258,7 +1284,7 @@ export function computeBoosts(c: CampaignState, s: EncounterState, hi: number): 
   if (s.flags[flagKey('crownbreaker', hi)]) b.dmgMult *= 3
   if (s.flags['prepSpareEdge'] && !s.flags['spareEdgeDone']) b.dmgPlus += 2
   if (s.flags[flagKey('duelCharmReady', hi)]) b.dmgPlus += 2
-  b.execReady = c.heroes.some(h => h.alive && h.classId === 'executioner') && !s.flags['enemy.execFinish']
+  b.execReady = c.heroes[hi]?.classId === 'executioner' && !s.flags['enemy.execFinish']   // owner-only canon
   return b
 }
 
