@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { socket } from '../../socket'
 import type { ClientCampaignState, Card, EncounterEvent } from '../../types'
@@ -334,7 +334,7 @@ const netAttack = computed(() => {
             {{ tierLabel }}
             <span v-if="enc.modifier" class="text-base-content/80"> — {{ enc.modifier.name }}</span>
           </span>
-          <span class="text-xs text-base-content/50">⚔️ {{ enc.defeatedCount }}/{{ enc.totalEnemies }}</span>
+          <span class="text-xs text-base-content/50">☠ {{ enc.defeatedCount }} slain · {{ enc.totalEnemies - enc.defeatedCount }} remain</span>
         </div>
         <p v-if="enc.modifier" class="text-xs text-base-content/60">{{ enc.modifier.text }}</p>
         <p v-if="enc.bossModifier" class="text-xs" :class="enc.bossModifier.id === 'hidden' ? 'text-warning/60 italic' : 'text-warning'">
@@ -679,7 +679,7 @@ const netAttack = computed(() => {
             <span class="font-display font-bold text-sm tracking-wide" :class="enc.tier === 'boss' ? 'text-error' : 'text-primary/90'">
               {{ tierLabel }}
             </span>
-            <span class="text-xs text-base-content/50">⚔️ {{ enc.defeatedCount }}/{{ enc.totalEnemies }}</span>
+            <span class="text-xs text-base-content/50">☠ {{ enc.defeatedCount }} slain · {{ enc.totalEnemies - enc.defeatedCount }} remain</span>
           </div>
           <template v-if="enc.modifier">
             <p class="text-xs font-bold text-base-content/80">{{ enc.modifier.name }}</p>

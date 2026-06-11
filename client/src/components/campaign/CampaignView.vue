@@ -44,6 +44,19 @@ function showSplash(s: NonNullable<typeof splash.value>, ms = 2200) {
   splashTimer = setTimeout(() => { splash.value = null }, ms)
 }
 
+// the killing turn's end result, snapshotted by the server before the
+// encounter is nulled — "see the result of the final turn" (playtest note)
+function fightTableau(): string {
+  const lf = props.state.lastFight
+  if (!lf) return ''
+  const hands = lf.handSizes
+    .map((n, i) => ({ n, h: props.state.heroes[i] }))
+    .filter(x => x.h?.alive)
+    .map(x => `${x.h!.playerName} ${x.n}🂠`)
+    .join(' · ')
+  return `\n${hands} — Tavern ${lf.tavern}`
+}
+
 // remember what we were fighting — the encounter is already null by the time
 // the win transition fires
 const lastFightTier = ref('')
@@ -64,18 +77,20 @@ watch(() => props.state.phase, (now, was) => {
     victoryTimer = setTimeout(() => { victory.value = null }, 4200)
   }
   // a road fight or rank gate was won (retreats go to camp, wipes end the
-  // campaign) — give the table its moment before the spoils appear
+  // campaign) — give the table its moment before the spoils appear, and show
+  // the killing turn's end result (hands + Tavern) so the table can read it
   if (was === 'encounter' && (now === 'landmark' || now === 'road')) {
+    const tableau = fightTableau()
     if (lastFightRank.value === 'J' || lastFightRank.value === 'Q') {
       // province rank gate cleared — bigger moment, full trumpets
       sfx.triumph()
       showSplash({
         over: 'The siege advances',
         title: lastFightRank.value === 'J' ? 'The Gates Have Fallen' : 'The Courtyard Is Yours',
-        sub: lastFightRank.value === 'J' ? 'The Courtyard awaits beyond the rubble.' : 'Only the Throne room remains.',
+        sub: (lastFightRank.value === 'J' ? 'The Courtyard awaits beyond the rubble.' : 'Only the Throne room remains.') + tableau,
         tone: 'gold',
         fx: true,
-      }, 3000)
+      }, 3600)
       lastFightRank.value = null
     } else {
       const titles: Record<string, string> = {
@@ -85,10 +100,10 @@ watch(() => props.state.phase, (now, was) => {
       showSplash({
         over: 'Victory',
         title: titles[lastFightTier.value] ?? 'Encounter Cleared',
-        sub: now === 'landmark' ? 'Claim your spoils.' : 'The road continues.',
+        sub: (now === 'landmark' ? 'Claim your spoils.' : 'The road continues.') + tableau,
         tone: 'gold',
         fx: true,
-      }, 2100)
+      }, 2800)
     }
   }
   if (now === 'road' && was === 'class_select')
@@ -306,8 +321,10 @@ function heroTooltip(h: ClientHero): string {
       </p>
     </OverlayModal>
 
-    <!-- Pending choice overlay (landmark rewards, replacement, exile rite) -->
-    <OverlayModal v-if="choice && (phase === 'landmark' || phase === 'replace_hero')" tone="primary">
+    <!-- Pending choice overlay (landmark rewards, replacement, exile rite).
+         Renders whenever a choice is pending, regardless of phase — a reward
+         must never be skippable or lost to a phase mismatch (playtest note). -->
+    <OverlayModal v-if="choice" tone="primary">
       <h3 class="text-lg font-bold text-center">{{ choice.prompt }}</h3>
       <template v-if="choice.mine">
         <div :class="choice.kind === 'exile_pick' ? 'grid grid-cols-5 gap-1' : 'space-y-2'">

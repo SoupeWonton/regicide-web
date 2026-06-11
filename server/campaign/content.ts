@@ -17,12 +17,12 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   },
   quartermaster: {
     id: 'quartermaster', tier: 1, name: 'Quartermaster', theme: 'Draw / Access', suit: 'D', ct: 0.75, siegeCt: 1.0,
-    abilityText: 'The first Diamond trigger each enemy draws +1 extra card, and the party’s hand cap is +1 while the Quartermaster stands.',
+    abilityText: 'Your first Diamond trigger each enemy draws +1 extra card, and your hand cap is +1.',
     siegeText: 'Last Requisition — once per castle, when the Quartermaster’s hand empties, the whole party draws back to full.',
   },
   surgeon: {
     id: 'surgeon', tier: 1, name: 'Surgeon', theme: 'Recovery / Precision', suit: 'H', ct: 0.75, siegeCt: 1.0,
-    abilityText: 'The first Heart trigger each enemy recovers +1 additional card.',
+    abilityText: 'Your first Heart trigger each enemy recovers +1 additional card.',
     siegeText: 'Field Triage — once per castle, when the Tavern runs dry, return up to 8 discard cards to it.',
   },
   executioner: {

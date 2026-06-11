@@ -37,7 +37,7 @@ function aliveIndices(c: CampaignState): number[] {
   return c.heroes.map((h, i) => (h.alive ? i : -1)).filter(i => i >= 0)
 }
 
-export function maxHandSize(c: CampaignState): number {
+export function maxHandSize(c: CampaignState, heroIdx?: number): number {
   const base = { 1: 8, 2: 7, 3: 6, 4: 5 }[c.heroes.length] ?? 5
   const s = c.encounter
   let size = base
@@ -45,9 +45,9 @@ export function maxHandSize(c: CampaignState): number {
   if (s?.bossModifierId === 'starving-court') size -= 1
   // Reliquary relic: hand cap +1 during boss fights
   if (s?.tier === 'boss' && c.heroes.some(h => h.alive && h.relicId === 'r-reliquary')) size += 1
-  // Quartermaster: the party's hand cap is +1 while the Quartermaster stands
-  // (Access identity; solo parity fix — measured weakest solo class 2026-06-11)
-  if (c.heroes.some(h => h.alive && h.classId === 'quartermaster')) size += 1
+  // Quartermaster: hand cap +1 for the Quartermaster's OWN hand (playtest
+  // canon 2026-06-11: class powers affect only the player running the class)
+  if (heroIdx !== undefined && c.heroes[heroIdx]?.alive && c.heroes[heroIdx]!.classId === 'quartermaster') size += 1
   return Math.max(2, size)
 }
 
@@ -110,9 +110,8 @@ export function setupChapterDeck(c: CampaignState) {
     }
   }
   c.deck = { tavern, discard: [], hands: c.heroes.map(() => []) }
-  const max = maxHandSize(c)
   for (const hi of aliveIndices(c))
-    for (let i = 0; i < max; i++)
+    for (let i = 0; i < maxHandSize(c, hi); i++)
       if (c.deck.tavern.length) c.deck.hands[hi]!.push(c.deck.tavern.pop()!)
   done()
   clog(c, '🃏 The expedition deck is assembled and hands are drawn.')
@@ -127,9 +126,8 @@ export function campRest(c: CampaignState) {
   deck.tavern = r.shuffle(pool)
   deck.discard = []
   deck.hands = c.heroes.map(() => [])
-  const max = maxHandSize(c)
   for (const hi of aliveIndices(c))
-    for (let i = 0; i < max; i++)
+    for (let i = 0; i < maxHandSize(c, hi); i++)
       if (deck.tavern.length) deck.hands[hi]!.push(deck.tavern.pop()!)
   done()
   clog(c, '🔄 The party rests — the deck is reshuffled and hands are redrawn.')
@@ -142,9 +140,8 @@ function castleCheckpoint(c: CampaignState, s: EncounterState) {
   s.tavern = r.shuffle(pool)
   s.discard = []
   s.hands = c.heroes.map(() => [])
-  const max = maxHandSize(c)
   for (const hi of aliveIndices(c))
-    for (let i = 0; i < max; i++)
+    for (let i = 0; i < maxHandSize(c, hi); i++)
       if (s.tavern.length) s.hands[hi]!.push(s.tavern.pop()!)
   done()
 }
@@ -153,7 +150,7 @@ function castleCheckpoint(c: CampaignState, s: EncounterState) {
 export function dealReplacementHand(c: CampaignState, heroIdx: number) {
   const deck = c.deck
   if (!deck) return
-  const max = maxHandSize(c)
+  const max = maxHandSize(c, heroIdx)
   deck.hands[heroIdx] = []
   for (let i = 0; i < max; i++)
     if (deck.tavern.length) deck.hands[heroIdx]!.push(deck.tavern.pop()!)
@@ -165,8 +162,9 @@ export function dealReplacementHand(c: CampaignState, heroIdx: number) {
 function buildEnemyStack(tier: EncounterTier, isLair: boolean, players: number, shuffler: <T>(a: T[]) => T[], rankOnly?: 'J' | 'Q' | 'K'): Card[] {
   const mk = (rank: 'J' | 'Q' | 'K', suits: Suit[]) => suits.map(suit => ({ suit, rank: rank as Card['rank'], id: uid() }))
   if (tier === 'boss') {
-    // province rank fight: one rank, sized by party (solo 2 / duo 3 / party 4)
-    if (rankOnly) return shuffler(mk(rankOnly, shuffler([...SUITS]).slice(0, players === 1 ? 2 : players === 2 ? 3 : 4)))
+    // province rank fight: one rank — solo fields 3 royals, parties the full 4
+    // (playtest 2026-06-11: 2-royal gates at low counts were too easy)
+    if (rankOnly) return shuffler(mk(rankOnly, shuffler([...SUITS]).slice(0, players === 1 ? 3 : 4)))
     if (EXPERIMENTS.shortCastle) {
       const ranks: ('J' | 'Q' | 'K')[] = ['J', 'Q', 'K']
       return ranks.flatMap(rank => shuffler(mk(rank, shuffler([...SUITS]).slice(0, 3))))
@@ -416,7 +414,7 @@ function drawForHero(c: CampaignState, s: EncounterState, heroIdx: number, n: nu
   // No automatic discard recycling: Hearts and camp rests are the only ways
   // the discard returns to the Tavern (attrition canon).
   let drawn = 0
-  const max = maxHandSize(c)
+  const max = maxHandSize(c, heroIdx)
   for (let i = 0; i < n; i++) {
     if (s.tavern.length === 0) {
       if (!s.flags['tavernDryLogged']) { s.flags['tavernDryLogged'] = true; clog(c, '🫗 The Tavern runs dry — only ♥ Hearts or a camp rest can refill it.') }
@@ -444,9 +442,8 @@ function resolveDiamonds(c: CampaignState, s: EncounterState, playerIdx: number,
     }
   }
   // class / relic / memory access boosts
-  const qmActive = EXPERIMENTS.ownerOnlyClassTriggers
-    ? c.heroes[playerIdx]!.classId === 'quartermaster'
-    : c.heroes.some(h => h.alive && h.classId === 'quartermaster')
+  // owner-only (playtest canon 2026-06-11): only the Quartermaster's own Diamonds proc
+  const qmActive = c.heroes[playerIdx]!.classId === 'quartermaster'
   if (qmActive && once(s, 'enemy.qmDiamond')) { amount += 1; clog(c, '   📦 Quartermaster: +1 draw.'); ev(s, 'proc', '📦 Quartermaster +1 draw', 'gold') }
   const holder = c.heroes[playerIdx]!
   if (holder.relicId === 'r-field-satchel' && once(s, flagKey('satchel', playerIdx))) amount += 1
@@ -460,9 +457,8 @@ function resolveDiamonds(c: CampaignState, s: EncounterState, playerIdx: number,
   let remaining = amount
   let idx = playerIdx
   let passes = 0
-  const max = maxHandSize(c)
   while (remaining > 0 && passes < c.heroes.length && s.tavern.length > 0) {
-    if (c.heroes[idx]!.alive && s.hands[idx]!.length < max) {
+    if (c.heroes[idx]!.alive && s.hands[idx]!.length < maxHandSize(c, idx)) {
       if (drawForHero(c, s, idx, 1) > 0) { remaining--; passes = 0 } else passes++
     } else passes++
     idx = (idx + 1) % c.heroes.length
@@ -488,9 +484,8 @@ function resolveHearts(c: CampaignState, s: EncounterState, playerIdx: number, a
     amount *= 2
     clog(c, '   🏰 Castle Hearts: recovery doubled.')
   }
-  const surgeonActive = EXPERIMENTS.ownerOnlyClassTriggers
-    ? c.heroes[playerIdx]!.classId === 'surgeon'
-    : c.heroes.some(h => h.alive && h.classId === 'surgeon')
+  // owner-only (playtest canon 2026-06-11): only the Surgeon's own Hearts proc
+  const surgeonActive = c.heroes[playerIdx]!.classId === 'surgeon'
   if (surgeonActive && once(s, 'enemy.surgeonHeart')) { amount += 1; clog(c, '   ⚕️ Surgeon: +1 recovery.'); ev(s, 'proc', '⚕️ Surgeon +1 recovery', 'gold') }
   const holder = c.heroes[playerIdx]!
   if (heroHasMemory(holder, 'm-surgical-notes') && once(s, flagKey('m-notes', playerIdx))) amount += 1
@@ -643,9 +638,8 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
     clog(c, '   📜 Clean Finish: +1 finishing damage.')
     ev(s, 'proc', '📜 Clean Finish +1', 'gold')
   }
-  const execActive = EXPERIMENTS.ownerOnlyClassTriggers
-    ? hero.classId === 'executioner'
-    : c.heroes.some(h => h.alive && h.classId === 'executioner')
+  // owner-only (playtest canon 2026-06-11): only the Executioner's own attacks finish
+  const execActive = hero.classId === 'executioner'
   // Siege upgrade — Regicide: in the castle, the Executioner's OWN attacks
   // finish royals from 1-4 HP (still once per enemy).
   const regicideWindow = s.tier === 'boss' && !EXPERIMENTS.provinceMode && hero.classId === 'executioner' && enemy.hp >= 1 && enemy.hp <= 4

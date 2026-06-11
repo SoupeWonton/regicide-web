@@ -308,6 +308,18 @@ export function checkEncounterEnd(c: CampaignState) {
   if (s.outcome === 'wiped') { c.encounter = null; return }
 
   if (s.outcome === 'won') {
+    // snapshot the killing turn's end result before the encounter is nulled —
+    // the client shows it in the victory moment (playtest note 2026-06-11)
+    const rankNode = c.map?.nodes.find(n => n.id === s.nodeId)
+    c.lastFight = {
+      tier: s.tier,
+      rank: s.tier === 'boss' && EXPERIMENTS.provinceMode && rankNode
+        ? (['J', 'Q', 'K'] as const)[Math.min(c.map!.nodes.filter(n => n.kind === 'boss' && n.layer < rankNode.layer).length, 2)]!
+        : null,
+      handSizes: s.hands.map(h => h.length),
+      tavern: s.tavern.length,
+      discard: s.discard.length,
+    }
     const node = c.map!.nodes.find(n => n.id === s.nodeId)!
     if (s.tier === 'boss') {
       // Province mode: the Gates and the Courtyard are intermediate rank
@@ -783,6 +795,7 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
     isHost: forPlayerId === hostId,
     map,
     encounter,
+    lastFight: c.lastFight ?? null,
     spells: c.spells.map(itemView),
     preparations: c.preparations.map(itemView),
     activePreparations: c.activePreparations.map(itemView),

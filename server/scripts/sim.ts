@@ -102,7 +102,7 @@ function evalPlay(c: CampaignState, s: EncounterState, pi: number, idxs: number[
 
   let hpAfter = enemy.hp - damage
   const execReady = hpAfter > 0 && hpAfter <= 2 &&
-    c.heroes.some(h => h.alive && h.classId === 'executioner') && !s.flags['enemy.execFinish']
+    hero.classId === 'executioner' && !s.flags['enemy.execFinish']   // owner-only canon
   if (execReady) hpAfter -= 2
   const kills = hpAfter <= 0
   const exact = hpAfter === 0
@@ -702,7 +702,6 @@ function parseArgs() {
     // played by --persona (default steady). Overrides --counts/--lineups.
     classCombos: get('--classes', '').split(',').filter(Boolean).map(s => s.split('+') as ClassId[]),
     persona: get('--persona', 'steady'),
-    ownerOnly: args.includes('--owner-only'),
     bossReshuffle: args.includes('--boss-reshuffle'),
     castleHearts: args.includes('--castle-hearts'),
     shortCastle: args.includes('--short-castle'),
@@ -710,13 +709,12 @@ function parseArgs() {
   }
 }
 
-const { seeds, classCombos, persona: personaFlag, ownerOnly, bossReshuffle, castleHearts, shortCastle, province } = parseArgs()
+const { seeds, classCombos, persona: personaFlag, bossReshuffle, castleHearts, shortCastle, province } = parseArgs()
 let { counts, lineups } = parseArgs()
 if (classCombos.length) {
   lineups = classCombos.map(cc => cc.join('+'))
   counts = [...new Set(classCombos.map(cc => cc.length))]
 }
-EXPERIMENTS.ownerOnlyClassTriggers = ownerOnly
 EXPERIMENTS.preBossReshuffle = bossReshuffle
 EXPERIMENTS.castleHearts = castleHearts
 EXPERIMENTS.shortCastle = shortCastle

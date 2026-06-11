@@ -191,6 +191,17 @@ export interface CampaignState {
   // active (the live state lives in encounter.* and is written back on end).
   deck: { tavern: Card[]; discard: Card[]; hands: Card[][] } | null
 
+  // Final tableau of the last WON fight — the encounter is nulled on win, so
+  // this lets the client show the killing turn's end result (hands/tavern)
+  // before the spoils appear.
+  lastFight?: {
+    tier: EncounterTier
+    rank: 'J' | 'Q' | 'K' | null
+    handSizes: number[]
+    tavern: number
+    discard: number
+  } | null
+
   spells: string[]               // team-owned spell inventory (item ids)
   preparations: string[]         // owned, not yet activated
   activePreparations: string[]   // activated at camp; consumed at next encounter start (cap 2)
@@ -297,6 +308,7 @@ export interface ClientCampaignState {
   isHost: boolean
   map: { nodes: ClientRoadNode[]; currentNodeId: string } | null
   encounter: ClientEncounterState | null
+  lastFight: { tier: EncounterTier; rank: 'J' | 'Q' | 'K' | null; handSizes: number[]; tavern: number; discard: number } | null
   spells: { id: string; name: string; text: string; tier: ItemTier }[]
   preparations: { id: string; name: string; text: string; tier: ItemTier }[]
   activePreparations: { id: string; name: string; text: string }[]

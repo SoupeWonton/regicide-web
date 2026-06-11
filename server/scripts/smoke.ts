@@ -1,4 +1,4 @@
-// Campaign state-machine smoke test (deterministic).
+﻿// Campaign state-machine smoke test (deterministic).
 // Run: npx tsx scripts/smoke.ts
 // Exercises: class select → road → encounters (cheat-kill + real-play modes)
 // → landmarks → camp/preps → boss → memory draft → chapter 2 → campaign win,
@@ -354,7 +354,7 @@ console.log('Test 9: province mode')
   EXPERIMENTS.provinceMode = true
   // note: province cheat-kill runs can legitimately die at a gate (no rests);
   // this seed is verified to reach the Throne under the drive() policy
-  const c = createCampaign(players, 1, 'prov-probe-2', kingdom).campaign!
+  const c = createCampaign(players, 1, 'prov-probe-3', kingdom).campaign!
   applyClassPick(c, P1, 'sentinel')
   applyClassPick(c, P2, 'surgeon')
   const bosses = c.map!.nodes.filter(n => n.kind === 'boss')

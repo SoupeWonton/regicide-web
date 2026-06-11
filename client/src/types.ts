@@ -146,6 +146,7 @@ export interface ClientCampaignState {
   isHost: boolean
   map: { nodes: ClientRoadNode[]; currentNodeId: string } | null
   encounter: ClientEncounterState | null
+  lastFight: { tier: string; rank: 'J' | 'Q' | 'K' | null; handSizes: number[]; tavern: number; discard: number } | null
   spells: ItemView[]
   preparations: ItemView[]
   activePreparations: ItemView[]
