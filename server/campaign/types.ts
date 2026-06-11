@@ -57,6 +57,7 @@ export type NodeKind =
   | 'start' | 'camp' | 'boss'
   | 'skirmish' | 'veteran' | 'elite'
   | 'forge' | 'abbey' | 'market' | 'tower' | 'shrine' | 'lair'
+  | 'event'
 
 export interface RoadNode {
   id: string
@@ -292,6 +293,9 @@ export interface ClientEncounterState {
   }
   // province mode: which rank gate a boss fight is (J=Gates, Q=Courtyard, K=Throne)
   siegeRank: 'J' | 'Q' | 'K' | null
+  // pile contents, sorted (draw order hidden) — players may inspect the piles
+  tavernCards: Card[]
+  discardCards: Card[]
   events: EncounterEvent[]
   eventSeq: number
 }

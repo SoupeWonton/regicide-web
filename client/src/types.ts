@@ -104,6 +104,8 @@ export interface ClientEncounterState {
   myRelicActivatable: boolean
   myBoosts: SuitBoosts
   siegeRank: 'J' | 'Q' | 'K' | null
+  tavernCards: Card[]
+  discardCards: Card[]
   events: EncounterEvent[]
   eventSeq: number
 }

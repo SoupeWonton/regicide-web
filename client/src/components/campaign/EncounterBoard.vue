@@ -15,6 +15,7 @@ const props = defineProps<{ state: ClientCampaignState; code: string }>()
 const selected = ref<number[]>([])
 const errorMsg = ref('')
 const peekOrder = ref<number[]>([])
+const showPile = ref<'tavern' | 'discard' | null>(null)
 const whistleMode = ref(false)
 
 const enc = computed(() => props.state.encounter!)
@@ -26,6 +27,13 @@ const inChoose = computed(() => enc.value.turnPhase === 'choose_next' && isMyTur
 const myPeek = computed(() => enc.value.turnPhase === 'setup' && enc.value.setupPeek?.mine)
 
 const hand = computed(() => enc.value.myHand)
+const pileCards = computed(() =>
+  showPile.value === 'tavern' ? enc.value.tavernCards : showPile.value === 'discard' ? enc.value.discardCards : [])
+
+// paper flick when cards arrive in my hand
+watch(() => hand.value.length, (now, was) => {
+  if (was !== undefined && now > was) sfx.draw()
+})
 
 // ── Juice: floating combat numbers + hit shake ───────────────────────────────
 const floats = ref<{ id: number; text: string; kind: 'dmg' | 'shield' | 'death' }[]>([])
@@ -433,7 +441,8 @@ const netAttack = computed(() => {
           <div v-if="wardSeq" :key="`w${wardSeq}`" class="ward-ring" aria-hidden="true" />
 
           <div class="royal-card w-32 h-44 flex flex-col items-center justify-between py-2 px-2 relative"
-            :class="enc.tier === 'boss' ? 'royal-boss' : ''">
+            :class="[enc.tier === 'boss' ? 'royal-boss' : '',
+              enc.currentEnemy.card.suit === 'H' || enc.currentEnemy.card.suit === 'D' ? 'royal-red' : 'royal-black']">
             <span class="self-start text-sm font-display font-black leading-none" :class="suitClass(enc.currentEnemy.card.suit)">
               {{ enc.currentEnemy.card.rank }}<br>{{ suitSymbol(enc.currentEnemy.card.suit) }}
             </span>
@@ -481,23 +490,45 @@ const netAttack = computed(() => {
 
       </div>
 
-      <!-- piles, tucked at the table's foot -->
+      <!-- piles, tucked at the table's foot — click to inspect -->
       <div class="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex gap-7 z-10">
-        <div class="flex items-center gap-1.5" :title="`Tavern — the draw pile. Empty? Only ♥ Hearts or a camp rest refill it.`">
+        <button class="flex items-center gap-1.5 cursor-pointer hover:brightness-125 transition-all"
+          :title="`Tavern — the draw pile (click to inspect). Empty? Only ♥ Hearts or a camp rest refill it.`"
+          @click="showPile = 'tavern'">
           <div class="pile scale-75 origin-right" :class="enc.tavernCount === 0 ? 'pile-empty' : ''">
             <div class="pile-layer" /><div class="pile-layer" /><div class="pile-layer" />
             <span class="absolute inset-0 flex items-center justify-center font-display font-bold text-primary/90 z-10">{{ enc.tavernCount }}</span>
           </div>
-          <span class="text-[9px] uppercase tracking-widest text-base-content/40">Tavern</span>
-        </div>
-        <div class="flex items-center gap-1.5" title="Discard — played and lost cards. ♥ Hearts recover from here.">
+          <span class="text-[9px] uppercase tracking-widest text-base-content/40">Tavern 🔍</span>
+        </button>
+        <button class="flex items-center gap-1.5 cursor-pointer hover:brightness-125 transition-all"
+          title="Discard — played and lost cards (click to inspect). ♥ Hearts recover from here."
+          @click="showPile = 'discard'">
           <div class="pile scale-75 origin-right" :class="enc.discardCount === 0 ? 'pile-empty' : ''">
             <div class="pile-layer" /><div class="pile-layer" /><div class="pile-layer" />
             <span class="absolute inset-0 flex items-center justify-center font-display font-bold text-base-content/70 z-10">{{ enc.discardCount }}</span>
           </div>
-          <span class="text-[9px] uppercase tracking-widest text-base-content/40">Discard</span>
-        </div>
+          <span class="text-[9px] uppercase tracking-widest text-base-content/40">Discard 🔍</span>
+        </button>
       </div>
+
+      <!-- pile inspector: contents sorted by suit/value — draw order stays secret -->
+      <OverlayModal v-if="showPile" tone="primary" dismissable @close="showPile = null">
+        <h3 class="text-lg font-bold text-center">
+          {{ showPile === 'tavern' ? '🍺 The Tavern' : '🗑 The Discard' }}
+          <span class="text-sm font-normal text-base-content/50">— {{ pileCards.length }} cards</span>
+        </h3>
+        <p class="text-[10px] text-center text-base-content/40 -mt-2">sorted by suit · the draw order stays secret</p>
+        <div v-if="pileCards.length" class="flex flex-wrap gap-1 justify-center">
+          <div v-for="card in pileCards" :key="card.id"
+            class="card-face w-9 h-12 flex flex-col items-center justify-center font-mono text-xs">
+            <span class="font-bold" :class="suitClass(card.suit)">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
+            <span :class="suitClass(card.suit)">{{ card.rank !== 'Jo' ? suitSymbol(card.suit) : '' }}</span>
+          </div>
+        </div>
+        <p v-else class="text-sm text-center text-base-content/40">Empty.</p>
+        <button class="btn btn-ghost btn-sm" @click="showPile = null">Close</button>
+      </OverlayModal>
 
       <!-- trigger popup (event playback) -->
       <div class="absolute inset-x-0 top-2 z-30 flex justify-center pointer-events-none" aria-hidden="true">
@@ -584,7 +615,7 @@ const netAttack = computed(() => {
 
     <!-- ═══ HAND FAN ═══ -->
     <div class="mt-auto pt-3">
-      <div class="flex justify-center items-end pb-6 lg:pb-8" :class="(!inPlay && !inDiscard) ? 'opacity-50' : ''">
+      <TransitionGroup name="fan" tag="div" class="flex justify-center items-end pb-6 lg:pb-8" :class="(!inPlay && !inDiscard) ? 'opacity-50' : ''">
         <div
           v-for="(card, i) in hand" :key="card.id"
           class="fan-slot first:ml-0 -ml-4 relative"
@@ -615,8 +646,8 @@ const netAttack = computed(() => {
             >{{ suitBoost(card.suit) > 0 ? '+' + suitBoost(card.suit) : suitBoost(card.suit) }}</span>
           </button>
         </div>
-        <p v-if="hand.length === 0" class="text-xs text-base-content/40 py-6">No cards — yield and pray.</p>
-      </div>
+        <p v-if="hand.length === 0" key="empty-hand" class="text-xs text-base-content/40 py-6">No cards — yield and pray.</p>
+      </TransitionGroup>
 
       <!-- Actions (above the fan in stacking order — cards never cover buttons) -->
       <div class="flex gap-2 mt-1 relative z-50">

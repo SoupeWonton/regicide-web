@@ -417,7 +417,11 @@ function runCampaign(
           let bestScore = -Infinity
           for (const o of pc.options) {
             let score: number
-            if (o.id.startsWith('hero-')) {
+            if (o.id.startsWith('ev:')) {
+              // road events (test-grade): greedy personas take the first
+              // (active) option, cautious ones lean toward refusing
+              score = pc.options.indexOf(o) === 0 ? p.routeGreed * 0.8 : p.riskAversion * 0.6
+            } else if (o.id.startsWith('hero-')) {
               const hi = parseInt(o.id.slice(5))
               const hands = c.encounter ? c.encounter.hands : c.deck?.hands ?? []
               score = (handVal(hands[hi] ?? []) / 10) + 0.5
