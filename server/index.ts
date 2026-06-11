@@ -1,6 +1,8 @@
 import express from 'express'
 import { createServer } from 'http'
 import { Server } from 'socket.io'
+import { fileURLToPath } from 'url'
+import path from 'path'
 import {
   createRoom, joinRoom, setReady, startGame, playCards, discardDamage, yieldTurn,
   chooseNext, restartGame, playerDisconnect, roomInfo, findRoomsByPlayer,
@@ -17,6 +19,14 @@ const http = createServer(app)
 const io = new Server(http, { cors: { origin: '*' } })
 
 app.get('/health', (_, res) => res.json({ ok: true }))
+
+// Serve Vue client build in production
+if (process.env.NODE_ENV === 'production') {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url))
+  const clientDist = path.join(__dirname, '../client/dist')
+  app.use(express.static(clientDist))
+  app.get('*', (_, res) => res.sendFile(path.join(clientDist, 'index.html')))
+}
 
 // Players are keyed by a stable client id (sent via socket auth, persisted in
 // the browser's localStorage) instead of the volatile socket id. This map
