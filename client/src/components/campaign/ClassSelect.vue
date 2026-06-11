@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { socket } from '../../socket'
 import type { ClientCampaignState } from '../../types'
-import { CLASS_ICONS } from './cards'
+import HeroPortrait from './HeroPortrait.vue'
 
 const props = defineProps<{ state: ClientCampaignState; code: string }>()
 
@@ -75,9 +75,9 @@ function pick(classId: string) {
         <span class="absolute bottom-1 right-2 text-6xl opacity-[0.07] font-black select-none pointer-events-none"
           :class="cls.suit === '♥' || cls.suit === '♦' ? 'text-error' : 'text-base-content'">{{ cls.suit }}</span>
 
-        <!-- medallion -->
-        <div class="class-medallion mx-auto mt-4 group-hover:scale-110 transition-transform">
-          <span class="text-3xl">{{ CLASS_ICONS[cls.id] }}</span>
+        <!-- portrait -->
+        <div class="class-medallion class-medallion-lg mx-auto mt-4 group-hover:scale-110 transition-transform">
+          <HeroPortrait :class-id="cls.id" />
         </div>
 
         <div class="px-3 pb-3 pt-2 text-center flex-1 flex flex-col">

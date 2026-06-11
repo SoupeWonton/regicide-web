@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { socket } from '../../socket'
 import type { ClientCampaignState, ClientRoadNode } from '../../types'
 import { NODE_ICONS, NODE_LABELS, NODE_DESCRIPTIONS } from './cards'
+import { sfx } from '../../sound'
 
 const props = defineProps<{ state: ClientCampaignState; code: string }>()
 
@@ -61,6 +62,7 @@ const currentLayer = computed(() => {
 
 function choose(node: ClientRoadNode) {
   if (!node.reachable || !props.state.isHost) return
+  sfx.footsteps()
   socket.emit('campaign_action', { code: props.code, action: { type: 'road_choose', nodeId: node.id } })
 }
 
@@ -70,7 +72,7 @@ const LEGEND = [
 </script>
 
 <template>
-  <div class="max-w-lg mx-auto p-3 w-full">
+  <div class="max-w-lg lg:max-w-2xl mx-auto p-3 w-full">
     <div class="text-center mb-2 rise-in">
       <h2 class="text-xl font-display font-bold gold-title">{{ state.chapter === 1 ? 'The First Ascension' : 'The Broken Court' }}</h2>
       <p class="text-xs text-base-content/50 font-flavor tracking-wide">
@@ -79,10 +81,11 @@ const LEGEND = [
       </p>
     </div>
 
-    <div class="relative card bg-base-100/80 border border-primary/10 overflow-hidden rise-in-1" :style="{ height: totalHeight + 'px' }">
+    <!-- the expedition map: ink on parchment -->
+    <div class="relative map-parchment overflow-hidden rise-in-1" :style="{ height: totalHeight + 'px' }">
       <!-- candlelight wash that follows the party -->
-      <div class="absolute inset-x-0 h-48 pointer-events-none transition-all duration-1000"
-        :style="{ top: `${currentLayer * ROW - 48}px`, background: 'radial-gradient(ellipse 65% 70% at 50% 50%, rgba(201,162,39,0.07), transparent 70%)' }" />
+      <div class="absolute inset-x-0 h-48 pointer-events-none transition-all duration-1000 z-10"
+        :style="{ top: `${currentLayer * ROW - 48}px`, background: 'radial-gradient(ellipse 65% 70% at 50% 50%, rgba(201,140,30,0.14), transparent 70%)' }" />
 
       <svg class="absolute inset-0 w-full h-full pointer-events-none"
         :viewBox="`0 0 100 ${totalHeight}`" preserveAspectRatio="none">
@@ -92,8 +95,8 @@ const LEGEND = [
           fill="none"
           vector-effect="non-scaling-stroke"
           :class="e.state === 'active' ? 'path-draw' : ''"
-          :stroke="e.state === 'idle' ? 'currentColor' : '#c9a227'"
-          :stroke-opacity="e.state === 'active' ? 0.9 : e.state === 'traveled' ? 0.45 : 0.1"
+          :stroke="e.state === 'idle' ? '#5a4426' : e.state === 'traveled' ? '#6b4f24' : '#8a5c14'"
+          :stroke-opacity="e.state === 'active' ? 0.95 : e.state === 'traveled' ? 0.65 : 0.28"
           :stroke-width="e.state === 'active' ? 2.5 : e.state === 'traveled' ? 2 : 1.5"
           :stroke-dasharray="e.state === 'traveled' ? 'none' : '4 4'"
         />
@@ -103,11 +106,11 @@ const LEGEND = [
            inner wrapper so its keyframe transform never clobbers the centering -->
       <button
         v-for="n in state.map?.nodes" :key="n.id"
-        class="absolute -translate-x-1/2 -translate-y-1/2 block"
+        class="absolute -translate-x-1/2 -translate-y-1/2 block z-20"
         :class="[
           n.reachable && state.isHost ? 'cursor-pointer hover:scale-110 transition-transform' : 'cursor-default',
-          n.visited && !n.current ? 'node-visited opacity-40' : '',
-          !n.visited && !n.reachable && !n.current ? 'opacity-60' : '',
+          n.visited && !n.current ? 'node-visited opacity-45' : '',
+          !n.visited && !n.reachable && !n.current ? 'opacity-65' : '',
         ]"
         :style="{ left: positions.get(n.id)?.x + '%', top: positions.get(n.id)?.y + 'px' }"
         :title="`${NODE_LABELS[n.kind] ?? '???'} — ${NODE_DESCRIPTIONS[n.kind] ?? ''}`"
@@ -116,17 +119,17 @@ const LEGEND = [
         <div class="map-node-enter relative flex flex-col items-center gap-0.5" :style="{ animationDelay: `${n.layer * 70}ms` }">
           <span v-if="n.current" class="here-marker text-base">⚜️</span>
           <span
-            class="w-12 h-12 rounded-full flex items-center justify-center text-xl border-2 bg-base-200 relative"
+            class="map-medallion relative"
             :class="[
-              n.current ? 'border-primary ring-2 ring-primary/50 bg-primary/15' :
-              n.reachable ? 'border-primary/70 node-reachable' :
-              'border-base-content/15',
+              n.kind === 'boss' ? 'map-medallion-boss' : '',
+              n.current ? 'map-medallion-here' :
+              n.reachable ? 'map-medallion-reachable node-reachable' : '',
             ]"
           >
             {{ NODE_ICONS[n.kind] ?? '❓' }}
-            <span v-if="n.visited && !n.current" class="absolute -bottom-1 -right-1 text-[10px] bg-base-300 rounded-full w-4 h-4 flex items-center justify-center border border-base-content/20">✓</span>
+            <span v-if="n.visited && !n.current" class="absolute -bottom-1 -right-1 text-[10px] bg-[#d8c89f] text-[#3a2d18] rounded-full w-4 h-4 flex items-center justify-center border border-[#8a6d1c]">✓</span>
           </span>
-          <span class="text-[10px] font-semibold font-display tracking-wide" :class="n.reachable ? 'text-primary' : 'text-base-content/50'">
+          <span class="text-[10px] font-semibold font-display tracking-wide" :class="n.reachable ? 'text-[#7a5510]' : 'text-[#5a4830]/85'">
             {{ NODE_LABELS[n.kind] ?? '???' }}
           </span>
         </div>

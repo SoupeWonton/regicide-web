@@ -6,7 +6,17 @@ import ClassSelect from './ClassSelect.vue'
 import RoadMap from './RoadMap.vue'
 import EncounterBoard from './EncounterBoard.vue'
 import CampPanel from './CampPanel.vue'
+import OverlayModal from './OverlayModal.vue'
+import ItemCard from './ItemCard.vue'
 import { suitSymbol, suitColor, CLASS_ICONS } from './cards'
+import { sound, toggleMute, sfx } from '../../sound'
+
+const muted = ref(sound.muted)
+function onToggleMute() { muted.value = toggleMute() }
+
+// ── Boss victory sequence ────────────────────────────────────────────────────
+const victory = ref<{ title: string; sub: string } | null>(null)
+let victoryTimer: ReturnType<typeof setTimeout> | null = null
 
 const props = defineProps<{ state: ClientCampaignState; code: string }>()
 
@@ -25,7 +35,7 @@ const phaseKey = computed(() => {
 })
 
 // ── Splash overlays: chapter cards & encounter gates ─────────────────────────
-const splash = ref<{ over: string; title: string; sub: string; tone: 'gold' | 'blood' } | null>(null)
+const splash = ref<{ over: string; title: string; sub: string; tone: 'gold' | 'blood'; fx?: boolean } | null>(null)
 let splashTimer: ReturnType<typeof setTimeout> | null = null
 
 function showSplash(s: NonNullable<typeof splash.value>, ms = 2200) {
@@ -34,7 +44,36 @@ function showSplash(s: NonNullable<typeof splash.value>, ms = 2200) {
   splashTimer = setTimeout(() => { splash.value = null }, ms)
 }
 
+// remember what we were fighting — the encounter is already null by the time
+// the win transition fires
+const lastFightTier = ref('')
+watch(() => props.state.encounter?.tier, t => { if (t) lastFightTier.value = t })
+
 watch(() => props.state.phase, (now, was) => {
+  // a boss just fell — memory drafts only ever follow a slain castle
+  if (now === 'memory_draft' && was === 'encounter') {
+    victory.value = props.state.chapter === 1
+      ? { title: 'The Castle Falls', sub: 'The First Ascension is yours. Each survivor carries a Memory from the ruin.' }
+      : { title: 'The Broken Court Falls', sub: 'The crown is shattered. Draft your memories — the Kingdom will remember.' }
+    sfx.triumph()
+    if (victoryTimer) clearTimeout(victoryTimer)
+    victoryTimer = setTimeout(() => { victory.value = null }, 4200)
+  }
+  // a road fight was won (retreats go to camp, wipes end the campaign) —
+  // give the table its moment before the spoils appear
+  if (was === 'encounter' && (now === 'landmark' || now === 'road')) {
+    const titles: Record<string, string> = {
+      skirmish: 'Skirmish Cleared', veteran: 'Veterans Broken', elite: 'Elite Warband Destroyed',
+    }
+    sfx.victory()
+    showSplash({
+      over: 'Victory',
+      title: titles[lastFightTier.value] ?? 'Encounter Cleared',
+      sub: now === 'landmark' ? 'Claim your spoils.' : 'The road continues.',
+      tone: 'gold',
+      fx: true,
+    }, 2100)
+  }
   if (now === 'road' && was === 'class_select')
     showSplash({ over: 'Chapter One', title: 'The First Ascension', sub: 'The road remembers every step.', tone: 'gold' }, 2800)
   if (now === 'road' && was === 'chapter_complete')
@@ -49,7 +88,10 @@ watch(() => props.state.phase, (now, was) => {
   }
 })
 
-onBeforeUnmount(() => { if (splashTimer) clearTimeout(splashTimer) })
+onBeforeUnmount(() => {
+  if (splashTimer) clearTimeout(splashTimer)
+  if (victoryTimer) clearTimeout(victoryTimer)
+})
 
 const voteLabels: Record<string, string> = {
   retreat: '🏳 Retreat — fall back to an emergency camp',
@@ -86,11 +128,16 @@ function heroTooltip(h: ClientHero): string {
   <div class="min-h-screen flex flex-col">
 
     <!-- Campaign header -->
-    <div class="bg-base-100/80 backdrop-blur border-b border-primary/15 px-4 py-2 flex items-center justify-between text-xs">
+    <div class="chrome-bar px-4 py-2 flex items-center justify-between text-xs">
       <span class="font-display font-bold tracking-wide text-primary/90">⚜️ Chapter {{ state.chapter }}
         <span class="text-base-content/40 font-normal font-flavor tracking-wider">· {{ state.chapter === 1 ? 'The First Ascension' : 'The Broken Court' }}</span>
       </span>
-      <span class="text-base-content/30 font-mono">seed {{ state.seed }}</span>
+      <span class="flex items-center gap-3">
+        <span class="text-base-content/30 font-mono">seed {{ state.seed }}</span>
+        <button class="text-base-content/40 hover:text-base-content/80 transition-colors" :title="muted ? 'Unmute' : 'Mute'" @click="onToggleMute">
+          {{ muted ? '🔇' : '🔊' }}
+        </button>
+      </span>
     </div>
 
     <div v-if="errorMsg" class="alert alert-error text-sm py-2 mx-4 mt-2" @click="errorMsg = ''">{{ errorMsg }}</div>
@@ -111,14 +158,11 @@ function heroTooltip(h: ClientHero): string {
         <p class="text-sm text-base-content/50 mt-2 font-flavor tracking-wide">Each survivor keeps one memory of this chapter.</p>
       </div>
       <template v-if="state.memoryDraft?.myOptions">
-        <button
+        <ItemCard
           v-for="m in state.memoryDraft.myOptions" :key="m.id"
-          class="btn btn-outline w-full justify-start text-left h-auto py-3"
+          :id="m.id" :name="m.name" :text="m.text"
           @click="act({ type: 'memory_pick', memoryId: m.id })"
-        >
-          <span class="font-semibold">{{ m.name }}</span>
-          <span class="text-xs text-base-content/50 font-normal">{{ m.text }}</span>
-        </button>
+        />
       </template>
       <p v-else class="text-center text-sm text-base-content/50">
         Waiting on: {{ state.memoryDraft?.waitingOn.join(', ') }}
@@ -180,12 +224,37 @@ function heroTooltip(h: ClientHero): string {
     </div>
     </Transition>
 
+    <!-- Boss victory sequence -->
+    <Transition name="splash">
+      <div v-if="victory" class="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none overflow-hidden"
+        style="background: radial-gradient(ellipse at center, rgba(38, 28, 8, 0.93) 0%, rgba(11, 9, 24, 0.97) 100%)">
+        <div class="victory-rays" aria-hidden="true" />
+        <span v-for="i in 18" :key="i"
+          class="suit-fall text-2xl" :class="i % 2 ? 'text-primary/60' : 'text-secondary/50'"
+          :style="{ left: `${(i * 5.3) % 100}%`, animationDuration: `${2.4 + (i % 5) * 0.7}s`, animationDelay: `${(i * 0.17) % 1.4}s` }"
+        >{{ ['♠', '♥', '♣', '♦'][i % 4] }}</span>
+        <div class="text-center px-6 relative">
+          <div class="text-7xl crown-rise">👑</div>
+          <p class="font-flavor tracking-[0.35em] uppercase text-sm text-primary/70 rise-in-2 mt-2">Victory</p>
+          <h2 class="splash-title font-display font-black text-4xl sm:text-6xl gold-title mt-1">{{ victory.title }}</h2>
+          <div class="splash-rule h-px mt-4 mx-auto w-64 bg-gradient-to-r from-transparent via-primary/70 to-transparent" />
+          <p class="text-base-content/60 text-sm mt-3 rise-in-4 max-w-sm mx-auto">{{ victory.sub }}</p>
+        </div>
+      </div>
+    </Transition>
+
     <!-- Chapter / encounter splash -->
     <Transition name="splash">
       <div v-if="splash" class="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none"
         :style="{ background: splash.tone === 'blood'
           ? 'radial-gradient(ellipse at center, rgba(20,6,8,0.93) 0%, rgba(11,9,24,0.97) 100%)'
           : 'radial-gradient(ellipse at center, rgba(16,13,30,0.93) 0%, rgba(11,9,24,0.97) 100%)' }">
+        <template v-if="splash.fx">
+          <span v-for="i in 10" :key="i"
+            class="suit-fall text-xl" :class="i % 2 ? 'text-primary/50' : 'text-secondary/40'"
+            :style="{ left: `${(i * 9.7) % 100}%`, animationDuration: `${2 + (i % 4) * 0.6}s`, animationDelay: `${(i * 0.13) % 1}s` }"
+          >{{ ['♠', '♥', '♣', '♦'][i % 4] }}</span>
+        </template>
         <div class="text-center px-6">
           <p class="font-flavor tracking-[0.35em] uppercase text-sm rise-in-1"
             :class="splash.tone === 'blood' ? 'text-error/80' : 'text-primary/70'">{{ splash.over }}</p>
@@ -199,52 +268,48 @@ function heroTooltip(h: ClientHero): string {
     </Transition>
 
     <!-- Death vote overlay -->
-    <Transition name="overlay" appear>
-    <div v-if="state.deathVote" class="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div class="overlay-card card bg-base-100 border border-error/30 shadow-2xl w-full max-w-md">
-        <div class="card-body gap-3">
-          <h3 class="text-xl font-bold text-center">💀 {{ state.deathVote.deadHeroName }} has fallen</h3>
-          <p class="text-sm text-center text-base-content/60">The party must decide. Everyone votes — including the dead.</p>
-          <button
-            v-for="opt in state.deathVote.options" :key="opt"
-            class="btn w-full justify-start text-left h-auto py-3"
-            :class="state.deathVote.myVote === opt ? 'btn-primary' : 'btn-outline'"
-            @click="act({ type: 'death_vote', vote: opt })"
-          >{{ voteLabels[opt] }}</button>
-          <p class="text-xs text-center text-base-content/40">
-            {{ Object.keys(state.deathVote.votes).length }}/{{ state.heroes.length }} votes in
-          </p>
-        </div>
-      </div>
-    </div>
-    </Transition>
+    <OverlayModal v-if="state.deathVote" tone="error">
+      <h3 class="text-xl font-bold text-center">💀 {{ state.deathVote.deadHeroName }} has fallen</h3>
+      <p class="text-sm text-center text-base-content/60">The party must decide. Everyone votes — including the dead.</p>
+      <button
+        v-for="opt in state.deathVote.options" :key="opt"
+        class="btn w-full justify-start text-left h-auto py-3"
+        :class="state.deathVote.myVote === opt ? 'btn-primary' : 'btn-outline'"
+        @click="act({ type: 'death_vote', vote: opt })"
+      >{{ voteLabels[opt] }}</button>
+      <p class="text-xs text-center text-base-content/40">
+        {{ Object.keys(state.deathVote.votes).length }}/{{ state.heroes.length }} votes in
+      </p>
+    </OverlayModal>
 
     <!-- Pending choice overlay (landmark rewards, replacement, exile rite) -->
-    <Transition name="overlay" appear>
-    <div v-if="choice && (phase === 'landmark' || phase === 'replace_hero')" class="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div class="overlay-card card bg-base-100 border border-primary/25 shadow-2xl w-full max-w-md max-h-[80vh] overflow-y-auto">
-        <div class="card-body gap-3">
-          <h3 class="text-lg font-bold text-center">{{ choice.prompt }}</h3>
-          <template v-if="choice.mine">
-            <div :class="choice.kind === 'exile_pick' ? 'grid grid-cols-5 gap-1' : 'space-y-2'">
-              <button
-                v-for="opt in choice.options" :key="opt.id"
-                class="btn btn-outline justify-start text-left h-auto py-2 w-full"
-                :class="choice.kind === 'exile_pick' ? 'btn-sm font-mono justify-center' : ''"
-                @click="act({ type: 'choice_pick', optionId: opt.id })"
-              >
-                <span class="font-semibold">{{ opt.label }}</span>
-                <span v-if="opt.detail" class="text-xs text-base-content/50 font-normal">{{ opt.detail }}</span>
-              </button>
-            </div>
+    <OverlayModal v-if="choice && (phase === 'landmark' || phase === 'replace_hero')" tone="primary">
+      <h3 class="text-lg font-bold text-center">{{ choice.prompt }}</h3>
+      <template v-if="choice.mine">
+        <div :class="choice.kind === 'exile_pick' ? 'grid grid-cols-5 gap-1' : 'space-y-2'">
+          <template v-for="opt in choice.options" :key="opt.id">
+            <!-- items are physical cards; everything else stays a button -->
+            <ItemCard
+              v-if="choice.kind === 'landmark_reward' && /^[rspm]-/.test(opt.id)"
+              :id="opt.id" :name="opt.label" :text="opt.detail"
+              @click="act({ type: 'choice_pick', optionId: opt.id })"
+            />
+            <button
+              v-else
+              class="btn btn-outline justify-start text-left h-auto py-2 w-full"
+              :class="choice.kind === 'exile_pick' ? 'btn-sm font-mono justify-center' : ''"
+              @click="act({ type: 'choice_pick', optionId: opt.id })"
+            >
+              <span class="font-semibold">{{ opt.label }}</span>
+              <span v-if="opt.detail" class="text-xs text-base-content/50 font-normal">{{ opt.detail }}</span>
+            </button>
           </template>
-          <p v-else class="text-sm text-center text-base-content/50 soft-pulse">
-            {{ choice.forPlayerId ? 'Their decision to make…' : 'The host decides…' }}
-          </p>
         </div>
-      </div>
-    </div>
-    </Transition>
+      </template>
+      <p v-else class="text-sm text-center text-base-content/50 soft-pulse">
+        {{ choice.forPlayerId ? 'Their decision to make…' : 'The host decides…' }}
+      </p>
+    </OverlayModal>
 
     <!-- Party strip (road) — hover a hero for class/relic/memory details -->
     <div v-if="phase === 'road'" class="flex gap-2 px-3 max-w-lg mx-auto w-full">
@@ -275,8 +340,8 @@ function heroTooltip(h: ClientHero): string {
       </div>
     </div>
 
-    <!-- Log -->
-    <div class="card bg-base-100 m-3 mt-auto" v-if="!['campaign_won', 'campaign_lost'].includes(phase)">
+    <!-- Log (never during a battle — the battlefield speaks for itself) -->
+    <div class="card bg-base-100 m-3 mt-auto" v-if="!['campaign_won', 'campaign_lost'].includes(phase) && phaseKey !== 'fight'">
       <div class="card-body py-3 px-4">
         <p class="text-xs font-display font-semibold text-primary/40 uppercase tracking-[0.25em] mb-1">Chronicle</p>
         <TransitionGroup name="log" tag="div" class="space-y-1 max-h-28 overflow-y-auto">

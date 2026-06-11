@@ -993,6 +993,52 @@ export function applyActivateRelic(c: CampaignState, playerId: string, targetInd
   return {}
 }
 
+// ── Live boost computation (client UI preview) ──────────────────────────────
+// Mirrors the once-per-enemy bonuses in the resolve functions so the client
+// can show "this card is currently boosted/penalized" without leaking flags.
+
+export interface SuitBoosts {
+  S: number
+  D: number
+  H: number
+  dmgPlus: number
+  dmgMult: number
+  execReady: boolean
+  dCap: number | null
+  hHalf: boolean
+}
+
+export function computeBoosts(c: CampaignState, s: EncounterState, hi: number): SuitBoosts {
+  const b: SuitBoosts = { S: 0, D: 0, H: 0, dmgPlus: 0, dmgMult: 1, execReady: false, dCap: null, hHalf: false }
+  const hero = c.heroes[hi]
+  if (!hero?.alive || s.outcome !== 'active') return b
+
+  // spades
+  if (hero.classId === 'sentinel' && !s.flags['enemy.sentinelSpade']) b.S += 2
+  if (hero.relicId === 'r-iron-stitch' && !s.flags[flagKey('stitch', hi)]) b.S += 1
+  if (hero.relicId === 'r-bastion-sigil' && ((s.flags[flagKey('bastion', hi)] as number) ?? 0) < 2) b.S += 1
+  if (heroHasMemory(hero, 'm-steady-formation') && !s.flags[flagKey('m-formation', hi)]) b.S += 1
+  // diamonds
+  if (c.heroes.some(h => h.alive && h.classId === 'quartermaster') && !s.flags['enemy.qmDiamond']) b.D += 1
+  if (hero.relicId === 'r-field-satchel' && !s.flags[flagKey('satchel', hi)]) b.D += 1
+  if (hero.relicId === 'r-grand-provision' && ((s.flags[flagKey('provision', hi)] as number) ?? 0) < 2) b.D += 1
+  if (heroHasMemory(hero, 'm-quartered-rations') && !s.flags[flagKey('m-rations', hi)]) b.D += 1
+  if (s.modifierId === 'dry-cart' && !s.flags['dryCartDone']) b.D -= 1
+  if (s.modifierId === 'starved-caravan' && (((s.flags['caravanCount'] as number) ?? 0) + 1) % 2 === 1) b.dCap = 2
+  // hearts
+  if (c.heroes.some(h => h.alive && h.classId === 'surgeon') && !s.flags['enemy.surgeonHeart']) b.H += 1
+  if (heroHasMemory(hero, 'm-surgical-notes') && !s.flags[flagKey('m-notes', hi)]) b.H += 1
+  if (s.modifierId === 'rot-ward' && ((s.flags['rotPenalty'] as number) ?? 2) > 0) b.H -= 1
+  if (s.modifierId === 'pale-bell-matron' && ((s.flags['exactKills'] as number) ?? 0) < 2) b.hHalf = true
+  // damage
+  if (s.flags[flagKey('keenEdge', hi)]) b.dmgMult *= 2
+  if (s.flags[flagKey('crownbreaker', hi)]) b.dmgMult *= 3
+  if (s.flags['prepSpareEdge'] && !s.flags['spareEdgeDone']) b.dmgPlus += 2
+  if (s.flags[flagKey('duelCharmReady', hi)]) b.dmgPlus += 2
+  b.execReady = c.heroes.some(h => h.alive && h.classId === 'executioner') && !s.flags['enemy.execFinish']
+  return b
+}
+
 export function applyArmWager(c: CampaignState, playerId: string): { error?: string } {
   const s = c.encounter
   if (!s || s.outcome !== 'active' || s.turnPhase !== 'play') return { error: 'Wager during your play phase.' }

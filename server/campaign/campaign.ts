@@ -7,6 +7,7 @@ import { CLASSES, TIER1_CLASSES, getItem, itemsOf, MEMORY_POOL, ACTIVE_PREP_CAP,
 import { buildMap } from './maps'
 import {
   startEncounter, maxHandSize, setupChapterDeck, campRest, dealReplacementHand,
+  computeBoosts,
 } from './encounter'
 import { loadKingdom, saveKingdom, saveCampaign } from './store'
 
@@ -709,6 +710,7 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
       wagerArmed: s.wagerArmedBy !== null,
       canWager: !!me && me.classId === 'gambler' && me.alive && !c.gamblerWagerUsed && s.outcome === 'active',
       myRelicActivatable: !!me?.relicId && activatable.includes(me.relicId) && !s.flags[`relicUsed:${myHeroIndex}`],
+      myBoosts: computeBoosts(c, s, myHeroIndex),
     }
   }
 

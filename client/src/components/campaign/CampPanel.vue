@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { socket } from '../../socket'
 import type { ClientCampaignState } from '../../types'
 import { CLASS_ICONS } from './cards'
+import ItemCard from './ItemCard.vue'
 
 const props = defineProps<{ state: ClientCampaignState; code: string }>()
 
@@ -54,16 +55,13 @@ function act(action: Record<string, unknown>) {
           </div>
         </div>
 
-        <div v-if="state.preparations.length" class="space-y-1">
-          <button
+        <div v-if="state.preparations.length" class="space-y-2">
+          <ItemCard
             v-for="p in state.preparations" :key="p.id"
-            class="btn btn-sm btn-outline w-full justify-start text-left h-auto py-2"
+            :id="p.id" :name="p.name" :text="p.text" :tier="p.tier"
             :disabled="!state.isHost || state.activePreparations.length >= 2"
             @click="act({ type: 'activate_prep', prepId: p.id })"
-          >
-            <span class="font-semibold">{{ p.name }}{{ p.tier === 'rare' ? ' ★' : '' }}</span>
-            <span class="text-xs text-base-content/50 font-normal">{{ p.text }}</span>
-          </button>
+          />
         </div>
         <p v-else-if="!state.activePreparations.length" class="text-xs text-base-content/40">No preparations owned. Markets and victories provide them.</p>
         <p v-if="!state.isHost" class="text-xs text-base-content/30">The host activates preparations.</p>
@@ -72,11 +70,11 @@ function act(action: Record<string, unknown>) {
 
     <!-- Team inventory -->
     <div v-if="state.spells.length" class="card bg-base-100">
-      <div class="card-body p-4 gap-1">
+      <div class="card-body p-4 gap-2">
         <p class="font-semibold text-sm">📖 Spells (cast in combat)</p>
-        <p v-for="sp in state.spells" :key="sp.id" class="text-xs text-base-content/60">
-          {{ sp.name }}{{ sp.tier === 'rare' ? ' ★' : '' }} — {{ sp.text }}
-        </p>
+        <div class="flex gap-2 flex-wrap">
+          <ItemCard v-for="sp in state.spells" :key="sp.id" :id="sp.id" :name="sp.name" :text="sp.text" :tier="sp.tier" sm />
+        </div>
       </div>
     </div>
 

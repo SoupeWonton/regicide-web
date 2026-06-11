@@ -267,6 +267,12 @@ export interface ClientEncounterState {
   wagerArmed: boolean
   canWager: boolean
   myRelicActivatable: boolean
+  // live once-per-enemy boosts for the viewing player (UI previews)
+  myBoosts: {
+    S: number; D: number; H: number
+    dmgPlus: number; dmgMult: number
+    execReady: boolean; dCap: number | null; hHalf: boolean
+  }
   events: EncounterEvent[]
   eventSeq: number
 }

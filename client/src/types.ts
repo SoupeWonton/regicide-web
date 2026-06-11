@@ -102,8 +102,20 @@ export interface ClientEncounterState {
   wagerArmed: boolean
   canWager: boolean
   myRelicActivatable: boolean
+  myBoosts: SuitBoosts
   events: EncounterEvent[]
   eventSeq: number
+}
+
+export interface SuitBoosts {
+  S: number
+  D: number
+  H: number
+  dmgPlus: number
+  dmgMult: number
+  execReady: boolean
+  dCap: number | null
+  hHalf: boolean
 }
 
 export interface EncounterEvent {

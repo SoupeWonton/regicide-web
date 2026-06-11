@@ -9,11 +9,22 @@
    this — surfaces float above it. */
 body {
   overscroll-behavior: none;
+  /* fallback only — the WebGL swirl (SwirlBackground.vue) paints over this */
   background:
     radial-gradient(ellipse 120% 70% at 50% -10%, rgba(201, 162, 39, 0.07), transparent 60%),
     radial-gradient(ellipse 100% 100% at 50% 110%, rgba(125, 42, 42, 0.10), transparent 55%),
     #0f0c1d;
   min-height: 100vh;
+  font-family: 'Kreon', Georgia, serif;
+}
+/* candlelit vignette above everything but the grain */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 65;
+  background: radial-gradient(ellipse 105% 105% at 50% 45%, transparent 52%, rgba(5, 3, 12, 0.5) 100%);
 }
 body::after {
   content: '';
@@ -28,6 +39,135 @@ body::after {
 /* ── Display type ──────────────────────────────────────────────────────────── */
 .font-display { font-family: 'Cinzel', Georgia, serif; }
 .font-flavor  { font-family: 'IM Fell English SC', Georgia, serif; }
+
+/* ── Game chrome — kill the webapp look ──────────────────────────────────────
+   Physical buttons (hard bottom edge, press-down travel), heavy panels,
+   chunky chips. Slay-the-Spire body type, Balatro button physics. */
+
+.btn {
+  font-family: 'Kreon', Georgia, serif;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  border-radius: 0.65rem;
+  border-width: 0;
+  box-shadow:
+    0 0.3rem 0 0 rgba(0, 0, 0, 0.5),
+    0 0.55rem 0.9rem -0.2rem rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  transition: transform 0.09s ease, box-shadow 0.09s ease, filter 0.15s ease;
+}
+.btn:hover {
+  transform: translateY(-1px) rotate(-0.35deg);
+  filter: brightness(1.1) saturate(1.05);
+  box-shadow:
+    0 0.38rem 0 0 rgba(0, 0, 0, 0.5),
+    0 0.7rem 1rem -0.2rem rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+.btn:active {
+  transform: translateY(0.22rem);
+  filter: brightness(0.96);
+  box-shadow:
+    0 0.08rem 0 0 rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.btn:disabled, .btn[disabled] {
+  box-shadow: 0 0.18rem 0 0 rgba(0, 0, 0, 0.3);
+  transform: none;
+}
+.btn-primary {
+  background: linear-gradient(180deg, #dfb83d 0%, #b8901c 55%, #9c7714 100%);
+  color: #1a1405;
+}
+.btn-error, .btn-secondary {
+  background: linear-gradient(180deg, #c14444 0%, #99302d 60%, #7d2a2a 100%);
+  color: #f7e6e0;
+}
+.btn-warning {
+  background: linear-gradient(180deg, #e09c3f 0%, #c07f26 60%, #a96e1d 100%);
+  color: #221603;
+}
+/* outline buttons: no more transparent flat boxes — dark slabs, colored rim */
+.btn-outline,
+.btn-outline.btn-primary, .btn-outline.btn-secondary, .btn-outline.btn-accent,
+.btn-outline.btn-warning, .btn-outline.btn-error, .btn-outline.btn-info {
+  background: linear-gradient(172deg, #251f3e 0%, #171229 100%);
+  border-width: 1px;
+  border-color: rgba(201, 162, 39, 0.28);
+}
+.btn-outline:hover {
+  background: linear-gradient(172deg, #2d2649 0%, #1c1632 100%);
+  border-color: rgba(201, 162, 39, 0.55);
+  color: inherit;
+}
+.btn-ghost { box-shadow: none; }
+.btn-ghost:hover { transform: none; box-shadow: none; filter: brightness(1.15); }
+
+/* panels: crafted, not painted — leather grain, an inner gold frame line,
+   and real elevation. The grain + frame ride on pseudo-elements so they
+   never fight the bg-* utilities. */
+.card {
+  position: relative;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  box-shadow:
+    0 1rem 1.8rem -0.7rem rgba(0, 0, 0, 0.65),
+    0 0.25rem 0.5rem rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.09 0.14' numOctaves='3'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.78  0 0 0 0 0.64  0 0 0 0 0.38  0 0 0 0.55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  opacity: 0.10;
+  mix-blend-mode: overlay;
+}
+.card::after {
+  content: '';
+  position: absolute;
+  inset: 0.32rem;
+  border: 1px solid rgba(201, 162, 39, 0.14);
+  border-radius: calc(0.9rem - 0.28rem);
+  pointer-events: none;
+}
+
+/* chips */
+.badge {
+  font-family: 'Kreon', Georgia, serif;
+  font-weight: 700;
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.alert {
+  border-radius: 0.7rem;
+  border: 1px solid rgba(176, 52, 52, 0.4);
+  box-shadow: 0 0.4rem 0.9rem -0.3rem rgba(0, 0, 0, 0.5);
+}
+
+/* inputs match the slab look */
+.input, .select {
+  font-family: 'Kreon', Georgia, serif;
+  border-radius: 0.65rem;
+  background: linear-gradient(172deg, #14102a 0%, #0e0b1d 100%);
+  border: 1px solid rgba(201, 162, 39, 0.22);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+.input:focus, .select:focus {
+  outline: none;
+  border-color: rgba(201, 162, 39, 0.6);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.45), 0 0 0 2px rgba(201, 162, 39, 0.18);
+}
+
+/* dark thin scrollbars (default ones scream browser) */
+* { scrollbar-width: thin; scrollbar-color: rgba(201, 162, 39, 0.25) transparent; }
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-thumb { background: rgba(201, 162, 39, 0.25); border-radius: 3px; }
+*::-webkit-scrollbar-track { background: transparent; }
 
 .gold-title {
   font-family: 'Cinzel', Georgia, serif;
@@ -168,6 +308,22 @@ body::after {
 }
 .flicker { display: inline-block; animation: flicker 2.6s ease-in-out infinite; }
 
+/* ── Boss victory ──────────────────────────────────────────────────────────── */
+.victory-rays {
+  position: absolute;
+  inset: -35%;
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(201, 162, 39, 0.09) 0deg 6deg,
+    transparent 6deg 17deg
+  );
+  -webkit-mask-image: radial-gradient(circle at center, black 0%, transparent 58%);
+  mask-image: radial-gradient(circle at center, black 0%, transparent 58%);
+  animation: rays-spin 16s linear infinite;
+  pointer-events: none;
+}
+@keyframes rays-spin { to { transform: rotate(360deg); } }
+
 /* ── Endings ───────────────────────────────────────────────────────────────── */
 @keyframes crown-rise {
   0%   { opacity: 0; transform: translateY(30px) scale(0.6) rotate(-8deg); }
@@ -211,8 +367,22 @@ body::after {
 
 /* ── Balatro-style fight stage ─────────────────────────────────────────────── */
 
+/* the fight stage is a physical table: tilted into the screen, felt rim,
+   grounded under heavy light */
+.stage-swirl {
+  position: relative;
+  overflow: hidden;
+  transform: perspective(1100px) rotateX(3deg);
+  transform-origin: 50% 100%;
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  border-bottom: 3px solid rgba(201, 162, 39, 0.18);
+  box-shadow:
+    0 1.4rem 2.4rem -0.9rem rgba(0, 0, 0, 0.75),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 -10px 24px -12px rgba(0, 0, 0, 0.8);
+}
+
 /* slow-swirling nebula behind the enemy */
-.stage-swirl { position: relative; overflow: hidden; }
 .stage-swirl::before {
   content: '';
   position: absolute;
@@ -231,12 +401,18 @@ body::after {
   to   { transform: rotate(360deg) scale(1); }
 }
 
-/* physical card faces (parchment, like real cards on a dark table) */
+/* physical card faces (aged parchment, mottled, like real cards on a table) */
 .card-face {
-  background: linear-gradient(160deg, #f2ead9 0%, #e4d9c2 100%);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.05 0.07' numOctaves='3'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.45  0 0 0 0 0.36  0 0 0 0 0.22  0 0 0 0.18 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)'/%3E%3C/svg%3E"),
+    linear-gradient(160deg, #f2ead9 0%, #e4d9c2 100%);
   border: 1px solid #b9ab8d;
   border-radius: 0.55rem;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  box-shadow:
+    0 4px 10px -2px rgba(0, 0, 0, 0.55),
+    0 1px 2px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.35),
+    inset 0 -6px 12px -8px rgba(120, 95, 50, 0.5);
   color: #221c14;
 }
 .card-face .suit-red { color: #a8332f; }
@@ -244,7 +420,8 @@ body::after {
 
 /* royal (enemy) card */
 .royal-card {
-  background:
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.05 0.07' numOctaves='3'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.45  0 0 0 0 0.36  0 0 0 0 0.22  0 0 0 0.20 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)'/%3E%3C/svg%3E"),
     linear-gradient(160deg, #f2ead9 0%, #ddd0b4 100%);
   border: 2px solid #8a6d1c;
   border-radius: 0.8rem;
@@ -266,6 +443,20 @@ body::after {
   0%, 100% { transform: translateY(0); }
   50%      { transform: translateY(-5px); }
 }
+/* grounded shadow under the royal — stays put while the card breathes */
+.royal-shadow {
+  width: 7.5rem;
+  height: 0.9rem;
+  margin-top: -0.35rem;
+  border-radius: 9999px;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.55) 0%, transparent 70%);
+  filter: blur(2px);
+  animation: shadow-breathe 4.5s ease-in-out infinite;
+}
+@keyframes shadow-breathe {
+  0%, 100% { transform: scaleX(1); opacity: 1; }
+  50%      { transform: scaleX(0.88); opacity: 0.75; }
+}
 
 /* hand fan */
 .fan-slot {
@@ -276,8 +467,8 @@ body::after {
   transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s ease;
   cursor: pointer;
 }
-.fan-card:hover { transform: translateY(-12px) scale(1.07); z-index: 40 !important; }
-.fan-card:active { transform: translateY(-6px) scale(0.98); }
+.fan-card:hover { transform: perspective(650px) translateY(-14px) scale(1.1) rotateX(7deg); z-index: 40 !important; }
+.fan-card:active { transform: perspective(650px) translateY(-7px) scale(1) rotateX(3deg); }
 .fan-card-selected {
   transform: translateY(-20px) scale(1.04);
   box-shadow: 0 10px 22px -6px rgba(201, 162, 39, 0.55), 0 0 0 2px #c9a227;
@@ -307,6 +498,13 @@ body::after {
 .pile-layer:nth-child(2) { transform: translate(-2px, 1px) rotate(-1.5deg); }
 .pile-layer:nth-child(3) { transform: none; }
 .pile-empty .pile-layer { opacity: 0.25; border-style: dashed; }
+
+/* boost badge: a live "+N" on cards your relics/class are amplifying */
+@keyframes boost-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.18); }
+}
+.boost-badge { animation: boost-pulse 1.6s ease-in-out infinite; z-index: 5; }
 
 /* score-chip pop for damage totals */
 @keyframes chip-pop {
@@ -345,9 +543,76 @@ body::after {
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   background: radial-gradient(circle at 35% 30%, #2c2547, #171228 70%);
   border: 2px solid rgba(201, 162, 39, 0.45);
   box-shadow: inset 0 0 12px rgba(201, 162, 39, 0.15), 0 3px 8px rgba(0, 0, 0, 0.5);
+}
+.class-medallion-lg { width: 4.6rem; height: 4.6rem; }
+
+/* ── Expedition map: ink on parchment (Slay the Spire energy) ──────────────── */
+.map-parchment {
+  border-radius: 0.9rem;
+  border: 2px solid #6e5314;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.035 0.05' numOctaves='4'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.42  0 0 0 0 0.32  0 0 0 0 0.16  0 0 0 0.22 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)'/%3E%3C/svg%3E"),
+    radial-gradient(ellipse 120% 110% at 50% 30%, #efe6cd 0%, #e3d4b0 55%, #cdb98c 100%);
+  box-shadow:
+    inset 0 0 60px rgba(110, 80, 30, 0.45),
+    inset 0 0 6px rgba(70, 50, 15, 0.5),
+    inset 0 0 0 1px rgba(255, 250, 230, 0.55),
+    0 1.2rem 2.2rem -0.8rem rgba(0, 0, 0, 0.75);
+}
+
+/* node medallions: wax-and-bronze seals pressed into the parchment */
+.map-medallion {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  background: radial-gradient(circle at 35% 30%, #f4ecd8 0%, #ddcca4 70%, #c9b384 100%);
+  border: 2px solid #8a6d1c;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 -4px 8px -4px rgba(110, 80, 30, 0.6),
+    0 3px 6px -1px rgba(70, 50, 15, 0.5);
+}
+.map-medallion-reachable {
+  border-color: #a8821a;
+  background: radial-gradient(circle at 35% 30%, #fdf6df 0%, #ecd9a8 70%, #d9bf84 100%);
+}
+.map-medallion-here {
+  border-color: #7d2a2a;
+  box-shadow:
+    0 0 0 3px rgba(125, 42, 42, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 3px 8px rgba(70, 50, 15, 0.55);
+}
+.map-medallion-boss {
+  width: 3.6rem;
+  height: 3.6rem;
+  font-size: 1.55rem;
+  border-width: 3px;
+  border-color: #7d2a2a;
+}
+.node-visited .map-medallion { filter: sepia(0.4) grayscale(0.5); }
+
+/* royal crest: heraldic centre of the enemy card */
+.royal-crest {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  width: 5.2rem;
+  height: 5.2rem;
+  border-radius: 9999px;
+  background:
+    radial-gradient(circle at 50% 38%, rgba(201, 162, 39, 0.22) 0%, rgba(201, 162, 39, 0.08) 55%, transparent 75%);
+  box-shadow: inset 0 0 0 2px rgba(138, 109, 28, 0.35), inset 0 0 0 4px rgba(138, 109, 28, 0.12);
 }
 
 /* ── Road map polish ───────────────────────────────────────────────────────── */
@@ -364,6 +629,168 @@ body::after {
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.7));
 }
 .node-visited { filter: grayscale(0.8); }
+
+/* ── Battlefield ───────────────────────────────────────────────────────────── */
+
+/* hero figures: the party stands on the left of the field */
+.hero-figure { animation: hero-bob 3.4s ease-in-out infinite; }
+@keyframes hero-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
+}
+.hero-portrait {
+  width: 3.1rem;
+  height: 3.1rem;
+  border-radius: 0.8rem 0.8rem 0.55rem 0.55rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  overflow: hidden;
+  background: radial-gradient(circle at 35% 28%, #2c2547 0%, #171228 75%);
+  border: 2px solid rgba(201, 162, 39, 0.4);
+  box-shadow:
+    inset 0 0 12px rgba(201, 162, 39, 0.12),
+    0 4px 8px -2px rgba(0, 0, 0, 0.6);
+  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.hero-active .hero-portrait {
+  border-color: #c9a227;
+  transform: scale(1.1) translateX(3px);
+  box-shadow:
+    0 0 16px 2px rgba(201, 162, 39, 0.4),
+    inset 0 0 12px rgba(201, 162, 39, 0.2),
+    0 4px 10px -2px rgba(0, 0, 0, 0.7);
+}
+.hero-active { animation: none; }
+.hero-dead { animation: none; filter: grayscale(1); opacity: 0.45; }
+.hero-dead .hero-portrait { transform: rotate(7deg); border-color: rgba(176, 52, 52, 0.5); }
+
+/* cards thrown into the clash zone — they fly in from the party's side and
+   are sucked into the royal when resolved */
+.throw-enter-active { transition: all 0.45s cubic-bezier(0.17, 0.9, 0.32, 1.25); }
+.throw-enter-from   { opacity: 0; transform: translate(-130px, 80px) rotate(-50deg) scale(0.55); }
+.throw-leave-active { transition: all 0.28s cubic-bezier(0.6, -0.2, 0.9, 0.6); position: absolute; }
+.throw-leave-to     { opacity: 0; transform: translate(130px, -36px) rotate(28deg) scale(0.4); }
+.thrown:nth-child(2n)  { rotate: 5deg; }
+.thrown:nth-child(2n+1){ rotate: -4deg; }
+.thrown:nth-child(3n)  { rotate: 8deg; translate: 0 -4px; }
+
+/* suit magic: each suit burns with its own light */
+.glow-H { box-shadow: 0 0 16px 1px rgba(225, 80, 80, 0.55), 0 4px 10px -2px rgba(0, 0, 0, 0.55); }
+.glow-D { box-shadow: 0 0 16px 1px rgba(230, 185, 70, 0.55), 0 4px 10px -2px rgba(0, 0, 0, 0.55); }
+.glow-S { box-shadow: 0 0 16px 1px rgba(105, 160, 255, 0.5), 0 4px 10px -2px rgba(0, 0, 0, 0.55); }
+.glow-C { box-shadow: 0 0 16px 1px rgba(120, 220, 130, 0.5), 0 4px 10px -2px rgba(0, 0, 0, 0.55); }
+
+/* ward ring: shield magic snapping shut around the royal */
+.ward-ring {
+  position: absolute;
+  top: -0.5rem;
+  left: 50%;
+  width: 9.5rem;
+  height: 12.5rem;
+  margin-left: -4.75rem;
+  border-radius: 1.1rem;
+  border: 3px solid rgba(110, 170, 255, 0.75);
+  box-shadow:
+    0 0 26px 4px rgba(110, 170, 255, 0.45),
+    inset 0 0 22px rgba(110, 170, 255, 0.3);
+  pointer-events: none;
+  z-index: 30;
+  animation: ward-pop 0.7s ease-out both;
+}
+@keyframes ward-pop {
+  0%   { opacity: 0; transform: scale(0.72); }
+  30%  { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.12); }
+}
+
+/* the party blocks: a wall of cards flashes up in front of the line */
+.block-ward {
+  position: absolute;
+  inset: -0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 3rem;
+  z-index: 30;
+  pointer-events: none;
+  filter: drop-shadow(0 0 20px rgba(110, 170, 255, 0.85));
+  animation: ward-pop 0.85s ease-out both;
+}
+
+/* ── Item cards: loot you can feel ─────────────────────────────────────────── */
+.item-card {
+  position: relative;
+  border-radius: 0.75rem;
+  padding: 0.6rem 0.7rem;
+  text-align: left;
+  background: linear-gradient(168deg, #262040 0%, #15112a 100%);
+  border: 1.5px solid var(--ic, rgba(201, 162, 39, 0.5));
+  box-shadow:
+    0 0 14px -3px var(--icg, transparent),
+    0 0.45rem 0.9rem -0.35rem rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: transform 0.14s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.14s ease, filter 0.2s ease;
+  cursor: pointer;
+}
+.item-card:hover {
+  transform: translateY(-3px) rotate(-0.5deg);
+  box-shadow:
+    0 0 20px -2px var(--icg, transparent),
+    0 0.7rem 1.1rem -0.35rem rgba(0, 0, 0, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.item-card:active { transform: translateY(0) scale(0.98); }
+.item-card-sm {
+  min-width: 8.5rem;
+  max-width: 10rem;
+  padding: 0.45rem 0.6rem;
+}
+.item-card-disabled {
+  opacity: 0.45;
+  filter: grayscale(0.5);
+  cursor: default;
+  pointer-events: none;
+}
+.item-icon {
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.10), transparent 70%), #100d20;
+  border: 1px solid var(--ic, rgba(201, 162, 39, 0.4));
+  box-shadow: inset 0 0 8px -2px var(--icg, transparent);
+}
+
+/* ── Crafted chrome details ────────────────────────────────────────────────── */
+/* gold corner brackets — framed plaque look for modals and special panels */
+.corner {
+  position: absolute;
+  width: 0.85rem;
+  height: 0.85rem;
+  pointer-events: none;
+  border-color: rgba(201, 162, 39, 0.55);
+  border-style: solid;
+  border-width: 0;
+}
+.corner-tl { top: 0.45rem; left: 0.45rem; border-top-width: 2px; border-left-width: 2px; border-top-left-radius: 0.3rem; }
+.corner-tr { top: 0.45rem; right: 0.45rem; border-top-width: 2px; border-right-width: 2px; border-top-right-radius: 0.3rem; }
+.corner-bl { bottom: 0.45rem; left: 0.45rem; border-bottom-width: 2px; border-left-width: 2px; border-bottom-left-radius: 0.3rem; }
+.corner-br { bottom: 0.45rem; right: 0.45rem; border-bottom-width: 2px; border-right-width: 2px; border-bottom-right-radius: 0.3rem; }
+
+/* carved header bar (dark wood under candlelight) */
+.chrome-bar {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 220 40'%3E%3Cfilter id='w'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012 0.16' numOctaves='3'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.5  0 0 0 0 0.36  0 0 0 0 0.2  0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23w)'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, #1d1730 0%, #120e22 100%);
+  background-blend-mode: overlay, normal;
+  border-bottom: 1px solid rgba(201, 162, 39, 0.3);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
 
 /* ── Choice overlays ───────────────────────────────────────────────────────── */
 .overlay-enter-active { transition: opacity 0.3s ease; }
