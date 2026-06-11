@@ -21,9 +21,9 @@ const io = new Server(http, { cors: { origin: '*' } })
 
 app.get('/health', (_, res) => res.json({ ok: true }))
 
-// Production: serve the built client (client/dist) from this server so a
-// single origin (and a single tunnel/host) carries both the app and the
-// websocket. Dev keeps using Vite on :5173 — dist simply may not exist.
+// Production (Render / tunnel): serve the built client from this server so a
+// single origin carries both the app and the websocket. Gated on dist
+// existing rather than NODE_ENV — dev keeps using Vite on :5173 either way.
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const DIST = path.join(HERE, '..', 'client', 'dist')
 if (fs.existsSync(DIST)) {
