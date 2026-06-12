@@ -2,7 +2,8 @@
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { socket } from '../../socket'
 import type { ClientCampaignState, Card, EncounterEvent } from '../../types'
-import { cardValue, suitSymbol, CLASS_ICONS } from './cards'
+import { cardValue, suitSymbol } from './cards'
+import GameIcon from '../GameIcon.vue'
 import OverlayModal from './OverlayModal.vue'
 import HeroPortrait from './HeroPortrait.vue'
 import ItemCard from './ItemCard.vue'
@@ -316,6 +317,17 @@ function heroTooltip(h: (typeof props.state.heroes)[number]): string {
 
 const rankNames: Record<string, string> = { J: 'Jack', Q: 'Queen', K: 'King' }
 const ROYAL_GLYPHS: Record<string, string> = { J: '♞', Q: '♛', K: '♚' }
+
+// public-domain royal portraits (Byron Knoll) in /public/cards — if one fails
+// to load we fall back to the glyph crest, so missing art never blanks a card
+const royalArtFailed = ref(false)
+watch(() => enc.value?.currentEnemy?.card.id, () => { royalArtFailed.value = false })
+const royalArt = computed(() => {
+  const c = enc.value?.currentEnemy?.card
+  if (!c || !['J', 'Q', 'K'].includes(c.rank) || royalArtFailed.value) return null
+  return `/cards/${c.rank}${c.suit}.png`
+})
+
 const tierLabels: Record<string, string> = { skirmish: 'Skirmish', veteran: 'Veteran patrol', elite: 'Elite warband', boss: 'THE CASTLE' }
 const GATE_LABELS: Record<string, string> = { J: 'THE GATES', Q: 'THE COURTYARD', K: 'THE THRONE' }
 const tierLabel = computed(() =>
@@ -470,6 +482,12 @@ const netAttack = computed(() => {
           <div class="royal-card w-32 h-44 flex flex-col items-center justify-between py-2 px-2 relative"
             :class="[enc.tier === 'boss' ? 'royal-boss' : '',
               enc.currentEnemy.card.suit === 'H' || enc.currentEnemy.card.suit === 'D' ? 'royal-red' : 'royal-black']">
+            <!-- the royal's portrait fills the card (it carries its own indices);
+                 the hand-drawn crest below is the fallback when art is missing -->
+            <img v-if="royalArt" :src="royalArt" alt=""
+              class="absolute inset-0 w-full h-full object-cover rounded-[0.65rem]"
+              draggable="false" @error="royalArtFailed = true" />
+            <template v-if="!royalArt">
             <span class="self-start text-sm font-display font-black leading-none" :class="suitClass(enc.currentEnemy.card.suit)">
               {{ enc.currentEnemy.card.rank }}<br>{{ suitSymbol(enc.currentEnemy.card.suit) }}
             </span>
@@ -480,6 +498,7 @@ const netAttack = computed(() => {
             <span class="self-end text-sm font-display font-black leading-none rotate-180" :class="suitClass(enc.currentEnemy.card.suit)">
               {{ enc.currentEnemy.card.rank }}<br>{{ suitSymbol(enc.currentEnemy.card.suit) }}
             </span>
+            </template>
             <span v-if="!enc.currentEnemy.immunityNullified"
               class="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-warning text-warning-content text-xs flex items-center justify-center font-bold shadow"
               :title="`Immune to ${suitSymbol(enc.currentEnemy.card.suit)} power`"
@@ -591,7 +610,7 @@ const netAttack = computed(() => {
         v-show="h.alive && !(enc.pendingChooseNext && i === state.myHeroIndex)"
         class="btn btn-outline btn-warning w-full justify-start"
         @click="chooseNext(i)"
-      >{{ CLASS_ICONS[h.classId] }} {{ h.playerName }} <span class="text-xs font-normal opacity-60">{{ h.handSize }} cards</span></button>
+      ><GameIcon :name="h.classId" /> {{ h.playerName }} <span class="text-xs font-normal opacity-60">{{ h.handSize }} cards</span></button>
     </OverlayModal>
 
     <!-- Turn status -->
@@ -716,7 +735,7 @@ const netAttack = computed(() => {
           v-for="(h, i) in state.heroes" :key="h.playerId"
           v-show="h.alive"
           class="btn btn-outline w-full justify-start" @click="activateRelic(i)"
-        >{{ CLASS_ICONS[h.classId] }} {{ h.playerName }} <span class="text-xs font-normal opacity-60">{{ h.handSize }} cards</span></button>
+        ><GameIcon :name="h.classId" /> {{ h.playerName }} <span class="text-xs font-normal opacity-60">{{ h.handSize }} cards</span></button>
         <button class="btn btn-ghost btn-sm" @click="whistleMode = false">Cancel</button>
       </OverlayModal>
 
@@ -753,7 +772,7 @@ const netAttack = computed(() => {
           <p class="text-[10px] font-display font-semibold text-primary/40 uppercase tracking-[0.25em]">The Party</p>
           <div v-for="h in state.heroes" :key="h.playerId" class="text-xs space-y-0.5"
             :class="!h.alive ? 'opacity-50' : ''">
-            <p class="font-bold">{{ h.alive ? CLASS_ICONS[h.classId] : '💀' }} {{ h.playerName }}
+            <p class="font-bold"><GameIcon v-if="h.alive" :name="h.classId" /><span v-else>💀</span> {{ h.playerName }}
               <span class="font-normal text-primary/60 font-display text-[10px]">{{ h.className }}</span>
             </p>
             <p class="text-[10px] text-base-content/50 leading-snug">{{ h.abilityText }}</p>

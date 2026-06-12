@@ -94,6 +94,13 @@ function join() {
 
         <div v-if="error" class="alert alert-error text-sm py-2">{{ error }}</div>
 
+        <!-- CC BY attribution — required by the icon/pattern licenses (CREDITS.md) -->
+        <p class="text-[10px] text-base-content/30 text-center leading-relaxed">
+          Icons by <a href="https://game-icons.net" target="_blank" rel="noopener" class="underline">game-icons.net</a> (CC BY 3.0)
+          · patterns by <a href="https://heropatterns.com" target="_blank" rel="noopener" class="underline">Hero Patterns</a> (CC BY 4.0)
+          · card art by Byron Knoll (public domain)
+        </p>
+
       </div>
     </div>
   </div>

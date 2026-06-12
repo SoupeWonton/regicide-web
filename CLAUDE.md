@@ -84,6 +84,7 @@ client/src/components/
 - All campaign mutations flow through `sessions.dispatchCampaignAction`, which persists the save after every successful action. New actions must be added to the `CampaignAction` union and the dispatcher switch.
 - Validate-then-mutate: action handlers return `{ error }` without mutating on invalid input.
 - The base quick game (`game.ts`/`rooms.ts` state) must keep working unchanged.
+- **Third-party assets** must allow commercial use, and every addition is recorded in `CREDITS.md`. The icon set (game-icons.net) and patterns (Hero Patterns) are CC BY — keep the attribution line in the Home screen footer. Fonts are self-hosted OFL files in `client/public/fonts/`; don't reintroduce the Google Fonts CDN.
 
 ## Debug / playtest controls
 

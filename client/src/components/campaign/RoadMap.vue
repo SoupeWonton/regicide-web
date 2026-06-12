@@ -2,7 +2,8 @@
 import { computed } from 'vue'
 import { socket } from '../../socket'
 import type { ClientCampaignState, ClientRoadNode } from '../../types'
-import { NODE_ICONS, NODE_LABELS, NODE_DESCRIPTIONS } from './cards'
+import { NODE_LABELS, NODE_DESCRIPTIONS } from './cards'
+import GameIcon from '../GameIcon.vue'
 import { sfx } from '../../sound'
 
 const props = defineProps<{ state: ClientCampaignState; code: string }>()
@@ -66,9 +67,9 @@ const gateInfo = computed(() => {
   const m = new Map<string, { icon: string; label: string; desc: string }>()
   if (bosses.length >= 3) {
     const meta = [
-      { icon: '🏰', label: 'The Gates', desc: 'The first rank gate — the Jacks bar the way. Win to advance the siege.' },
-      { icon: '🏛', label: 'Courtyard', desc: 'The second rank gate — the Queens hold the yard.' },
-      { icon: '👑', label: 'The Throne', desc: 'The Kings. No retreat, no second wind. Take it and the province is liberated.' },
+      { icon: 'gate', label: 'The Gates', desc: 'The first rank gate — the Jacks bar the way. Win to advance the siege.' },
+      { icon: 'courtyard', label: 'Courtyard', desc: 'The second rank gate — the Queens hold the yard.' },
+      { icon: 'throne', label: 'The Throne', desc: 'The Kings. No retreat, no second wind. Take it and the province is liberated.' },
     ]
     bosses.forEach((b, i) => m.set(b.id, meta[Math.min(i, 2)]!))
   }
@@ -82,7 +83,7 @@ function choose(node: ClientRoadNode) {
 }
 
 const LEGEND = [
-  ['⚔️', 'fight'], ['🛒', 'boon'], ['🏕', 'camp'], ['👑', 'the castle'], ['❓', 'unscouted'],
+  ['skirmish', 'fight'], ['market', 'boon'], ['camp', 'camp'], ['boss', 'the castle'], ['unknown', 'unscouted'],
 ] as const
 </script>
 
@@ -141,7 +142,7 @@ const LEGEND = [
               n.reachable ? 'map-medallion-reachable node-reachable' : '',
             ]"
           >
-            {{ gateInfo.get(n.id)?.icon ?? NODE_ICONS[n.kind] ?? '❓' }}
+            <GameIcon :name="gateInfo.get(n.id)?.icon ?? n.kind" />
             <span v-if="n.visited && !n.current" class="absolute -bottom-1 -right-1 text-[10px] bg-[#d8c89f] text-[#3a2d18] rounded-full w-4 h-4 flex items-center justify-center border border-[#8a6d1c]">✓</span>
           </span>
           <span class="map-label text-[10px] font-semibold font-display tracking-wide" :class="n.reachable ? 'text-[#7a5510]' : 'text-[#5a4830]/85'">
@@ -152,7 +153,7 @@ const LEGEND = [
     </div>
 
     <div class="flex justify-center gap-3 mt-2 text-[10px] text-base-content/40">
-      <span v-for="[icon, label] in LEGEND" :key="label">{{ icon }} {{ label }}</span>
+      <span v-for="[icon, label] in LEGEND" :key="label"><GameIcon :name="icon" /> {{ label }}</span>
     </div>
   </div>
 </template>

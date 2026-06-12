@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { socket } from '../../socket'
 import type { ClientCampaignState } from '../../types'
-import { CLASS_ICONS } from './cards'
+import GameIcon from '../GameIcon.vue'
 import ItemCard from './ItemCard.vue'
 
 const props = defineProps<{ state: ClientCampaignState; code: string }>()
@@ -91,7 +91,7 @@ function act(action: Record<string, unknown>) {
     <div class="grid grid-cols-2 gap-2">
       <div v-for="h in state.heroes" :key="h.playerId" class="card bg-base-100">
         <div class="card-body p-3 gap-1">
-          <p class="text-sm font-semibold">{{ h.alive ? CLASS_ICONS[h.classId] : '💀' }} {{ h.playerName }}
+          <p class="text-sm font-semibold"><GameIcon v-if="h.alive" :name="h.classId" /><span v-else>💀</span> {{ h.playerName }}
             <span class="text-xs font-normal text-base-content/50">{{ h.className }}</span>
           </p>
           <p class="text-[11px] text-base-content/50">{{ h.abilityText }}</p>

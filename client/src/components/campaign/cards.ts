@@ -22,16 +22,8 @@ export function cardLabel(c: Card): string {
   return `${c.rank}${suitSymbol(c.suit)}`
 }
 
-export const CLASS_ICONS: Record<string, string> = {
-  sentinel: '🛡', quartermaster: '📦', surgeon: '⚕️', executioner: '🪓',
-  commander: '⚜️', warden: '🏮', gambler: '🎲', exile: '🔥', oracle: '🔮',
-}
-
-export const NODE_ICONS: Record<string, string> = {
-  start: '🏁', camp: '🏕', boss: '👑', skirmish: '⚔️', veteran: '🗡',
-  elite: '💀', forge: '⚒️', abbey: '⛪', market: '🛒', tower: '🗼',
-  shrine: '⛩', lair: '🕸', event: '🎭', unknown: '❓',
-}
+// Class and node glyphs moved from emoji to the game-icons.net SVG set —
+// render them with <GameIcon :name="classId | nodeKind" /> (src/gameIcons.ts).
 
 export const NODE_LABELS: Record<string, string> = {
   start: 'Trailhead', camp: 'Camp', boss: 'The Castle', skirmish: 'Skirmish',

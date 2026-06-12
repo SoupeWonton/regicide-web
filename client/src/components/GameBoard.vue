@@ -1,9 +1,19 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { socket } from '../socket'
 import type { ClientGameState, Card } from '../types'
 
 const props = defineProps<{ state: ClientGameState; code: string }>()
+
+// public-domain royal portraits (Byron Knoll) in /public/cards — fall back to
+// the plain rank/suit text if a file is missing or fails to load
+const royalArtFailed = ref(false)
+watch(() => props.state.currentEnemy?.card.id, () => { royalArtFailed.value = false })
+const royalArt = computed(() => {
+  const c = props.state.currentEnemy?.card
+  if (!c || !['J', 'Q', 'K'].includes(c.rank) || royalArtFailed.value) return null
+  return `/cards/${c.rank}${c.suit}.png`
+})
 
 const selected = ref<number[]>([])
 const errorMsg = ref('')
@@ -142,7 +152,10 @@ const rankDisplayName: Record<string, string> = { J: 'Jack', Q: 'Queen', K: 'Kin
       <div class="card bg-base-100 shadow-xl">
         <div class="card-body py-4 px-5">
           <div v-if="state.currentEnemy" class="flex items-center gap-4">
-            <div :class="['text-5xl font-black w-16 text-center shrink-0', suitColor(state.currentEnemy.card.suit)]">
+            <img v-if="royalArt" :src="royalArt" alt=""
+              class="w-16 shrink-0 rounded-md border border-base-content/20 shadow-lg shadow-black/40"
+              draggable="false" @error="royalArtFailed = true" />
+            <div v-else :class="['text-5xl font-black w-16 text-center shrink-0', suitColor(state.currentEnemy.card.suit)]">
               {{ state.currentEnemy.card.rank }}{{ suitSymbol(state.currentEnemy.card.suit) }}
             </div>
             <div class="flex-1 min-w-0">

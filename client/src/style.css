@@ -2,7 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Type — self-hosted (SIL OFL, files + licenses in /public/fonts) ─────────
+   No Google Fonts CDN: LAN tables and offline dev get real type too. */
+@font-face {
+  font-family: 'Cinzel';
+  src: url('/fonts/Cinzel-var.ttf') format('truetype');
+  font-weight: 400 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Kreon';
+  src: url('/fonts/Kreon-var.ttf') format('truetype');
+  font-weight: 300 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IM Fell English SC';
+  src: url('/fonts/IMFellEnglishSC.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+}
+
 * { -webkit-tap-highlight-color: transparent; }
+
+/* ── Inline game icons (game-icons.net, CC BY 3.0 — see CREDITS.md) ──────────
+   Sized and colored by the surrounding text, like the emoji they replace. */
+.game-icon {
+  width: 1em;
+  height: 1em;
+  display: inline-block;
+  vertical-align: -0.125em;
+  fill: currentColor;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}
 
 /* ── Atmosphere ──────────────────────────────────────────────────────────────
    Deep indigo night, candlelit vignette, film grain. The whole game sits on
@@ -407,6 +439,9 @@ body::after {
   overflow: hidden;
   transform: perspective(1100px) rotateX(3deg);
   transform-origin: 50% 100%;
+  /* faint gold skull damask woven into the felt (Hero Patterns, CC BY 4.0) */
+  background-image: url('/textures/skulls-gold.svg');
+  background-size: 124px 124px;
   border: 1px solid rgba(0, 0, 0, 0.6);
   border-bottom: 3px solid rgba(201, 162, 39, 0.18);
   box-shadow:
@@ -624,6 +659,8 @@ body::after {
   border: 2px solid #6e5314;
   background-image:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.035 0.05' numOctaves='4'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.42  0 0 0 0 0.32  0 0 0 0 0.16  0 0 0 0.22 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)'/%3E%3C/svg%3E"),
+    /* surveyor's contour lines inked under the route (Hero Patterns, CC BY 4.0) */
+    url('/textures/topography-ink.svg'),
     radial-gradient(ellipse 120% 110% at 50% 30%, #efe6cd 0%, #e3d4b0 55%, #cdb98c 100%);
   box-shadow:
     inset 0 0 60px rgba(110, 80, 30, 0.45),
@@ -641,6 +678,7 @@ body::after {
   align-items: center;
   justify-content: center;
   font-size: 1.25rem;
+  color: #4a3417; /* the inked node icons take this — stamped, not painted */
   background: radial-gradient(circle at 35% 30%, #f4ecd8 0%, #ddcca4 70%, #c9b384 100%);
   border: 2px solid #8a6d1c;
   box-shadow:

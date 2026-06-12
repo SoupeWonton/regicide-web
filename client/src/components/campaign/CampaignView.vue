@@ -8,7 +8,8 @@ import EncounterBoard from './EncounterBoard.vue'
 import CampPanel from './CampPanel.vue'
 import OverlayModal from './OverlayModal.vue'
 import ItemCard from './ItemCard.vue'
-import { suitSymbol, suitColor, CLASS_ICONS } from './cards'
+import { suitSymbol, suitColor } from './cards'
+import GameIcon from '../GameIcon.vue'
 import { sound, toggleMute, sfx } from '../../sound'
 
 const muted = ref(sound.muted)
@@ -445,7 +446,7 @@ function heroTooltip(h: ClientHero): string {
         :class="['flex-1 rounded-lg px-2 py-1.5 text-center text-xs border cursor-help',
           h.alive ? 'border-base-content/10 bg-base-100 text-base-content/60' : 'border-error/40 bg-error/5 opacity-50']"
       >
-        <div class="font-semibold truncate">{{ h.alive ? CLASS_ICONS[h.classId] : '💀' }} {{ h.playerName }}</div>
+        <div class="font-semibold truncate"><GameIcon v-if="h.alive" :name="h.classId" /><span v-else>💀</span> {{ h.playerName }}</div>
         <div class="text-base-content/40">{{ h.handSize }} cards{{ h.relic ? ' · 🏺' : '' }}{{ h.memories.length ? ' · 🧠' + h.memories.length : '' }}</div>
       </div>
     </div>
