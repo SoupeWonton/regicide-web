@@ -62,7 +62,13 @@ function toggleReady() {
   socket.emit('set_ready', { code, ready: !me?.ready })
 }
 
-function startGame() { socket.emit('start_game', { code }) }
+// Quick game now runs through a class-selection step: host opens it, everyone
+// picks, host begins. The picker is no longer parked permanently in the lobby.
+const selecting = computed(() => room.value?.selecting ?? false)
+
+function openClassSelect() { socket.emit('set_class_select', { code, value: true }) }
+function backToLobby()     { socket.emit('set_class_select', { code, value: false }) }
+function startGame()       { socket.emit('start_game', { code }) }
 
 function startCampaign() {
   socket.emit('start_campaign', { code, chapter: chapter.value, seed: seed.value || undefined })
@@ -121,7 +127,7 @@ function classNameFor(id: string) {
   <div v-else class="min-h-screen flex flex-col items-center justify-start p-4 pt-8 gap-6">
 
     <!-- Main lobby card -->
-    <div class="card bg-base-100 shadow-2xl w-full max-w-sm">
+    <div v-if="!selecting" class="card bg-base-100 shadow-2xl w-full max-w-sm">
       <div class="card-body gap-4">
 
         <div class="text-center">
@@ -166,7 +172,7 @@ function classNameFor(id: string) {
             v-if="isHost"
             class="btn btn-neutral flex-1"
             :disabled="!allReady || (room?.players.length ?? 0) < 1"
-            @click="startGame"
+            @click="openClassSelect"
           >Quick Game</button>
         </div>
 
@@ -221,13 +227,25 @@ function classNameFor(id: string) {
       </div>
     </div>
 
-    <!-- Class picker -->
-    <div class="w-full max-w-3xl pb-8">
+    <!-- Class picker — only after the host hits Quick Game -->
+    <div v-if="selecting" class="w-full max-w-3xl pb-8">
       <div class="text-center mb-4 rise-in">
         <p class="font-flavor text-primary/60 text-xs tracking-[0.3em] uppercase">quick game</p>
         <h2 class="text-2xl font-display font-bold gold-title mt-1">Choose Your Class</h2>
         <div class="h-px mt-2 mx-auto w-40 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
         <p class="text-xs text-base-content/40 mt-2">Optional · Sentinel, QM, Surgeon &amp; Executioner abilities are active</p>
+      </div>
+
+      <!-- Host controls / waiting note -->
+      <div class="flex items-center justify-center gap-2 mb-5">
+        <button class="btn btn-ghost btn-sm" @click="backToLobby">← Back</button>
+        <button
+          v-if="isHost"
+          class="btn btn-primary"
+          :disabled="!allReady || (room?.players.length ?? 0) < 1"
+          @click="startGame"
+        >⚔️ Begin Quick Game</button>
+        <span v-else class="text-xs text-base-content/40">Waiting for the host to begin…</span>
       </div>
 
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">

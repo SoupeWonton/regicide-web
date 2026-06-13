@@ -79,4 +79,5 @@ export interface RoomInfo {
   hostId: string
   players: { id: string; name: string; ready: boolean }[]
   classSelections?: Record<string, string>  // playerId → classId
+  selecting?: boolean                         // quick-game class-selection step is open
 }

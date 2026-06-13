@@ -8,6 +8,7 @@ interface Room {
   players: { id: string; name: string; ready: boolean }[]
   state: GameState | null
   classSelections: Map<string, string>  // playerId → classId
+  selecting: boolean                     // quick-game class-selection step is open
 }
 
 const rooms = new Map<string, Room>()
@@ -51,7 +52,7 @@ export function buildClientState(state: GameState, forPlayerId: string): ClientG
 
 export function createRoom(hostId: string, hostName: string): RoomInfo {
   const code = genCode()
-  rooms.set(code, { code, hostId, players: [{ id: hostId, name: hostName, ready: false }], state: null, classSelections: new Map() })
+  rooms.set(code, { code, hostId, players: [{ id: hostId, name: hostName, ready: false }], state: null, classSelections: new Map(), selecting: false })
   return roomInfo(code)!
 }
 
@@ -80,7 +81,17 @@ export function startGame(code: string, requesterId: string): { states?: Map<str
   const classIds = room.players.map(p => room.classSelections.get(p.id) ?? null)
   const hasClasses = classIds.some(c => c !== null)
   room.state = createGame(room.players.map(p => ({ id: p.id, name: p.name })), hasClasses ? classIds : undefined)
+  room.selecting = false
   return { states: buildAllStates(room) }
+}
+
+/** Host opens or closes the quick-game class-selection step for everyone. */
+export function setClassSelect(code: string, requesterId: string, value: boolean): RoomInfo | null {
+  const room = rooms.get(code)
+  if (!room || room.state) return null
+  if (room.hostId !== requesterId) return null
+  room.selecting = value
+  return roomInfo(code)!
 }
 
 export function pickClassQuick(code: string, playerId: string, classId: string | null): RoomInfo | null {
@@ -136,6 +147,7 @@ export function restartGame(code: string): { room?: RoomInfo; error?: string } {
   if (!room) return { error: 'Room not found.' }
   room.state = null
   room.classSelections.clear()
+  room.selecting = false
   for (const p of room.players) p.ready = false
   return { room: roomInfo(code)! }
 }
@@ -178,6 +190,7 @@ export function roomInfo(code: string): RoomInfo | null {
   return {
     code, hostId: room.hostId, players: room.players,
     ...(room.classSelections.size > 0 ? { classSelections: sel } : {}),
+    ...(room.selecting ? { selecting: true } : {}),
   }
 }
 

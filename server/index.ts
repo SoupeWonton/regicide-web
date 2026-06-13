@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url'
 import path from 'path'
 import fs from 'fs'
 import {
-  createRoom, joinRoom, setReady, startGame, pickClassQuick, playCards, discardDamage, yieldTurn,
+  createRoom, joinRoom, setReady, startGame, setClassSelect, pickClassQuick, playCards, discardDamage, yieldTurn,
   chooseNext, restartGame, playerDisconnect, roomInfo, findRoomsByPlayer,
   markConnected, gameStateFor, leaveRoom, deleteRoom,
 } from './rooms'
@@ -118,6 +118,11 @@ io.on('connection', socket => {
     const { states, error } = startGame(code, cid)
     if (error) { socket.emit('error', error); return }
     broadcast(states!)
+  })
+
+  socket.on('set_class_select', ({ code, value }: { code: string; value: boolean }) => {
+    const room = setClassSelect(code, cid, value)
+    if (room) io.to(code).emit('room_update', room)
   })
 
   socket.on('pick_class_quick', ({ code, classId }: { code: string; classId: string | null }) => {
