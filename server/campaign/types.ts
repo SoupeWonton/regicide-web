@@ -445,6 +445,10 @@ export interface ClientCampaignState {
   heroes: ClientHero[]
   myHeroIndex: number
   myHand: Card[]            // persistent hand — visible on the road/camp too
+  // persistent deck snapshot for the map's deck/discard viewer (sorted by suit;
+  // draw order stays secret). Reflects c.deck between fights.
+  deckTavern: Card[]
+  deckDiscard: Card[]
   isHost: boolean
   map: { nodes: ClientRoadNode[]; currentNodeId: string } | null
   encounter: ClientEncounterState | null

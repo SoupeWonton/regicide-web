@@ -781,7 +781,7 @@ const netAttack = computed(() => {
           <ItemCard
             v-if="enc.canWager && !enc.wagerArmed"
             id="g-wager" name="The Wager"
-            text="Once per chapter: if the enemy dies this turn you choose who acts next; if not, discard 1 random card."
+            text="Once per encounter: if the enemy dies this turn, draw 2 (and in multiplayer, choose who acts next); if not, discard 1 random card."
             sm :disabled="!inPlay"
             @click="act({ type: 'arm_wager' })"
           />

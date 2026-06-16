@@ -214,6 +214,20 @@ io.on('connection', socket => {
     }
   })
 
+  // Run again: from an ended run (or any time), the host spins up a brand-new
+  // lineage for the SAME lobby in one tap — fresh seed, chapter 1, same party.
+  // Carries over the previous run's stats-recording preference.
+  socket.on('restart_campaign', ({ code }: { code: string }) => {
+    const info = roomInfo(code)
+    if (!info) { socket.emit('error', 'Room not found.'); return }
+    if (info.hostId !== cid) { socket.emit('error', 'Only the host can start a new run.'); return }
+    const record = getSession(code) ? getSession(code)!.recordRun !== false : true
+    endSession(code)
+    const { error } = startCampaignSession(code, info.players.map(p => ({ id: p.id, name: p.name })), 1, undefined, { record })
+    if (error) { socket.emit('error', error); return }
+    broadcastCampaign(code)
+  })
+
   socket.on('disconnect', () => {
     console.log(`- ${socket.id} (client ${cid})`)
     // only forget the mapping if a newer connection hasn't replaced it

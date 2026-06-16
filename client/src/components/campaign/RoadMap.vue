@@ -68,7 +68,7 @@ const gateInfo = computed(() => {
     const meta = [
       { icon: '🏰', label: 'The Gates', desc: 'The first rank gate — the Jacks bar the way. Win to advance the siege.' },
       { icon: '🏛', label: 'Courtyard', desc: 'The second rank gate — the Queens hold the yard.' },
-      { icon: '👑', label: 'The Throne', desc: 'The Kings. No retreat, no second wind. Take it and the province is liberated.' },
+      { icon: '👑', label: 'The Throne', desc: 'The Kings. No retreat. Take it and the province is liberated.' },
     ]
     bosses.forEach((b, i) => m.set(b.id, meta[Math.min(i, 2)]!))
   }
