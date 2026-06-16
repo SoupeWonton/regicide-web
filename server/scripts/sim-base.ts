@@ -1,7 +1,9 @@
 // Base-game (quick game) Regicide simulator — the same weighted personas as
 // the campaign simulator (sim.ts), driving the unmodified base engine in
-// game.ts: 12 royals, discard auto-recycles into the tavern, one unpayable
-// counterattack loses the game outright.
+// game.ts: 12 royals (4J/4Q/4K), the Tavern is never reshuffled (♥ Hearts are
+// the only refill — official rule), one unpayable counterattack loses outright.
+// The play brain mirrors sim.ts's lever-economy model (STRATEGY.md) plus the
+// base-game-specific reads in docs/reference/additional-strategy.md.
 //
 // Run:  npx tsx scripts/sim-base.ts [--runs 50] [--counts 1,2,3,4] [--lineups slayer,bulwark,hoarder,sniper,steady,mixed]
 //
@@ -18,6 +20,7 @@ import { cardValue, handSize, validateCombo } from '../deck'
 import { createRng } from '../rng'
 import type { Card, GameState, Suit } from '../types'
 import { PERSONAS, MIXED_ORDER, type Persona } from './sim-personas'
+import { chooseDiscardPressure, type PressureState } from './discard-model'
 
 const val = (card: Card) => cardValue(card.rank)
 const handVal = (h: Card[]) => h.reduce((t, card) => t + val(card), 0)
@@ -58,6 +61,38 @@ function fatigue(g: GameState): number {
   return Math.max(0, 1 - total / (g.players.length * max))
 }
 
+// Lever-economy hand read (STRATEGY.md). Base-game refinement (Additional_Strat
+// #2): a low card with a same-rank partner in hand is NOT junk — matched sets
+// fire multiple levers at once (a quad of 2s fires draw+recover+shield+double),
+// so they are premium multi-lever plays, not churn fodder.
+interface HandStats {
+  diamonds: number; hearts: number; clubs: number; spades: number
+  junk: number; matched: number; burst: number; quality: number
+}
+function handStats(hand: Card[]): HandStats {
+  const rankFreq = new Map<string, number>()
+  for (const card of hand) if (card.rank !== 'Jo') rankFreq.set(card.rank, (rankFreq.get(card.rank) ?? 0) + 1)
+  let diamonds = 0, hearts = 0, clubs = 0, spades = 0, junk = 0, matched = 0, burst = 0, n = 0
+  for (const card of hand) {
+    if (card.rank === 'Jo') continue
+    n++
+    const v = val(card)
+    if (card.suit === 'D') diamonds++
+    else if (card.suit === 'H') hearts++
+    else if (card.suit === 'C') { clubs++; if (v > burst) burst = v }
+    else spades++
+    const inSet = card.rank !== 'A' && (rankFreq.get(card.rank) ?? 0) >= 2
+    if (inSet) matched++
+    else if (card.rank !== 'A' && v <= 3) junk++   // lone low card = junk
+  }
+  let q = 0
+  if (diamonds > 0) q += 0.3
+  if (burst >= 7) q += 0.25; else if (clubs > 0) q += 0.1
+  q += Math.max(0, 0.25 - (n ? junk / n : 0) * 0.4)
+  if (matched > 0) q += 0.2                         // matched sets are premium
+  return { diamonds, hearts, clubs, spades, junk, matched, burst, quality: Math.min(1, q) }
+}
+
 function evalPlay(g: GameState, pi: number, idxs: number[], p: Persona): PlayOption {
   const hand = g.players[pi]!.hand
   const cards = idxs.map(i => hand[i]!)
@@ -65,6 +100,7 @@ function evalPlay(g: GameState, pi: number, idxs: number[], p: Persona): PlayOpt
   const base = cards.reduce((t, card) => t + val(card), 0)
   const classes = g.classIds ?? []
   const flags = g.abilityFlags ?? {}
+  const st = handStats(hand)
 
   const immuneSuit = enemy.immunityNullified ? null : enemy.card.suit
   const suits = new Set(cards.map(card => card.suit).filter(su => su !== immuneSuit))
@@ -77,11 +113,24 @@ function evalPlay(g: GameState, pi: number, idxs: number[], p: Persona): PlayOpt
 
   let shieldGain = suits.has('S') ? base : 0
   if (shieldGain > 0 && classes[pi] === 'sentinel' && !flags['sentinelSpade']) shieldGain += 2
-  // official rules: the Tavern is never reshuffled — Hearts are the only refill
-  const draws = suits.has('D') ? Math.min(base, g.tavern.length) : 0
+  // Don't over-shield (Additional_Strat #7): only the part that lowers the live
+  // counter is real; the overage is dead value.
+  const curNet = Math.max(0, enemy.attack - enemy.shield)
+  const effectiveShield = Math.min(shieldGain, curNet)
+  const wastedShield = shieldGain - effectiveShield
+
+  // Hand size is the master lever (#3): a big draw at high hand size mostly
+  // fizzles, so cap draw value by the space actually available across hands.
+  const maxH = handSize(g.players.length)
+  const handSpace = g.players.reduce((t, pl) => t + Math.max(0, maxH - pl.hand.length), 0)
+  const draws = suits.has('D') ? Math.min(base, g.tavern.length, handSpace) : 0
   const recov = suits.has('H') ? Math.min(base, g.discard.length) : 0
   const f = fatigue(g)
-  const tavernLow = g.tavern.length <= g.players.length * 2 ? 1.6 : g.tavern.length <= g.players.length * 4 ? 0.7 : 0
+  // ♥→♦ pipeline (#6): with a dry Tavern, Hearts are the ONLY escape from the
+  // death spiral — recovery is worth far more there than at any other time.
+  const tavernLow = g.tavern.length === 0 ? 3.2
+    : g.tavern.length <= g.players.length * 2 ? 1.6
+    : g.tavern.length <= g.players.length * 4 ? 0.7 : 0
 
   let counterCost = 0
   let dies = false
@@ -93,14 +142,66 @@ function evalPlay(g: GameState, pi: number, idxs: number[], p: Persona): PlayOpt
     if (handVal(hand) - base < net) dies = true
   }
 
+  // ── Lever-economy terms (STRATEGY.md + Additional_Strat) ───────────────────
+  // Matched set firing 2+ levers at once = premium multi-lever turn (#2).
+  let multiLever = 0
+  if (cards.length >= 2 && cards.every(cd => cd.rank === cards[0]!.rank) && suits.size >= 2)
+    multiLever = (suits.size - 1) * (1 + base * 0.1)
+
+  // The diamond invariant: ♦ is the only source of cards into HAND.
+  const playedDiamonds = cards.filter(cd => cd.suit === 'D').length
+  const playsLastDiamond = playedDiamonds > 0 && playedDiamonds === st.diamonds
+  let lastDiamondPenalty = 0
+  if (playsLastDiamond && !kills && !dies)
+    lastDiamondPenalty = (immuneSuit === 'D' || g.tavern.length === 0) ? 14 : 4
+
+  const blockedSpadeWaste = wastedShield * 0.6
+
+  // Playing into the enemy's blocked suit burns that lever for nothing.
+  let immuneWaste = 0
+  if (immuneSuit && !kills)
+    for (const card of cards)
+      if (card.suit === immuneSuit) immuneWaste += suitPref(p)[card.suit] * val(card) * 0.12
+
+  // Churn a junk-clogged hand by eating a small affordable counter (only with
+  // Tavern depth to redraw).
+  let cyclingValue = 0
+  if (!kills && !dies && counterCost >= 1 && counterCost <= 5 &&
+      st.quality < 0.55 && g.tavern.length > g.players.length * 3 &&
+      handVal(hand) - base >= counterCost * 2)
+    cyclingValue = 2 + st.junk * 0.5
+
+  // Safe attack-churn at net-0: spend low cards as the best live lever
+  // (♦ > ♥ > ♣ > ♠).
+  let safeChurn = 0
+  if (curNet === 0 && !kills)
+    safeChurn = suits.has('D') ? 2 : suits.has('H') ? 1.4 : suits.has('C') ? 0.6 : 0.1
+
+  // Lever-King prep: bank burst (♣) and recovery (♥) for the Kings — each
+  // steals a lever, and solo/2p can't unblock it (no Jester; #1).
+  let leverPrepReserve = 0
+  if (enemy.card.rank === 'K' && g.enemyDeck.length > 0 && !kills) {
+    const pc = cards.filter(cd => cd.suit === 'C').length
+    const ph = cards.filter(cd => cd.suit === 'H').length
+    if (pc > 0 && pc === st.clubs && st.burst >= 7) leverPrepReserve += 3
+    if (ph > 0 && ph === st.hearts) leverPrepReserve += 2
+  }
+
   const score =
     p.aggression * Math.min(damage, enemy.hp + 4) +
     (kills ? p.killBonus : 0) +
     (exact ? p.exactBonus + (enemy.card.rank === 'K' ? 3 : enemy.card.rank === 'Q' ? 2 : 1) : 0) +
-    p.shieldWeight * shieldGain * (kills ? 0.2 : 1 + g.enemyDeck.length * 0.08) +
+    p.shieldWeight * effectiveShield * (kills ? 0.2 : 1 + g.enemyDeck.length * 0.08 + Math.max(0, enemy.attack - 10) * 0.04) +
     (fullyShielded ? p.shieldWeight * 3 : 0) +
-    p.drawWeight * draws * (0.6 + f * 1.6) +
-    p.recoverWeight * recov * (1 + tavernLow) -
+    p.drawWeight * draws * (0.4 + f * 1.8) +
+    p.recoverWeight * recov * (1 + tavernLow) +
+    multiLever +
+    cyclingValue +
+    safeChurn -
+    lastDiamondPenalty -
+    blockedSpadeWaste -
+    immuneWaste -
+    leverPrepReserve -
     p.conserve * base -
     (kills ? 0 : p.riskAversion * counterCost) -
     (dies ? 400 * p.riskAversion + 300 : 0)   // base game: a death IS the loss
@@ -119,15 +220,69 @@ function evalYield(g: GameState, pi: number, p: Persona): PlayOption {
 
 function evalJester(g: GameState, p: Persona, jesterIdx: number): PlayOption {
   const enemy = g.currentEnemy
-  let score = -6
-  if (enemy && !enemy.immunityNullified) {
-    score = { C: p.aggression * 8, S: p.shieldWeight * 5, D: p.drawWeight * 5, H: p.recoverWeight * 5 }[enemy.card.suit] - 2
+  if (!enemy) return { kind: 'play', idxs: [jesterIdx], score: -6, kills: false, dies: false }
+  const hand = g.players[g.currentPlayerIndex]!.hand
+  // Universal Jester canon (proposed 2026-06-12): cancel the enemy's immunity
+  // AND replay (act again, no counterattack), at every player count. So the
+  // Jester is always worth at least a free no-counter action; it's worth more
+  // when it unlocks held cards of the blocked suit or skips a big royal hit.
+  let score = 1.5                                  // the free replay action itself
+  if (!enemy.immunityNullified) {
+    // unlock value: retroactive for ♠, going-forward for the rest (#4); scales
+    // with how many blocked-suit cards you're holding to fire after the flip
+    const heldImmune = hand.filter(card => card.suit === enemy.card.suit && card.rank !== 'Jo').length
+    const lever = { C: p.aggression * 8, S: p.shieldWeight * 5, D: p.drawWeight * 5, H: p.recoverWeight * 5 }[enemy.card.suit]
+    score += lever * Math.min(1, heldImmune / 2) + heldImmune * 1.0
+  }
+  // skipping the counter is worth more against the hard hitters (the Kings)
+  score += Math.max(0, enemy.attack - enemy.shield) * 0.12
+  // solo home rule: the Jester also resets the hand — a panic button that
+  // shines when the hand is weak and the tavern can actually refill it
+  if (SOLO_JESTER_RESET && g.players.length === 1) {
+    const hv = handVal(hand)
+    score += Math.max(0, handSize(1) * 5.5 - hv) * 0.25 - 2
+    if (g.tavern.length < handSize(1)) score -= 4   // reset into a dry tavern wastes it
   }
   return { kind: 'play', idxs: [jesterIdx], score, kills: false, dies: false }
 }
 
+// Universal Jester experiment: top up every game to `target` Jesters regardless
+// of player count (base deck gives solo/2p zero — the gap that made immunity
+// uncancellable in 70% of play). Shuffled into the Tavern so they're not on top.
+function injectJesters(g: GameState, target: number) {
+  const count = () =>
+    g.tavern.filter(c => c.rank === 'Jo').length +
+    g.discard.filter(c => c.rank === 'Jo').length +
+    g.players.reduce((t, pl) => t + pl.hand.filter(c => c.rank === 'Jo').length, 0)
+  let k = 0
+  while (count() < target) g.tavern.push({ suit: 'C', rank: 'Jo', id: `xj${++k}` })
+  for (let i = g.tavern.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[g.tavern[i], g.tavern[j]] = [g.tavern[j]!, g.tavern[i]!]
+  }
+}
+
+function toPressureState(g: GameState): PressureState {
+  const e = g.currentEnemy
+  return {
+    enemyAttack: e?.attack ?? 0,
+    enemyShield: e?.shield ?? 0,
+    enemyHp: e?.hp ?? 0,
+    enemySuit: e ? e.card.suit : null,
+    immunityNullified: e?.immunityNullified ?? true,
+    tavernCount: g.tavern.length,
+    discardCount: g.discard.length,
+    playerCount: g.players.length,
+  }
+}
+
 function chooseDiscard(hand: Card[], needed: number, p: Persona): number[] {
   const prefs = suitPref(p)
+  // Protect draw insurance and multi-lever sets when paying a counter:
+  // a scarce ♦ (the draw lever), any Ace, and matched low cards (premium).
+  const diamondsInHand = hand.filter(card => card.suit === 'D' && card.rank !== 'Jo').length
+  const rankFreq = new Map<string, number>()
+  for (const card of hand) if (card.rank !== 'Jo') rankFreq.set(card.rank, (rankFreq.get(card.rank) ?? 0) + 1)
   let best: { idxs: number[]; cost: number } | null = null
   for (let mask = 1; mask < 1 << hand.length; mask++) {
     let total = 0
@@ -138,6 +293,9 @@ function chooseDiscard(hand: Card[], needed: number, p: Persona): number[] {
         const card = hand[i]!
         total += val(card)
         keepLoss += card.rank === 'Jo' ? 6 : prefs[card.suit] * val(card) * 0.2
+        if (card.suit === 'D' && diamondsInHand <= 1) keepLoss += 10
+        if (card.rank === 'A') keepLoss += 4
+        if (card.rank !== 'A' && (rankFreq.get(card.rank) ?? 0) >= 2) keepLoss += 3
         idxs.push(i)
       }
     }
@@ -160,11 +318,14 @@ interface GameRecord {
   result: string
   defeated: number          // royals down (0-12) at game end
   lostAtRank: string        // J / Q / K ('' on win)
+  lostAtSuit: string        // suit of the royal that killed the run (RNG check)
   lostByClass: string       // class of the player who couldn't pay ('' on win / no classes)
   lostByPersona: string
   turns: number
   exactKills: number
-  jesters: number
+  jesters: number           // Jesters played
+  jestersInHandAtEnd: number // drawn but unspent at game end (had the tool, died anyway)
+  jestersInTavernAtEnd: number // never drawn (the tool never showed up)
   yields: number
 }
 
@@ -187,6 +348,7 @@ function playGame(runId: string, lineupId: string, personas: Persona[], decideSe
     })
   }
   let g = createGame(players, classIds)
+  if (UNIVERSAL_JESTER) injectJesters(g, 2)
   const decide = createRng(decideSeed)
 
   const rec: GameRecord = {
@@ -194,8 +356,8 @@ function playGame(runId: string, lineupId: string, personas: Persona[], decideSe
     personas: personas.map(p => p.id).join('+'),
     classes: classIds?.join('+') ?? '',
     omitted: '',
-    result: 'stalled', defeated: 0, lostAtRank: '', lostByClass: '', lostByPersona: '', turns: 0,
-    exactKills: 0, jesters: 0, yields: 0,
+    result: 'stalled', defeated: 0, lostAtRank: '', lostAtSuit: '', lostByClass: '', lostByPersona: '', turns: 0,
+    exactKills: 0, jesters: 0, jestersInHandAtEnd: 0, jestersInTavernAtEnd: 0, yields: 0,
   }
 
   let budget = 2000
@@ -205,13 +367,15 @@ function playGame(runId: string, lineupId: string, personas: Persona[], decideSe
     const hand = g.players[pi]!.hand
 
     if (g.turnPhase === 'choose_next') {
-      // jester handoff: strongest hand takes the next turn
-      let target = pi
-      let bestV = -1
-      g.players.forEach((pl, i) => {
-        const v = handVal(pl.hand) + (i === pi ? 1 : 0)
-        if (v > bestV) { bestV = v; target = i }
-      })
+      // Universal Jester canon: the Jester-player replays (acts again). Base
+      // game only reaches choose_next via a Jester, so self-replay here is the
+      // "replay card for everyone" rule. (Pre-canon multi handed off to the
+      // strongest hand; replay-self keeps it solo-consistent.)
+      const target = UNIVERSAL_JESTER ? pi : (() => {
+        let t = pi, bestV = -1
+        g.players.forEach((pl, i) => { const v = handVal(pl.hand) + (i === pi ? 1 : 0); if (v > bestV) { bestV = v; t = i } })
+        return t
+      })()
       const r = applyChooseNext(g, pi, target)
       if (r.error) { rec.result = `error:choose:${r.error}`; break }
       g = r.state
@@ -219,7 +383,9 @@ function playGame(runId: string, lineupId: string, personas: Persona[], decideSe
     }
 
     if (g.turnPhase === 'discard') {
-      const idxs = chooseDiscard(hand, g.discardNeeded, p)
+      const idxs = DISCARD_MODEL === 'pressure'
+        ? chooseDiscardPressure(hand, g.discardNeeded, toPressureState(g))
+        : chooseDiscard(hand, g.discardNeeded, p)
       const r = applyDiscard(g, pi, idxs)
       if (r.error) { rec.result = `error:discard:${r.error}`; break }
       g = r.state
@@ -253,19 +419,30 @@ function playGame(runId: string, lineupId: string, personas: Persona[], decideSe
       if (r.error) { rec.result = `error:yield:${r.error}`; break }
       g = r.state
     } else {
-      if (hand[choice.idxs[0]!]!.rank === 'Jo') rec.jesters++
+      const wasJester = hand[choice.idxs[0]!]!.rank === 'Jo'
+      if (wasJester) rec.jesters++
       const r = applyPlayCards(g, pi, choice.idxs)
       if (r.error) { rec.result = `error:play:${r.error}`; break }
       g = r.state
+      // solo home rule: Jester = immunity off (engine) + full hand reset
+      if (wasJester && SOLO_JESTER_RESET && g.players.length === 1) {
+        const pl = g.players[pi]!
+        g.discard.push(...pl.hand.splice(0))
+        const max = handSize(1)
+        while (pl.hand.length < max && g.tavern.length > 0) pl.hand.push(g.tavern.pop()!)
+      }
     }
   }
 
   rec.defeated = 12 - g.enemyDeck.length - (g.currentEnemy ? 1 : 0)
   rec.exactKills = rec.defeated - g.defeatedEnemies.length
+  rec.jestersInHandAtEnd = g.players.reduce((t, pl) => t + pl.hand.filter(c => c.rank === 'Jo').length, 0)
+  rec.jestersInTavernAtEnd = g.tavern.filter(c => c.rank === 'Jo').length
   if (g.phase === 'won') rec.result = 'won'
   else if (g.phase === 'lost') {
     rec.result = 'lost'
     rec.lostAtRank = g.currentEnemy?.card.rank ?? ''
+    rec.lostAtSuit = g.currentEnemy?.card.suit ?? ''
     // the loss always happens on the current player's counter check
     rec.lostByClass = g.classIds?.[g.currentPlayerIndex] ?? ''
     rec.lostByPersona = personas[g.currentPlayerIndex]!.id
@@ -287,10 +464,18 @@ function parseArgs() {
     lineups: get('--lineups', 'slayer,bulwark,hoarder,sniper,steady,mixed').split(','),
     withClasses: args.includes('--classes'),
     loo: args.includes('--loo'),   // 3p leave-one-out class experiment
+    universalJester: args.includes('--universal-jester'),
+    // home rule: in solo a played Jester ALSO resets the hand (discard it,
+    // redraw to full from the tavern) on top of cancelling immunity
+    soloJesterReset: args.includes('--solo-jester-reset'),
+    discardModel: get('--discard', 'pressure') as 'legacy' | 'pressure',
   }
 }
 
-const { runsPerCell, counts, lineups, withClasses, loo } = parseArgs()
+const { runsPerCell, counts, lineups, withClasses, loo, universalJester, soloJesterReset, discardModel } = parseArgs()
+const UNIVERSAL_JESTER = universalJester
+const SOLO_JESTER_RESET = soloJesterReset
+const DISCARD_MODEL = discardModel
 
 function csv(rows: Record<string, unknown>[]): string {
   if (rows.length === 0) return ''
@@ -305,9 +490,9 @@ const pct = (n: number, d: number) => (d === 0 ? '—' : `${((100 * n) / d).toFi
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-const OUT_DIR = path.join(HERE, '..', 'data', 'sim-base', stamp + (loo ? '-loo' : withClasses ? '-classes' : ''))
+const OUT_DIR = path.join(HERE, '..', 'data', 'sim-base', stamp + (loo ? '-loo' : withClasses ? '-classes' : '') + (universalJester ? '-ujester' : '') + (soloJesterReset ? '-jreset' : '') + (discardModel === 'pressure' ? '-pressure' : ''))
 fs.mkdirSync(OUT_DIR, { recursive: true })
-console.log(`Mode: base Regicide ${loo ? '3p LEAVE-ONE-OUT class experiment' : withClasses ? 'WITH tier-1 classes' : '(no classes)'}\n`)
+console.log(`Mode: base Regicide ${loo ? '3p LEAVE-ONE-OUT class experiment' : withClasses ? 'WITH tier-1 classes' : '(no classes)'}${universalJester ? ' + UNIVERSAL JESTER (immunity+replay, all counts)' : ''}${soloJesterReset ? ' + SOLO JESTER RESET (home rule)' : ''} — discard model: ${discardModel}\n`)
 
 const games: GameRecord[] = []
 const t0 = Date.now()

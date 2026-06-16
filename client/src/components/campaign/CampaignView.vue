@@ -112,13 +112,13 @@ watch(() => props.state.rewardDraw?.seq, (now, was) => {
 })
 
 watch(() => props.state.phase, (now, was) => {
-  // a boss just fell — memory drafts only ever follow a slain castle / Throne
-  if (now === 'memory_draft' && was === 'encounter') {
+  // the final boss just fell — chapter clear (ch1) or the run's end (Throne / ch2)
+  if (was === 'encounter' && (now === 'chapter_complete' || now === 'campaign_won')) {
     victory.value = lastFightRank.value === 'K'
-      ? { title: 'The Throne Is Taken', sub: 'The province is liberated. Each survivor carries a Memory of the siege.' }
+      ? { title: 'The Throne Is Taken', sub: 'The province is liberated. The Kingdom will remember.' }
       : props.state.chapter === 1
-        ? { title: 'The Castle Falls', sub: 'The First Ascension is yours. Each survivor carries a Memory from the ruin.' }
-        : { title: 'The Broken Court Falls', sub: 'The crown is shattered. Draft your memories — the Kingdom will remember.' }
+        ? { title: 'The Castle Falls', sub: 'The First Ascension is yours.' }
+        : { title: 'The Broken Court Falls', sub: 'The crown is shattered. The Kingdom will remember.' }
     sfx.triumph()
     if (victoryTimer) clearTimeout(victoryTimer)
     victoryTimer = setTimeout(() => { victory.value = null }, 4200)
@@ -198,14 +198,13 @@ const FIGHT_KINDS = ['skirmish', 'veteran', 'elite', 'lair', 'boss']
 const hasFoughtThisChapter = computed(() =>
   props.state.map?.nodes.some(n => n.visited && FIGHT_KINDS.includes(n.kind)) ?? false)
 const showHandStrip = computed(() =>
-  ['road', 'camp', 'landmark', 'replace_hero', 'memory_draft'].includes(phase.value)
+  ['road', 'camp', 'landmark', 'replace_hero'].includes(phase.value)
   && hasFoughtThisChapter.value
   && props.state.myHand.length > 0)
 
 function heroTooltip(h: ClientHero): string {
   const lines = [`${h.className} — ${h.abilityText}`]
-  if (h.relic) lines.push(`🏺 ${h.relic.name}: ${h.relic.text}`)
-  for (const m of h.memories) lines.push(`🧠 ${m.name}: ${m.text}`)
+  for (const rl of h.relics) lines.push(`🏺 ${rl.name}: ${rl.text}`)
   if (!h.alive) lines.push('💀 Fallen — can be replaced at camp.')
   return lines.join('\n')
 }
@@ -237,25 +236,6 @@ function heroTooltip(h: ClientHero): string {
     <EncounterBoard v-else-if="(phase === 'encounter' || phase === 'death_vote') && state.encounter" :state="state" :code="code" />
     <CampPanel v-else-if="phase === 'camp'" :state="state" :code="code" />
 
-    <!-- Memory draft -->
-    <div v-else-if="phase === 'memory_draft'" class="max-w-lg mx-auto p-4 space-y-4 w-full">
-      <div class="text-center rise-in">
-        <h2 class="text-2xl font-display font-bold gold-title">Memories</h2>
-        <div class="splash-rule h-px mt-2 mx-auto w-40 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
-        <p class="text-sm text-base-content/50 mt-2 font-flavor tracking-wide">Each survivor keeps one memory of this chapter.</p>
-      </div>
-      <template v-if="state.memoryDraft?.myOptions">
-        <ItemCard
-          v-for="m in state.memoryDraft.myOptions" :key="m.id"
-          :id="m.id" :name="m.name" :text="m.text"
-          @click="act({ type: 'memory_pick', memoryId: m.id })"
-        />
-      </template>
-      <p v-else class="text-center text-sm text-base-content/50">
-        Waiting on: {{ state.memoryDraft?.waitingOn.join(', ') }}
-      </p>
-    </div>
-
     <!-- Chapter complete -->
     <div v-else-if="phase === 'chapter_complete'" class="flex-1 flex items-center justify-center p-4">
       <div class="card bg-base-100/95 border border-primary/30 shadow-xl text-center py-10 px-8 gap-3 flex flex-col items-center max-w-md">
@@ -264,7 +244,7 @@ function heroTooltip(h: ClientHero): string {
         <p class="text-sm text-base-content/60">
           Kingdom unlocks: <b>Chapter 2</b>, <b>specializations</b>, <b>Commander</b> and <b>Warden</b> (via replacement).
         </p>
-        <p class="text-xs text-base-content/40">The Broken Court is harder and richer. Your memories and relics carry forward.</p>
+        <p class="text-xs text-base-content/40">The Broken Court is harder and richer. Your relics carry forward.</p>
         <button v-if="state.isHost" class="btn btn-primary btn-lg mt-2" @click="act({ type: 'continue_chapter' })">
           March into Chapter 2
         </button>
@@ -437,7 +417,20 @@ function heroTooltip(h: ClientHero): string {
       </p>
     </OverlayModal>
 
-    <!-- Party strip (road) — hover a hero for class/relic/memory details -->
+    <!-- Fragment track (road) — apply a C-tier token anytime you hold 2+ -->
+    <div v-if="phase === 'road' && state.ascendingDeck && (state.tokenFragments ?? 0) > 0"
+      class="flex items-center justify-center gap-2 px-3 max-w-lg mx-auto w-full">
+      <span class="text-xs text-base-content/60" :title="'Exact-kill an owned card to earn a fragment. 2 fragments apply one C-tier token.'">
+        ✦ Token fragments: <span class="font-mono">{{ state.tokenFragments }}</span>
+      </span>
+      <button v-if="state.isHost && (state.tokenFragments ?? 0) >= 2"
+        class="btn btn-secondary btn-xs"
+        @click="act({ type: 'apply_fragment' })">
+        Apply token (–2)
+      </button>
+    </div>
+
+    <!-- Party strip (road) — hover a hero for class/relic details -->
     <div v-if="phase === 'road'" class="flex gap-2 px-3 max-w-lg mx-auto w-full">
       <div
         v-for="h in state.heroes" :key="h.playerId"
@@ -446,7 +439,7 @@ function heroTooltip(h: ClientHero): string {
           h.alive ? 'border-base-content/10 bg-base-100 text-base-content/60' : 'border-error/40 bg-error/5 opacity-50']"
       >
         <div class="font-semibold truncate">{{ h.alive ? CLASS_ICONS[h.classId] : '💀' }} {{ h.playerName }}</div>
-        <div class="text-base-content/40">{{ h.handSize }} cards{{ h.relic ? ' · 🏺' : '' }}{{ h.memories.length ? ' · 🧠' + h.memories.length : '' }}</div>
+        <div class="text-base-content/40">{{ h.handSize }} cards{{ h.relics.length ? ' · 🏺' + h.relics.length : '' }}</div>
       </div>
     </div>
 

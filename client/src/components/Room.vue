@@ -20,6 +20,8 @@ const copied = ref(false)
 const showCampaignSetup = ref(false)
 const chapter = ref(1)
 const seed = ref('')
+const runName = ref('')
+const recordRun = ref(true)
 const saves = ref<SaveSummary[]>([])
 const unlockedChapters = ref<number[]>([1])
 
@@ -63,7 +65,13 @@ function toggleReady() {
 function startGame() { socket.emit('start_game', { code }) }
 
 function startCampaign() {
-  socket.emit('start_campaign', { code, chapter: chapter.value, seed: seed.value || undefined })
+  socket.emit('start_campaign', {
+    code,
+    chapter: chapter.value,
+    seed: seed.value || undefined,
+    runName: runName.value.trim() || undefined,
+    record: recordRun.value,
+  })
 }
 
 function resumeCampaign(campaignId: string) {
@@ -172,9 +180,18 @@ function copyCode() {
               </div>
             </div>
             <div class="flex gap-2 items-center">
+              <span class="text-xs text-base-content/50 w-16">Name</span>
+              <input v-model="runName" maxlength="60" class="input input-bordered input-sm flex-1" placeholder="(auto)" />
+            </div>
+            <div class="flex gap-2 items-center">
               <span class="text-xs text-base-content/50 w-16">Seed</span>
               <input v-model="seed" class="input input-bordered input-sm flex-1 font-mono" placeholder="(random)" />
             </div>
+            <label class="flex gap-2 items-center cursor-pointer">
+              <span class="text-xs text-base-content/50 w-16">Record</span>
+              <input v-model="recordRun" type="checkbox" class="checkbox checkbox-sm checkbox-primary" />
+              <span class="text-xs text-base-content/60">save this run's stats (bot vs human data)</span>
+            </label>
             <button class="btn btn-primary btn-sm w-full" @click="startCampaign">Begin a new lineage</button>
 
             <template v-if="saves.length">

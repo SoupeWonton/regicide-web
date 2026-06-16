@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { socket } from '../../socket'
 import type { ClientCampaignState } from '../../types'
 import HeroPortrait from './HeroPortrait.vue'
+import { CLASS_SIGNATURE_PREVIEW, tokenToneClass } from './cards'
 
 const props = defineProps<{ state: ClientCampaignState; code: string }>()
 
@@ -12,63 +13,63 @@ const CORE = [
   {
     id: 'sentinel', name: 'Sentinel', theme: 'Shield · Stability', suit: '♠',
     question: 'How do we survive tomorrow?',
-    text: 'Once per enemy, your first Spade gains +2 shield value.',
+    text: 'Starts with Plate (+1 shield) stamped on three Spades — lead spades to stack shield and tank counters.',
     pillars: [['Shield', 3], ['Recovery', 1]] as const,
     accent: 'sentinel-accent',
   },
   {
     id: 'quartermaster', name: 'Quartermaster', theme: 'Draw · Access', suit: '♦',
     question: 'How do we keep options?',
-    text: 'Your first Diamond trigger each enemy draws +1 extra card, and your hand cap is +1.',
+    text: 'Starts with Provision (+1 draw pool) on three Diamonds — your diamonds dig deeper into the deck.',
     pillars: [['Access', 3], ['Consistency', 1]] as const,
     accent: 'quartermaster-accent',
   },
   {
     id: 'surgeon', name: 'Surgeon', theme: 'Recovery · Precision', suit: '♥',
     question: 'How do we recover mistakes?',
-    text: 'Your first Heart trigger each enemy recovers +1 additional card.',
+    text: 'Starts with Mend (+1 recover) on three Hearts — hearts return extra cards; outlast the attrition.',
     pillars: [['Recovery', 3], ['Consistency', 1]] as const,
     accent: 'surgeon-accent',
   },
   {
-    id: 'executioner', name: 'Executioner', theme: 'Thresholds · Initiative', suit: '♣',
+    id: 'executioner', name: 'Executioner', theme: 'Thresholds · Edge', suit: '♣',
     question: 'When should the enemy die?',
-    text: 'Once per enemy, if your damage leaves the enemy at 1-2 HP, deal +2 finishing damage.',
+    text: 'Starts with Edge (+2 ♣ damage) on two Clubs and an Undercut (−1) scalpel — hit hard, then land exact kills.',
     pillars: [['Initiative', 2], ['Consistency', 1]] as const,
     accent: 'executioner-accent',
   },
   {
     id: 'commander', name: 'Commander', theme: 'Initiative · Sequencing', suit: '⚜',
     question: 'Who strikes next?',
-    text: 'After your kill, pass the turn to any ally — and draw 1 card (Press the Advantage).',
+    text: 'Starts with Banner on three cards — every kill with a Banner card draws you forward. (Parked — untuned.)',
     pillars: [['Initiative', 3], ['Access', 1]] as const,
     accent: 'commander-accent',
   },
   {
-    id: 'warden', name: 'Warden', theme: 'Death Mitigation', suit: '🕯',
+    id: 'warden', name: 'Warden', theme: 'Defense · Hold', suit: '🕯',
     question: 'Who carries the fallen?',
-    text: 'Vigil: once per act, your collapse does not spend the party’s second wind.',
+    text: 'Starts with Bulwark-weave (+2 soak) on three low cards — cheap cards become heavy armor. (Parked — untuned.)',
     pillars: [['Shield', 2], ['Recovery', 2]] as const,
     accent: 'warden-accent',
   },
   {
-    id: 'gambler', name: 'Gambler', theme: 'Uncertainty · Tempo', suit: '🎲',
+    id: 'gambler', name: 'Gambler', theme: 'Risk · Tempo', suit: '🎲',
     question: 'What is it worth to you?',
-    text: 'Once per chapter, wager: if the enemy dies this turn, draw 2 and choose who acts next; if not, lose a random card.',
+    text: 'Starts with Glasswork (+2 hit / −1 soak) and a Mark — monstrous swings, fragile defense. (Parked — untuned.)',
     pillars: [['Initiative', 2], ['Access', 2]] as const,
     accent: 'gambler-accent',
   },
   {
-    id: 'oracle', name: 'Oracle', theme: 'Hidden Information', suit: '🔮',
+    id: 'oracle', name: 'Oracle', theme: 'Foresight · Consistency', suit: '🔮',
     question: 'What does the road hide?',
-    text: 'Peek the top 3 Tavern cards each encounter and reorder them. Foresight: your first play after a peek deals +1.',
+    text: 'Starts with Scry and Mark — foresee the Tavern and strike the marked card. (Parked — untuned.)',
     pillars: [['Consistency', 3], ['Initiative', 1]] as const,
     accent: 'oracle-accent',
   },
   {
     id: 'exile', name: 'Exile', theme: 'Deck Evolution', suit: '🔥',
     question: 'What must be cut away?',
-    text: 'Once per camp, exile one card from the deck for the rest of the chapter. Every second exile adds Burden.',
+    text: 'Starts leaner (18 cards) with Transmute on two cards — a sharper, thinner deck. (Parked — untuned.)',
     pillars: [['Consistency', 2], ['Recovery', 1]] as const,
     accent: 'exile-accent',
   },
@@ -122,6 +123,21 @@ function pick(classId: string) {
           <p class="font-flavor text-xs text-base-content/60 italic mt-1.5 leading-snug">“{{ cls.question }}”</p>
           <p class="text-[11px] text-base-content/70 mt-2 leading-snug flex-1">{{ cls.text }}</p>
 
+          <!-- ascending-deck: the cards this class stamps at level 1 (select-by-cards) -->
+          <div v-if="state.ascendingDeck && CLASS_SIGNATURE_PREVIEW[cls.id]" class="mt-2">
+            <p class="text-[8px] uppercase tracking-[0.2em] text-primary/50">Starts stamped</p>
+            <div class="flex flex-wrap justify-center gap-1 mt-1">
+              <span
+                v-for="(sg, si) in CLASS_SIGNATURE_PREVIEW[cls.id]" :key="si"
+                class="inline-flex items-center gap-0.5 text-[10px] font-mono rounded border px-1 py-px bg-base-100/60 border-base-content/15"
+                :title="sg.name"
+              >
+                <span class="font-bold">{{ sg.card }}</span>
+                <span class="text-[8px] rounded px-0.5 border font-bold leading-none" :class="tokenToneClass(sg.tone)">{{ sg.short }}</span>
+              </span>
+            </div>
+          </div>
+
           <!-- pillar dots -->
           <div class="flex justify-center gap-3 mt-2.5">
             <div v-for="[pillar, dots] in cls.pillars" :key="pillar" class="text-center">
@@ -152,7 +168,11 @@ function pick(classId: string) {
       </template>
       All classes are unlocked for playtesting.
     </p>
-    <p class="text-center text-[11px] text-primary/50 font-flavor tracking-wide">
+    <p v-if="state.ascendingDeck" class="text-center text-[11px] text-primary/50 font-flavor tracking-wide">
+      ✒ The Ascending Deck: everyone starts the same 20 cards (A–5). Your class is the
+      tokens stamped on them — forge more at the Forge as you grow toward a full deck.
+    </p>
+    <p v-else class="text-center text-[11px] text-primary/50 font-flavor tracking-wide">
       ⚔ Province rules: each suited hero curates the deck at setup — their lowest cards of their own suit are cut.
       One Second Wind per act on the road; rank gates grant no mercy.
     </p>

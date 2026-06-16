@@ -12,15 +12,15 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import {
   createCampaign, applyClassPick, applyRoadChoose, applyChoice, applyDeathVote,
-  applyActivatePreparation, applyExileAtCamp, applyBreakCamp, beginReplacement,
-  applyMemoryPick, applyContinueChapter, checkEncounterEnd,
+  applyExileAtCamp, applyBreakCamp, beginReplacement,
+  applyContinueChapter, checkEncounterEnd, applyFragmentStart,
 } from '../campaign/campaign'
 import {
   applyEncounterPlay, applyEncounterDiscard, applyEncounterYield,
   applyEncounterChooseNext, applySetupReorder, applyCastSpell,
-  applyActivateRelic, applyArmWager, maxHandSize,
+  applyActivateRelic, applyArmWager, applyKeepDrawn, maxHandSize,
 } from '../campaign/encounter'
-import { getItem } from '../campaign/content'
+import { getItem, STARTING_RELICS, STARTING_SPELLS } from '../campaign/content'
 import { EXPERIMENTS } from '../campaign/experiments'
 import { cardValue } from '../deck'
 import { createRng, type Rng } from '../rng'
@@ -32,6 +32,8 @@ import type { CampaignState, ClassId, CtCategory, EncounterState, KingdomState }
 // the game mode is the experiment variable.
 
 import { PERSONAS, MIXED_ORDER, type Persona } from './sim-personas'
+import { chooseDiscardPressure, type PressureState } from './discard-model'
+import { traceAction } from '../campaign/trace'
 
 // ── Small helpers ────────────────────────────────────────────────────────────
 
@@ -84,6 +86,52 @@ function legalPlaySets(hand: Card[]): number[][] {
   return out
 }
 
+// Can the remaining hand land exactly `target` damage on a later turn? Cheap
+// model: base totals, Clubs double unless the enemy is club-immune, and the
+// Executioner finisher turns a leave-at-2 into an exact 0 (canon: leave-at-1
+// overkills). Used by setupWeight to price chip-and-wait lines.
+function exactReachable(remaining: Card[], target: number, immuneSuit: Suit | null, isExec: boolean, execSpent: boolean): boolean {
+  if (target <= 0) return false
+  for (const ix of legalPlaySets(remaining)) {
+    const cards = ix.map(i => remaining[i]!)
+    if (cards[0]!.rank === 'Jo') continue
+    const base = cards.reduce((t, card) => t + val(card), 0)
+    const dmg = cards.some(card => card.suit === 'C') && immuneSuit !== 'C' ? base * 2 : base
+    if (dmg === target) return true
+    if (isExec && !execSpent && target - dmg === 2) return true
+  }
+  return false
+}
+
+// Lever-economy hand read (STRATEGY.md "The Lever Economy"): the four suits are
+// four levers (♦ draw, ♥ recover, ♠ shield, ♣ double); each enemy blocks its
+// own. Quality 0..1 rewards a live draw lever, real burst, low junk, and a
+// piece that can land an exact kill on the current enemy.
+interface HandStats {
+  diamonds: number; hearts: number; clubs: number; spades: number
+  junk: number; burst: number; quality: number; hasExactPiece: boolean
+}
+function handStats(hand: Card[], enemyHp: number | null, immuneSuit: Suit | null, isExec: boolean, execSpent: boolean): HandStats {
+  let diamonds = 0, hearts = 0, clubs = 0, spades = 0, junk = 0, burst = 0, n = 0
+  for (const card of hand) {
+    if (card.rank === 'Jo') continue
+    n++
+    const v = val(card)
+    if (card.suit === 'D') diamonds++
+    else if (card.suit === 'H') hearts++
+    else if (card.suit === 'C') { clubs++; if (v > burst) burst = v }
+    else spades++
+    if (card.rank !== 'A' && v <= 3) junk++
+  }
+  const hasExactPiece = enemyHp != null && exactReachable(hand, enemyHp, immuneSuit, isExec, execSpent)
+  let q = 0
+  if (diamonds > 0) q += 0.3                       // a live draw lever
+  if (burst >= 7) q += 0.25; else if (clubs > 0) q += 0.1
+  q += Math.max(0, 0.25 - (n ? junk / n : 0) * 0.4) // low junk ratio
+  if (hasExactPiece) q += 0.25
+  return { diamonds, hearts, clubs, spades, junk, burst, quality: Math.min(1, q), hasExactPiece }
+}
+
 function evalPlay(c: CampaignState, s: EncounterState, pi: number, idxs: number[], p: Persona): PlayOption {
   const hand = s.hands[pi]!
   const cards = idxs.map(i => hand[i]!)
@@ -93,12 +141,18 @@ function evalPlay(c: CampaignState, s: EncounterState, pi: number, idxs: number[
 
   const immuneSuit = enemy.immunityNullified ? null : enemy.card.suit
   const suits = new Set(cards.map(card => card.suit).filter(su => su !== immuneSuit))
+  const stats = handStats(hand, enemy.hp, immuneSuit, hero.classId === 'executioner', !!s.flags['enemy.execFinish'])
 
   let mult = 1
   if (suits.has('C')) mult *= 2
   if (s.flags[`keenEdge:${pi}`]) mult *= 2
   if (s.flags[`crownbreaker:${pi}`]) mult *= 3
-  const damage = base * mult
+  let damage = base * mult
+  // Oracle Displacement (live kit): playing the Marked card adds +2 (+3 at a
+  // gate) — real damage, so it shifts the exact-kill arithmetic too
+  if (hero.classId === 'oracle' && s.flags['oracleMarked'] && !s.flags['oracleMarkUsed'] &&
+      cards.some(card => `${card.suit}${card.rank}` === s.flags['oracleMarked']))
+    damage += s.tier === 'boss' ? 3 : 2
 
   let hpAfter = enemy.hp - damage
   const execReady = hpAfter > 0 && hpAfter <= 2 &&
@@ -110,10 +164,20 @@ function evalPlay(c: CampaignState, s: EncounterState, pi: number, idxs: number[
   let shieldGain = 0
   if (suits.has('S')) {
     shieldGain = base
-    if (hero.classId === 'sentinel' && !s.flags['enemy.sentinelSpade']) shieldGain += 2
+    // Sentinel Spade Commit (live kit): all-Spade play → +3, mixed → nothing
+    if (hero.classId === 'sentinel' && cards.every(card => card.suit === 'S')) shieldGain += 3
   }
-  const draws = suits.has('D') ? Math.min(base, s.tavern.length) : 0
-  const recov = suits.has('H') ? Math.min(base, s.discard.length) : 0
+  // Lever canon: shield beyond the current net counterattack does nothing
+  // (don't shield a net-0 enemy). Only the portion that lowers the live counter
+  // is effective; the overage is waste, charged below as blockedSpadeWaste.
+  const curNet = Math.max(0, enemy.attack - enemy.shield)
+  const effectiveShield = Math.min(shieldGain, curNet)
+  const wastedShield = shieldGain - effectiveShield
+  // own-class triggers (owner-only canon): QM first Diamond +1, Surgeon first Heart +1
+  let draws = suits.has('D') ? Math.min(base, s.tavern.length) : 0
+  if (draws > 0 && hero.classId === 'quartermaster' && !s.flags['enemy.qmDiamond']) draws += 1
+  let recov = suits.has('H') ? Math.min(base, s.discard.length) : 0
+  if (recov > 0 && hero.classId === 'surgeon' && !s.flags['enemy.surgeonHeart']) recov += 1
 
   // context scaling: recovery matters most when the Tavern is nearly dry
   // (attrition canon: Hearts are the only mid-fight refill), draws matter
@@ -133,15 +197,107 @@ function evalPlay(c: CampaignState, s: EncounterState, pi: number, idxs: number[
     if (remaining < net) dies = true
   }
 
+  // Road recruit canon (2026-06-11): an exact kill recruits the royal into the
+  // deck; a road overkill banishes it forever. Gates keep discard behavior, so
+  // the banish penalty applies on the road only. setupWeight prices the
+  // chip-and-wait line: leave the enemy at an HP the rest of the hand can hit
+  // exactly next turn (the persona's risk knobs still charge the counterattack
+  // taken while waiting).
+  const road = s.tier !== 'boss'
+  const banishLoss = road && kills && !exact ? p.banishAversion * val(enemy.card) * 0.4 : 0
+  let setupBonus = 0
+  if (!kills && !dies && hpAfter > 0 && p.setupWeight > 0) {
+    const remainingHand = hand.filter((_, i) => !idxs.includes(i))
+    if (exactReachable(remainingHand, hpAfter, immuneSuit, hero.classId === 'executioner', !!s.flags['enemy.execFinish']))
+      // Road: an exact kill dodges a permanent banish — full weight. Gate: an
+      // exact recruits the royal to the Tavern as in-fight fuel, but a gate
+      // overkill only goes to discard (recoverable), so it's worth less (0.4×).
+      // The counterattack taken while chipping is still charged by riskAversion,
+      // so a gate setup only happens when it's actually safe in the race.
+      setupBonus = p.setupWeight * (2 + val(enemy.card) * 0.15) * (road ? 1 : 0.4)
+  }
+
+  // Siege mode (rules: gates are win-or-wipe, no retreat, and a gate demands
+  // roughly a deck cycle per rank): race the royals — damage and draws count
+  // for more, hoarding for less. Draws are the proven siege lever (CT v2);
+  // recovery only feeds future draws, so it gets a smaller bump.
+  const siege = !road
+  // Immune-suit waste (rules: the enemy blocks its own suit's power): a
+  // blocked card still deals damage but burns its power for nothing — a
+  // better player holds it for the next royal unless this play kills.
+  let immuneWaste = 0
+  if (immuneSuit && !kills) {
+    const prefs = suitPref(p)
+    for (const card of cards)
+      if (card.suit === immuneSuit) immuneWaste += prefs[card.suit] * val(card) * 0.12
+  }
+  // Solvency margin (rules: you lose the moment a counterattack can't be
+  // paid): charge plays that leave the hand thin against the incoming hit —
+  // a soft slope in front of the binary death cliff.
+  let solvencyRisk = 0
+  if (!kills && !dies && counterCost > 0) {
+    const remainVal = handVal(hand) - base
+    if (remainVal < counterCost * 1.5)
+      solvencyRisk = p.riskAversion * (counterCost * 1.5 - remainVal) * 1.2
+  }
+
+  // ── Lever-economy terms (STRATEGY.md) ──────────────────────────────────────
+  // The diamond invariant: ♦ is the only source of cards into HAND. Spending
+  // the last hand-♦ into a dead draw (♦-immune enemy or empty Tavern) throws
+  // away draw insurance; spending it live may still fail to replace itself.
+  const playedDiamonds = cards.filter(card => card.suit === 'D').length
+  const playsLastDiamond = playedDiamonds > 0 && playedDiamonds === stats.diamonds
+  let lastDiamondPenalty = 0
+  if (playsLastDiamond && !kills && !dies)
+    lastDiamondPenalty = (immuneSuit === 'D' || s.tavern.length === 0) ? 14 : 4
+
+  // Don't shield a net-0 enemy: the wasted shield (computed above) is dead value.
+  const blockedSpadeWaste = wastedShield * 0.6
+
+  // Churn: when the hand is junk-clogged and no kill is on, eat a small,
+  // comfortably affordable counter to dump junk and cycle toward a strong hand —
+  // but only while the Tavern is deep enough to redraw (over-churn decks you out).
+  let cyclingValue = 0
+  if (!kills && !dies && counterCost >= 1 && counterCost <= 5 &&
+      stats.quality < 0.55 && s.tavern.length > alive * 3 &&
+      (handVal(hand) - base) >= counterCost * 2)
+    cyclingValue = 2 + stats.junk * 0.5
+
+  // Safe attack-churn: once the enemy is at net-0, dumping low cards as attacks
+  // is free — spend them as the most valuable live lever (♦ > ♥ > ♣ > ♠).
+  let safeChurn = 0
+  if (curNet === 0 && !kills)
+    safeChurn = suits.has('D') ? 2 : suits.has('H') ? 1.4 : suits.has('C') ? 0.6 : 0.1
+
+  // Lever-King prep: at a gate with royals still incoming, bank your burst (♣)
+  // and recovery (♥) for the next lever-King — don't spend your last one on a
+  // non-kill. (Partial: reserves generically, not by the deduced incoming suit.)
+  let leverPrepReserve = 0
+  if (siege && s.enemyDeck.length > 0 && !kills) {
+    const playedClubs = cards.filter(card => card.suit === 'C').length
+    const playedHearts = cards.filter(card => card.suit === 'H').length
+    if (playedClubs > 0 && playedClubs === stats.clubs && stats.burst >= 7) leverPrepReserve += 3
+    if (playedHearts > 0 && playedHearts === stats.hearts) leverPrepReserve += 2
+  }
+
   let score =
-    p.aggression * Math.min(damage, enemy.hp + 4) +
-    (kills ? p.killBonus : 0) +
+    p.aggression * (siege ? 1.35 : 1) * Math.min(damage, enemy.hp + 4) +
+    (kills ? p.killBonus + (hero.classId === 'commander' ? 3 : 0) : 0) +
     (exact ? p.exactBonus + (enemy.card.rank === 'K' ? 3 : enemy.card.rank === 'Q' ? 2 : 1) : 0) +
-    p.shieldWeight * shieldGain * (kills ? 0.2 : 1 + s.enemyDeck.length * 0.08) +
+    p.shieldWeight * effectiveShield * (kills ? 0.2 : 1 + s.enemyDeck.length * 0.08 + Math.max(0, enemy.attack - 10) * 0.04) +
     (fullyShielded ? p.shieldWeight * 3 : 0) +
-    p.drawWeight * draws * (0.6 + f * 1.6) +
-    p.recoverWeight * recov * (1 + tavernLow) -
-    p.conserve * base -
+    p.drawWeight * draws * (0.6 + f * 1.6 + (siege ? 0.5 : 0)) +
+    p.recoverWeight * recov * (1 + tavernLow + (siege ? 0.2 : 0)) +
+    setupBonus +
+    cyclingValue +
+    safeChurn -
+    lastDiamondPenalty -
+    blockedSpadeWaste -
+    leverPrepReserve -
+    banishLoss -
+    immuneWaste -
+    solvencyRisk -
+    p.conserve * (siege ? 0.5 : 1) * base -
     (kills ? 0 : p.riskAversion * counterCost) -
     (dies ? 200 * p.riskAversion + 120 : 0)
   return { kind: 'play', idxs, score, kills, dies }
@@ -151,9 +307,12 @@ function evalYield(c: CampaignState, s: EncounterState, pi: number, p: Persona):
   const enemy = s.currentEnemy!
   const net = Math.max(0, enemy.attack - enemy.shield)
   const dies = handVal(s.hands[pi]!) < net
-  // fully-shielded yields are pure stalling — attacking costs nothing extra
+  // fully-shielded yields are pure stalling — attacking costs nothing extra.
+  // At a gate, yielding eats a royal counterattack for zero progress in a
+  // win-or-wipe fight — extra penalty.
   const score = p.yieldBias + p.conserve * 3 - p.riskAversion * net -
-    (net === 0 ? 8 : 0) - (dies ? 200 * p.riskAversion + 120 : 0)
+    (net === 0 ? 8 : 0) - (s.tier === 'boss' ? 4 : 0) -
+    (dies ? 200 * p.riskAversion + 120 : 0)
   return { kind: 'yield', idxs: [], score, kills: false, dies }
 }
 
@@ -165,6 +324,9 @@ function evalJester(c: CampaignState, s: EncounterState, pi: number, p: Persona,
     // solo panic button: full hand refresh — shines when the hand is weak
     const hv = handVal(s.hands[pi]!)
     score = (maxHandSize(c) * 5.5 - hv) * 0.3 - 4
+    // at a gate the refresh also skips a royal's counterattack (10-20) and
+    // buys a free deck cycle in a win-or-wipe race — both worth more here
+    if (s.tier === 'boss' && enemy) score += Math.max(0, enemy.attack - enemy.shield) * 0.25 + 2
   } else if (enemy && !enemy.immunityNullified) {
     const unlock = { C: p.aggression * 8, S: p.shieldWeight * 5, D: p.drawWeight * 5, H: p.recoverWeight * 5 }[enemy.card.suit]
     score = unlock - 2
@@ -178,6 +340,9 @@ function evalJester(c: CampaignState, s: EncounterState, pi: number, p: Persona,
 // persona values (suit preference) and wasting as little value as possible
 function chooseDiscard(hand: Card[], needed: number, p: Persona): number[] {
   const prefs = suitPref(p)
+  // Diamond invariant: ♦ is draw insurance — refuse to churn away a scarce one,
+  // and protect Aces (A♦ especially; any Ace is flexible draw-pairing value).
+  const diamondsInHand = hand.filter(card => card.suit === 'D' && card.rank !== 'Jo').length
   let best: { idxs: number[]; cost: number } | null = null
   const n = hand.length
   for (let mask = 1; mask < 1 << n; mask++) {
@@ -189,6 +354,8 @@ function chooseDiscard(hand: Card[], needed: number, p: Persona): number[] {
         const card = hand[i]!
         total += val(card)
         keepLoss += card.rank === 'Jo' ? 6 : prefs[card.suit] * val(card) * 0.2
+        if (card.suit === 'D' && diamondsInHand <= 1) keepLoss += 10  // last draw lever
+        if (card.rank === 'A') keepLoss += 4                          // draw-pairing insurance
         idxs.push(i)
       }
     }
@@ -214,6 +381,10 @@ interface EncRecord {
   outcome: string
   defeated: number
   totalEnemies: number
+  exactKills: number
+  banished: number   // road overkills — royals lost to the banish rule
+  deckSize: number       // tavern + hands + discard at encounter start
+  royalsInDeck: number   // recruited J/Q/K in the player pool at encounter start
 }
 
 interface RunRecord {
@@ -230,9 +401,16 @@ interface RunRecord {
   retreats: number
   heroDeaths: number
   exactKills: number
+  royalsBanished: number
   jesters: number
   yields: number
   itemsGained: number
+  gatesCleared: number     // province rank gates won (0-3)
+  deckAtThrone: number     // deck size entering the Throne (0 = never reached)
+  royalsAtThrone: number   // recruited royals in the pool entering the Throne
+  path: string             // visited node kinds in layer order, '>'-joined
+  itemsList: string        // every item id held at any point, '|'-joined
+  grants: string           // forced-inclusion items granted at start (M1 mode)
   lossNodeKind: string
   lossModifier: string
   reachedBoss1: number   // 0/1 — reached the chapter 1 castle
@@ -276,6 +454,13 @@ function runCampaign(
         score = (handVal(hands[hi] ?? []) / 10) + 0.5
       } else if (o.id === 'intel') {
         score = c.chapter === 2 ? 0.5 + p.riskAversion * 0.6 : -1
+      } else if (o.id.includes(':')) {
+        // special landmark actions (not items): Shrine cleanse, Caravan dark-deal,
+        // Sanctum rite, Tithe, etc. Cleansing a curse is ~always worth it; the
+        // pay-for-a-rare gambles scale with the persona's rare appetite.
+        if (o.id.startsWith('shrine:cleanse')) score = 5
+        else if (o.id === 'caravan:darkdeal' || o.id === 'sanctum:rite') score = p.rarePref * 1.2 - 0.6
+        else score = 0
       } else {
         const item = getItem(o.id)
         score = p.catPrefs[item.category] + (item.tier === 'rare' ? p.rarePref : 0)
@@ -291,7 +476,9 @@ function runCampaign(
     personas: personas.map(p => p.id).join('+'),
     result: 'stalled', chapterReached: 1, actions: 0,
     encountersFought: 0, encountersWon: 0, retreats: 0, heroDeaths: 0,
-    exactKills: 0, jesters: 0, yields: 0, itemsGained: 0,
+    exactKills: 0, royalsBanished: 0, jesters: 0, yields: 0, itemsGained: 0,
+    gatesCleared: 0, deckAtThrone: 0, royalsAtThrone: 0, path: '', itemsList: '',
+    grants: GRANTS.join('|'),
     lossNodeKind: '', lossModifier: '',
     reachedBoss1: 0, beatCh1: 0, reachedBoss2: 0, deathsByPersona: '',
     classes: '', deathsByClass: '',
@@ -319,15 +506,33 @@ function runCampaign(
   }
   rec.classes = players.map(pl => c.classPicks[pl.id]).join('+')
 
+  // forced-inclusion grants (THE-BAR M1): relic to seat 0 (replaces the solo
+  // provision relic — the delta reads "vs an average standard relic"),
+  // spells/relics into the team pool
+  for (const gid of GRANTS) {
+    const it = getItem(gid)
+    if (it.kind === 'relic') { if (!c.heroes[0]!.relicIds.includes(gid)) c.heroes[0]!.relicIds.push(gid) }
+    else if (it.kind === 'spell') c.spells.push(gid)
+  }
+
   let aliveBefore = c.heroes.map(h => h.alive)
   let cur: EncRecord | null = null
   const retreatsAtNode = new Map<string, number>()
   let prevItems = 0
 
   const countItems = () =>
-    c.spells.length + c.preparations.length + c.activePreparations.length +
-    c.heroes.reduce((t, h) => t + h.memories.length + (h.relicId ? 1 : 0), 0)
+    c.spells.length +
+    c.heroes.reduce((t, h) => t + h.relicIds.length, 0)
   prevItems = countItems()
+
+  // every item id held at any point (provisions + grants + pickups; relic
+  // swaps keep the old id — "held at some point" is the analysis unit)
+  const ownedSeen = new Set<string>()
+  const scanOwned = () => {
+    for (const id of c.spells) ownedSeen.add(id)
+    for (const h of c.heroes) for (const id of h.relicIds) ownedSeen.add(id)
+  }
+  scanOwned()
 
   function afterAction() {
     rec.actions++
@@ -346,13 +551,14 @@ function runCampaign(
     const items = countItems()
     if (items > prevItems) rec.itemsGained += items - prevItems
     prevItems = items
+    scanOwned()
     // encounter end bookkeeping. Two paths: we call checkEncounterEnd ourselves
     // after most actions, but applyDeathVote (retreat) calls it internally —
     // detect that by the encounter object disappearing under us.
     const s = c.encounter
     if (s && s.outcome !== 'active') {
       finalizeCur()
-      checkEncounterEnd(c)
+      checkEncounterEnd(c, kingdom)
     } else if (cur && (!s || s !== cur.ref)) {
       finalizeCur()
     }
@@ -363,7 +569,13 @@ function runCampaign(
     const s = cur.ref
     cur.outcome = s.outcome === 'active' ? 'abandoned' : s.outcome
     cur.defeated = s.defeatedCount
-    rec.exactKills += (s.flags['exactKills'] as number) ?? 0
+    const exacts = (s.flags['exactKills'] as number) ?? 0
+    cur.exactKills = exacts
+    // road canon: every non-exact road defeat banished its royal
+    cur.banished = s.tier !== 'boss' ? Math.max(0, s.defeatedCount - exacts) : 0
+    rec.exactKills += exacts
+    rec.royalsBanished += cur.banished
+    if (cur.tier === 'boss' && s.outcome === 'won') rec.gatesCleared++
     if (s.outcome === 'won') rec.encountersWon++
     if (s.outcome === 'retreated') {
       rec.retreats++
@@ -380,6 +592,10 @@ function runCampaign(
       rec.result = `error:${label}:${r.error}`
       return false
     }
+    // --trace: dump the action-by-action replay for the sandbox (#/sandbox).
+    // --trace-only restricts output to specific seeds (to curate a few runs).
+    if (TRACE && (TRACE_ONLY.length === 0 || TRACE_ONLY.includes(seed)))
+      traceAction(c, 'bot', `bot-${runId}-${lineupId}-${seed}`, { type: label })
     afterAction()
     return true
   }
@@ -392,6 +608,18 @@ function runCampaign(
 
     switch (c.phase) {
       case 'road': {
+        // fragment track: if 2+ fragments are banked, apply a C-tier token now
+        // (anytime-on-road). Opens a forge_token/forge_card flow the bot resolves.
+        // On error (e.g. no card can take another token) fall through to routing.
+        if ((c.tokenFragments ?? 0) >= 2 && !c.pendingChoice) {
+          const fr = applyFragmentStart(c, HOST, HOST)
+          if (!fr.error) {
+            if (TRACE && (TRACE_ONLY.length === 0 || TRACE_ONLY.includes(seed)))
+              traceAction(c, 'bot', `bot-${runId}-${lineupId}-${seed}`, { type: 'apply_fragment' })
+            afterAction()
+            break
+          }
+        }
         const map = c.map!
         const node = map.nodes.find(n => n.id === map.currentNodeId)!
         const p = personaOf(0) // host commits the route; host persona steers
@@ -403,7 +631,7 @@ function runCampaign(
           let score: number
           if (!n.known) {
             score = 0.4 + p.routeGreed * 0.2
-          } else if (['skirmish', 'veteran', 'elite', 'lair', 'boss'].includes(n.kind)) {
+          } else if (['skirmish', 'veteran', 'elite', 'lair', 'boss', 'recruit'].includes(n.kind)) {
             score = p.routeGreed * n.rewardCT * 2 + p.routeFight * 0.5 - p.riskAversion * n.pressureCT * (0.5 + f)
           } else if (n.kind === 'camp') {
             score = p.routeSafety * (0.4 + 2.2 * f)
@@ -441,6 +669,10 @@ function runCampaign(
         let optId = pc.options[0]!.id
         if (pc.kind === 'replacement') {
           optId = p.classPref.find(cid => pc.options.some(o => o.id === cid)) ?? optId
+        } else if (pc.kind === 'draft_pick') {
+          // ascending-deck drafts: prefer recruiting a card (permanence) over
+          // pure tempo, then defer to the first such option.
+          optId = pc.options.find(o => !o.id.startsWith('draft:tempo'))?.id ?? pc.options[0]!.id
         } else if (pc.kind === 'exile_pick') {
           // exile the lowest card of the least-valued suit
           const prefs = suitPref(p)
@@ -451,6 +683,21 @@ function runCampaign(
             const cost = v * 2 + prefs[suit]
             if (cost < best) { best = cost; optId = o.id }
           }
+        } else if (pc.kind === 'forge_token') {
+          // ascending-deck forge: spend budget on offense — value/edge tokens
+          // first, then any token; only leave if nothing else is offered.
+          const rank = (id: string) =>
+            /forge:(temper|edge)\b/.test(id) ? 4
+            : /forge:(hone|mark|graft)\b/.test(id) ? 3
+            : id === 'forge:done' ? 0 : 2
+          optId = [...pc.options].sort((a, b) => rank(b.id) - rank(a.id))[0]!.id
+        } else if (pc.kind === 'forge_card') {
+          // stamp on a Club workhorse if offered (doubling pays best), else the
+          // lowest-value owned card.
+          const club = pc.options.find(o => o.id[0] === 'C')
+          optId = club?.id
+            ?? [...pc.options].sort((a, b) =>
+              cardValue(a.id.slice(1) as Card['rank']) - cardValue(b.id.slice(1) as Card['rank']))[0]!.id
         } else {
           optId = scoreLandmarkOption(c, pc, p)
         }
@@ -467,11 +714,20 @@ function runCampaign(
             if (c.chapter === 1) rec.reachedBoss1 = 1
             else rec.reachedBoss2 = 1
           }
+          const deckSize = s.tavern.length + s.discard.length + s.hands.reduce((t, h) => t + h.length, 0)
+          const royalsInDeck = [...s.tavern, ...s.discard, ...s.hands.flat()]
+            .filter(card => card.rank === 'J' || card.rank === 'Q' || card.rank === 'K').length
+          // entering the Throne = boss fight with both prior gates cleared
+          if (s.tier === 'boss' && rec.gatesCleared === 2) {
+            rec.deckAtThrone = deckSize
+            rec.royalsAtThrone = royalsInDeck
+          }
           cur = {
             ref: s, chapter: c.chapter, nodeKind: node?.kind ?? s.tier, tier: s.tier,
             modifier: s.modifierId ?? '', bossModifier: s.bossModifierId ?? '',
             attempt: (retreatsAtNode.get(s.nodeId) ?? 0) + 1,
             turns: 0, deaths: 0, outcome: 'active', defeated: 0, totalEnemies: s.totalEnemies,
+            exactKills: 0, banished: 0, deckSize, royalsInDeck,
           } as EncRecord
           rec.encountersFought++
         }
@@ -482,6 +738,20 @@ function runCampaign(
           const order = peek.cards.map((card, i) => ({ i, v: val(card) }))
             .sort((a, b) => b.v - a.v).map(x => x.i)
           if (!act(() => applySetupReorder(c, peek.playerId, order), 'setup')) return rec
+          break
+        }
+
+        // ascending-deck: keep best cards from overdraw pool
+        if (s.turnPhase === 'draw_select') {
+          const selHero = s.drawSelectHeroIdx!
+          const selPid = c.heroes[selHero]!.playerId
+          const pool = s.drawPool ?? []
+          const slots = maxHandSize(c, selHero) - (s.hands[selHero]?.length ?? 0)
+          // keep highest-value cards (greedy strategy)
+          const ranked = pool.map((card, i) => ({ i, v: val(card) }))
+            .sort((a, b) => b.v - a.v)
+          const keepIdxs = ranked.slice(0, Math.max(0, slots)).map(x => x.i)
+          if (!act(() => applyKeepDrawn(c, selPid, keepIdxs), 'draw_select')) return rec
           break
         }
 
@@ -508,8 +778,27 @@ function runCampaign(
             if (!act(() => applyCastSpell(c, pid, 's-calm-pulse'), 'calm-pulse')) return rec
             break
           }
-          const idxs = chooseDiscard(s.hands[pi]!, s.discardNeeded, p)
-          if (!act(() => applyEncounterDiscard(c, pid, idxs), 'discard')) return rec
+          const idxs = DISCARD_MODEL === 'pressure'
+            ? chooseDiscardPressure(s.hands[pi]!, s.discardNeeded, {
+                enemyAttack: s.currentEnemy?.attack ?? 0,
+                enemyShield: s.currentEnemy?.shield ?? 0,
+                enemyHp: s.currentEnemy?.hp ?? 0,
+                enemySuit: s.currentEnemy ? s.currentEnemy.card.suit : null,
+                immunityNullified: s.currentEnemy?.immunityNullified ?? true,
+                tavernCount: s.tavern.length,
+                discardCount: s.discard.length,
+                playerCount: c.heroes.filter(h => h.alive).length || 1,
+                maxHand: maxHandSize(c),
+              } satisfies PressureState)
+            : chooseDiscard(s.hands[pi]!, s.discardNeeded, p)
+          // The discard model is base-value only; HOLD-token soak (holdDelta) can
+          // make it under-select on rare hands. If the engine rejects, fall back
+          // to discarding the whole hand (whole-hand soak ≥ needed, or it's death).
+          const r = applyEncounterDiscard(c, pid, idxs)
+          if (r.error) {
+            const all = s.hands[pi]!.map((_, i) => i)
+            if (!act(() => applyEncounterDiscard(c, pid, all), 'discard')) return rec
+          } else { if (TRACE && (TRACE_ONLY.length === 0 || TRACE_ONLY.includes(seed))) traceAction(c, 'bot', `bot-${runId}-${lineupId}-${seed}`, { type: 'discard' }); afterAction() }
           break
         }
 
@@ -519,10 +808,10 @@ function runCampaign(
         const enemy = s.currentEnemy
 
         // utility relics when the tavern runs dry
-        const relic = c.heroes[pi]!.relicId
-        if (relic && !s.flags[`relicUsed:${pi}`] && s.tavern.length === 0 && s.discard.length >= 2 &&
-            (relic === 'r-bone-thread' || relic === 'r-sainted-scalpel')) {
-          if (!act(() => applyActivateRelic(c, pid), 'relic')) return rec
+        const relic = c.heroes[pi]!.relicIds.find(r =>
+          (r === 'r-bone-thread' || r === 'r-sainted-scalpel') && !s.flags[`relicUsed:${r}:${pi}`])
+        if (relic && s.tavern.length === 0 && s.discard.length >= 2) {
+          if (!act(() => applyActivateRelic(c, pid, undefined, relic), 'relic')) return rec
           break
         }
 
@@ -541,12 +830,18 @@ function runCampaign(
               const hasClub = o.idxs.some(i => hand[i]!.suit === 'C') && !immune
               return b * (hasClub ? 2 : 1)
             }))
-            if (c.spells.includes('s-keen-edge') && rawBest * 2 >= enemy.hp) {
+            // Burst discipline: a damage nuke is a scarce climax tool. Spend it
+            // only on a target worth it (a gate royal, or a Q/K on the road),
+            // and only when the multiplier is what lands the kill — never to
+            // overkill something a raw play already finishes. This stops the bot
+            // wasting Keen Edge on a road Jack and arriving at the gate empty.
+            const worthNuke = s.tier === 'boss' || enemy.card.rank === 'K' || enemy.card.rank === 'Q'
+            if (worthNuke && c.spells.includes('s-keen-edge') && rawBest < enemy.hp && rawBest * 2 >= enemy.hp) {
               if (!act(() => applyCastSpell(c, pid, 's-keen-edge'), 'keen-edge')) return rec
               break
             }
-            if (c.spells.includes('s-crownbreaker') && rawBest * 3 >= enemy.hp &&
-                (s.tier === 'boss' || enemy.card.rank === 'K' || p.spellEagerness > 0.7)) {
+            // Crownbreaker (×3) only when a double isn't enough but a triple is.
+            if (worthNuke && c.spells.includes('s-crownbreaker') && rawBest * 2 < enemy.hp && rawBest * 3 >= enemy.hp) {
               if (!act(() => applyCastSpell(c, pid, 's-crownbreaker'), 'crownbreaker')) return rec
               break
             }
@@ -578,8 +873,8 @@ function runCampaign(
               break
             }
           }
-          // gambler wager: arm when we predict a kill this turn
-          if (canKill && c.heroes[pi]!.classId === 'gambler' && !c.gamblerWagerUsed &&
+          // gambler wager: arm when we predict a kill this turn (per-encounter flag)
+          if (canKill && c.heroes[pi]!.classId === 'gambler' && !s.flags['gamblerWagerUsed'] &&
               s.wagerArmedBy === null && p.spellEagerness > 0.5) {
             if (!act(() => applyArmWager(c, pid), 'wager')) return rec
             break
@@ -642,18 +937,7 @@ function runCampaign(
           if (!act(() => beginReplacement(c, kingdom), 'begin-replacement')) return rec
           break
         }
-        // 2) activate up to 2 preps, best category fit first
-        if (c.preparations.length > 0 && c.activePreparations.length < 2) {
-          const p = personaOf(0)
-          const ranked = [...c.preparations].sort((a, b) => {
-            const ia = getItem(a), ib = getItem(b)
-            return (p.catPrefs[ib.category] + (ib.tier === 'rare' ? p.rarePref : 0)) -
-                   (p.catPrefs[ia.category] + (ia.tier === 'rare' ? p.rarePref : 0))
-          })
-          if (!act(() => applyActivatePreparation(c, HOST, ranked[0]!, HOST), 'prep')) return rec
-          break
-        }
-        // 3) exile a weak card if an Exile is in the party (max 3 per chapter)
+        // 2) exile a weak card if an Exile is in the party (max 3 per chapter)
         const exIdx = c.heroes.findIndex(h => h.alive && h.classId === 'exile')
         if (exIdx >= 0 && c.exiledCards.length < 3 &&
             (c as CampaignState & { exileCampFlag?: string }).exileCampFlag !== c.map!.currentNodeId) {
@@ -662,15 +946,6 @@ function runCampaign(
           // fall through if nothing to exile
         }
         if (!act(() => applyBreakCamp(c, HOST, HOST), 'break-camp')) return rec
-        break
-      }
-
-      case 'memory_draft': {
-        const d = c.memoryDraft!.drafts.find(dd => !dd.picked)!
-        const pid = c.heroes[d.heroIndex]!.playerId
-        const p = personaOf(d.heroIndex)
-        const pick = [...d.options].sort((a, b) => p.catPrefs[getItem(b).category] - p.catPrefs[getItem(a).category])[0]!
-        if (!act(() => applyMemoryPick(c, pid, pick, kingdom), 'memory')) return rec
         break
       }
 
@@ -687,6 +962,8 @@ function runCampaign(
 
   if (rec.result === 'stalled') rec.lossNodeKind = c.phase
   rec.chapterReached = c.chapter
+  if (c.map) rec.path = c.map.nodes.filter(n => n.visited).sort((a, b) => a.layer - b.layer).map(n => n.kind).join('>')
+  rec.itemsList = [...ownedSeen].join('|')
   if (c.chapter === 2 || rec.result === 'won') rec.beatCh1 = 1
   rec.deathsByPersona = [...deathTally.entries()].map(([k, v]) => `${k}:${v}`).join('|')
   rec.deathsByClass = [...classDeathTally.entries()].map(([k, v]) => `${k}:${v}`).join('|')
@@ -725,15 +1002,23 @@ function parseArgs() {
     // played by --persona (default steady). Overrides --counts/--lineups.
     classCombos: get('--classes', '').split(',').filter(Boolean).map(s => s.split('+') as ClassId[]),
     persona: get('--persona', 'steady'),
+    // forced-inclusion item test (THE-BAR M1): grant these item ids at start
+    grants: get('--grant', '').split(',').map(s => s.trim()).filter(Boolean),
     bossReshuffle: args.includes('--boss-reshuffle'),
     castleHearts: args.includes('--castle-hearts'),
     shortCastle: args.includes('--short-castle'),
     province: args.includes('--province'),
+    discardModel: get('--discard', 'pressure') as 'legacy' | 'pressure',
+    trace: args.includes('--trace'),   // write data/traces/bot-*.jsonl replays
+    // when set with --trace, only these exact seeds are traced (curate N runs)
+    traceOnly: get('--trace-only', '').split(',').map(s => s.trim()).filter(Boolean),
   }
 }
 
-const { seeds, classCombos, persona: personaFlag, bossReshuffle, castleHearts, shortCastle, province } = parseArgs()
+const { seeds, classCombos, persona: personaFlag, grants: GRANTS, bossReshuffle, castleHearts, shortCastle, province, discardModel: DISCARD_MODEL, trace: TRACE, traceOnly: TRACE_ONLY } = parseArgs()
 let { counts, lineups } = parseArgs()
+for (const gid of GRANTS) getItem(gid)   // fail fast on item-id typos
+if (GRANTS.length) console.log(`grants (forced inclusion): ${GRANTS.join(', ')}`)
 if (classCombos.length) {
   lineups = classCombos.map(cc => cc.join('+'))
   counts = [...new Set(classCombos.map(cc => cc.length))]
@@ -766,6 +1051,9 @@ function runBatch(lineupId: string, count: number, personas: Persona[], forcedCl
       unlockedChapters: [1, 2],
       unlockedClasses: ['sentinel', 'quartermaster', 'surgeon', 'executioner', 'commander', 'warden', 'gambler', 'exile', 'oracle'],
       specializationsUnlocked: true, campaignsWon: 0, heroesLost: 0,
+      // seed the ascending-deck item pools (the real store does this; without it
+      // no relics/spells are ever offered and item patterns vanish)
+      unlockedRelics: [...STARTING_RELICS], unlockedSpells: [...STARTING_SPELLS],
     }
     const runId = `r${++runCounter}`
     const seed = `sim-${lineupId}-${count}p-${si}`
@@ -780,15 +1068,23 @@ function runBatch(lineupId: string, count: number, personas: Persona[], forcedCl
   }
   const slice = runs.filter(r => r.playerCount === count && r.lineup === lineupId)
   const w = slice.filter(r => r.result === 'won').length
-  console.log(`${count}p ${lineupId.padEnd(8)} — ${w}/${slice.length} won (${pct(w, slice.length)})`)
+  const ex = slice.reduce((t, r) => t + r.exactKills, 0)
+  const ban = slice.reduce((t, r) => t + r.royalsBanished, 0)
+  const gates = slice.reduce((t, r) => t + r.gatesCleared, 0)
+  console.log(`${count}p ${lineupId.padEnd(20)} — ${w}/${slice.length} won (${pct(w, slice.length)}) · gates ${(gates / slice.length).toFixed(2)} · exacts/run ${(ex / slice.length).toFixed(1)} · banished/run ${(ban / slice.length).toFixed(1)}`)
 }
 
 try {
   if (classCombos.length) {
-    const p = PERSONAS[personaFlag]
-    if (!p) { console.error(`Unknown persona: ${personaFlag}`); process.exit(1) }
-    for (const combo of classCombos) {
-      runBatch(combo.join('+'), combo.length, combo.map(() => p), combo)
+    // class-isolation mode: --persona accepts a comma list — each persona
+    // plays every class combo (lineup id = persona:classes)
+    const personaIds = personaFlag.split(',').map(x => x.trim()).filter(Boolean)
+    for (const pid of personaIds) {
+      const p = PERSONAS[pid]
+      if (!p) { console.error(`Unknown persona: ${pid}`); process.exit(1) }
+      for (const combo of classCombos) {
+        runBatch(`${pid}:${combo.join('+')}`, combo.length, combo.map(() => p), combo)
+      }
     }
   } else {
     for (const count of counts) {
@@ -808,6 +1104,9 @@ try {
   if (kingdomBackup !== null) fs.writeFileSync(KINGDOM_FILE, kingdomBackup)
   else if (fs.existsSync(KINGDOM_FILE)) fs.unlinkSync(KINGDOM_FILE)
 }
+
+// include persona-prefixed lineup ids (class-isolation mode) in the summaries
+lineups = [...new Set(runs.map(r => r.lineup))]
 
 // ── Write outputs ────────────────────────────────────────────────────────────
 
@@ -858,7 +1157,7 @@ for (const lineupId of lineups) {
       reachedBoss2: rs.filter(r => r.reachedBoss2).length,
     }
   }
-  console.log(`  ${lineupId.padEnd(8)} ${row.join('  ')}`)
+  console.log(`  ${lineupId.padEnd(24)} ${row.join('  ')}`)
 }
 summary['byLineup'] = byLineup
 
@@ -870,8 +1169,67 @@ for (const lineupId of lineups) {
   const f2 = rs.filter(r => r.beatCh1).length
   const f3 = rs.filter(r => r.reachedBoss2).length
   const f4 = rs.filter(r => r.result === 'won').length
-  console.log(`  ${lineupId.padEnd(8)} ${pct(f1, rs.length).padStart(6)} → ${pct(f2, rs.length).padStart(6)} → ${pct(f3, rs.length).padStart(6)} → ${pct(f4, rs.length).padStart(6)}`)
+  console.log(`  ${lineupId.padEnd(24)} ${pct(f1, rs.length).padStart(6)} → ${pct(f2, rs.length).padStart(6)} → ${pct(f3, rs.length).padStart(6)} → ${pct(f4, rs.length).padStart(6)}`)
 }
+
+console.log('\nRecruit economy by lineup (road kills: exact = recruit, overkill = banish):')
+const byEconomy: Record<string, unknown> = {}
+for (const lineupId of lineups) {
+  const rs = runs.filter(r => r.lineup === lineupId)
+  if (!rs.length) continue
+  const roadEncs = encs.filter(e => e.lineup === lineupId && e.tier !== 'boss')
+  const ex = roadEncs.reduce((t, e) => t + e.exactKills, 0)
+  const ban = roadEncs.reduce((t, e) => t + e.banished, 0)
+  const rate = ex + ban > 0 ? ex / (ex + ban) : 0
+  byEconomy[lineupId] = { roadExacts: ex, roadBanished: ban, exactRate: rate }
+  console.log(`  ${lineupId.padEnd(24)} road exacts ${String(ex).padStart(4)} · banished ${String(ban).padStart(4)} · exact rate ${(rate * 100).toFixed(1)}%`)
+}
+summary['recruitEconomy'] = byEconomy
+
+// ── Fork analysis (province): the map's exclusive same-layer choices are
+// natural experiments — every run takes exactly one node per layer.
+// Pooled across personas (route choice is persona-biased; per-persona splits
+// live in runs.csv), so read relative gaps, not absolutes.
+if (province) {
+  console.log('\nFork analysis — outcome by which node the run took at each branching stop:')
+  const withPath = runs.filter(r => r.path)
+  const maxLen = Math.max(0, ...withPath.map(r => r.path.split('>').length))
+  const forks: Record<string, unknown> = {}
+  for (let li = 0; li < maxLen; li++) {
+    const kindsAt = new Set(withPath.map(r => r.path.split('>')[li]).filter(Boolean))
+    if (kindsAt.size < 2) continue
+    console.log(`  stop ${li}:`)
+    for (const kind of [...kindsAt].sort()) {
+      const rs = withPath.filter(r => r.path.split('>')[li] === kind)
+      const w = rs.filter(r => r.result === 'won').length
+      const gates = rs.reduce((t, r) => t + r.gatesCleared, 0) / rs.length
+      const thr = rs.filter(r => r.deckAtThrone > 0)
+      const dk = thr.length ? thr.reduce((t, r) => t + r.deckAtThrone, 0) / thr.length : 0
+      const ry = thr.length ? thr.reduce((t, r) => t + r.royalsAtThrone, 0) / thr.length : 0
+      forks[`stop${li}:${kind}`] = { n: rs.length, wins: w, avgGates: gates, reachedThrone: thr.length, avgDeckAtThrone: dk, avgRoyalsAtThrone: ry }
+      console.log(`    ${kind.padEnd(9)} n=${String(rs.length).padStart(4)}  won ${pct(w, rs.length).padStart(6)}  gates ${gates.toFixed(2)}  reach-throne ${pct(thr.length, rs.length).padStart(6)}  deck@throne ${dk.toFixed(0)} (${ry.toFixed(1)} royals)`)
+    }
+  }
+  summary['forks'] = forks
+}
+
+// Observational item table — survivors collect more items, so this is biased
+// upward for late-game pickups. Read the extremes and confirm with --grant.
+console.log('\nItem table (observational; confirm causally with --grant):')
+const itemStats: Record<string, { n: number; wins: number; gates: number }> = {}
+for (const r of runs) {
+  for (const id of r.itemsList.split('|').filter(Boolean)) {
+    const m = (itemStats[id] ??= { n: 0, wins: 0, gates: 0 })
+    m.n++
+    m.gates += r.gatesCleared
+    if (r.result === 'won') m.wins++
+  }
+}
+const itemRows = Object.entries(itemStats).filter(([, m]) => m.n >= 15)
+  .sort((a, b) => b[1].wins / b[1].n - a[1].wins / a[1].n)
+for (const [id, m] of itemRows)
+  console.log(`  ${id.padEnd(22)} n=${String(m.n).padStart(4)}  won ${pct(m.wins, m.n).padStart(6)}  avg gates ${(m.gates / m.n).toFixed(2)}`)
+summary['itemTable'] = itemStats
 
 console.log('\nDeaths per persona slot (mixed lineups — who dies in a diverse party):')
 const mixedDeaths: Record<string, number> = {}

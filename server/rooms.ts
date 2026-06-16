@@ -1,12 +1,46 @@
 import type { GameState, ClientGameState, RoomInfo } from './types'
 import { createGame, applyPlayCards, applyDiscard, applyYield, applyChooseNext } from './game'
 import { handSize } from './deck'
+import { appendHumanRun } from './human-runs'
+
+interface QuickStats {
+  startedAt: string
+  turns: number      // play/yield actions taken
+  jesters: number
+  yields: number
+  recorded: boolean
+}
 
 interface Room {
   code: string
   hostId: string
   players: { id: string; name: string; ready: boolean }[]
   state: GameState | null
+  stats: QuickStats | null
+}
+
+// human-run telemetry: one CSV row per finished (or abandoned) quick game,
+// comparable against scripts/sim-base.ts bot data
+function recordQuickEnd(room: Room, resultOverride?: 'abandoned') {
+  const g = room.state
+  const st = room.stats
+  if (!g || !st || st.recorded) return
+  const result = resultOverride ?? (g.phase === 'won' ? 'won' : g.phase === 'lost' ? 'lost' : null)
+  if (!result) return
+  st.recorded = true
+  const defeated = 12 - g.enemyDeck.length - (g.currentEnemy ? 1 : 0)
+  appendHumanRun('quick', {
+    playerCount: g.players.length,
+    players: g.players.map(p => p.name).join('+'),
+    result,
+    defeated,
+    exactKills: defeated - g.defeatedEnemies.length,
+    jesters: st.jesters,
+    yields: st.yields,
+    turns: st.turns,
+    startedAt: st.startedAt,
+    endedAt: new Date().toISOString(),
+  })
 }
 
 const rooms = new Map<string, Room>()
@@ -48,7 +82,7 @@ export function buildClientState(state: GameState, forPlayerId: string): ClientG
 
 export function createRoom(hostId: string, hostName: string): RoomInfo {
   const code = genCode()
-  rooms.set(code, { code, hostId, players: [{ id: hostId, name: hostName, ready: false }], state: null })
+  rooms.set(code, { code, hostId, players: [{ id: hostId, name: hostName, ready: false }], state: null, stats: null })
   return roomInfo(code)!
 }
 
@@ -75,6 +109,7 @@ export function startGame(code: string, requesterId: string): { states?: Map<str
   if (!room) return { error: 'Room not found.' }
   if (room.hostId !== requesterId) return { error: 'Only the host can start.' }
   room.state = createGame(room.players.map(p => ({ id: p.id, name: p.name })))
+  room.stats = { startedAt: new Date().toISOString(), turns: 0, jesters: 0, yields: 0, recorded: false }
   return { states: buildAllStates(room) }
 }
 
@@ -82,9 +117,15 @@ export function playCards(code: string, playerId: string, cardIndices: number[])
   const room = rooms.get(code)
   if (!room?.state) return { error: 'No active game.' }
   const pi = room.state.players.findIndex(p => p.id === playerId)
+  const jester = cardIndices.some(i => room.state!.players[pi]?.hand[i]?.rank === 'Jo')
   const result = applyPlayCards(room.state, pi, cardIndices)
   if (result.error) return { error: result.error }
   room.state = result.state
+  if (room.stats) {
+    room.stats.turns++
+    if (jester) room.stats.jesters++
+  }
+  recordQuickEnd(room)
   return { states: buildAllStates(room) }
 }
 
@@ -95,6 +136,7 @@ export function discardDamage(code: string, playerId: string, cardIndices: numbe
   const result = applyDiscard(room.state, pi, cardIndices)
   if (result.error) return { error: result.error }
   room.state = result.state
+  recordQuickEnd(room)
   return { states: buildAllStates(room) }
 }
 
@@ -105,6 +147,11 @@ export function yieldTurn(code: string, playerId: string): { states?: Map<string
   const result = applyYield(room.state, pi)
   if (result.error) return { error: result.error }
   room.state = result.state
+  if (room.stats) {
+    room.stats.turns++
+    room.stats.yields++
+  }
+  recordQuickEnd(room)
   return { states: buildAllStates(room) }
 }
 
@@ -115,13 +162,16 @@ export function chooseNext(code: string, playerId: string, targetIndex: number):
   const result = applyChooseNext(room.state, pi, targetIndex)
   if (result.error) return { error: result.error }
   room.state = result.state
+  recordQuickEnd(room)
   return { states: buildAllStates(room) }
 }
 
 export function restartGame(code: string): { room?: RoomInfo; error?: string } {
   const room = rooms.get(code)
   if (!room) return { error: 'Room not found.' }
+  if (room.state?.phase === 'playing') recordQuickEnd(room, 'abandoned')
   room.state = null
+  room.stats = null
   for (const p of room.players) p.ready = false
   return { room: roomInfo(code)! }
 }

@@ -1,22 +1,35 @@
 import { createRng, hashSeed } from '../rng'
+import type { Suit, Card } from '../types'
+import { suitSymbol, cardValue } from '../deck'
 import type {
   CampaignState, ClassId, ClientCampaignState, ClientHero, ClientRoadNode,
-  Hero, KingdomState, NodeKind, PendingChoice,
+  Hero, KingdomState, NodeKind, PendingChoice, Token,
 } from './types'
-import { CLASSES, TIER1_CLASSES, STARTING_CLASSES, getItem, itemsOf, MEMORY_POOL, ACTIVE_PREP_CAP, getEncounterDef, BOSS_MODIFIERS } from './content'
+import { CLASSES, TIER1_CLASSES, STARTING_CLASSES, getItem, itemsOf, RELIC_SLOTS, getEncounterDef, BOSS_MODIFIERS, FORGEABLE_TOKEN_IDS, C_TIER_TOKEN_IDS, getTokenDef, RELIC_UNLOCK_ORDER, SPELL_UNLOCK_ORDER } from './content'
+import { stampToken, projectCardTokens, MAX_TOKENS_PER_CARD } from './tokens'
 import { buildMap } from './maps'
 import {
   startEncounter, maxHandSize, setupChapterDeck, campRest, dealReplacementHand,
-  computeBoosts,
+  computeBoosts, RECRUIT_RANKS_BY_CHAPTER,
 } from './encounter'
 import { loadKingdom, saveKingdom, saveCampaign, appendGameLog } from './store'
 import { EXPERIMENTS } from './experiments'
 import { RUN_EVENTS } from './events'
 
+// ── Continent helpers (ascending-deck) ───────────────────────────────────────
+
+/** Returns the continent number for a given chapter (ch 1-3 → C1, ch 4-6 → C2, …). */
+export function continentOf(chapter: number): number {
+  return Math.ceil(chapter / 3)
+}
+
 // item pool with party-size gating: relics that need bodies to matter are
 // skipped at low counts (Signal Whistle is dead weight under 3 players)
-function itemPool(c: CampaignState, kind: 'relic' | 'spell' | 'preparation' | 'memory', tier?: 'standard' | 'rare') {
-  return itemsOf(kind, tier).filter(i => !(i.id === 'r-signal-whistle' && c.heroes.length < 3))
+function itemPool(c: CampaignState, kind: 'relic' | 'spell', tier?: 'standard' | 'rare') {
+  // Gated by the run's unlocked pool (snapshotted from the Kingdom at creation).
+  // Falls back to all items if the snapshot is absent (legacy saves / non-ascending).
+  const unlocked = kind === 'relic' ? c.unlockedRelics : c.unlockedSpells
+  return itemsOf(kind, tier).filter(i => !unlocked || unlocked.includes(i.id))
 }
 
 let _evUid = 50000
@@ -37,16 +50,17 @@ function rng(c: CampaignState) {
 
 export function createCampaign(
   players: { id: string; name: string }[],
-  chapter: 1 | 2,
+  chapter: number,
   seed: string | undefined,
   kingdom: KingdomState,
+  runName?: string,
 ): { campaign?: CampaignState; error?: string } {
   if (players.length < 1 || players.length > 4) return { error: 'Campaign supports 1-4 players.' }
   if (!kingdom.unlockedChapters.includes(chapter)) return { error: `Chapter ${chapter} is not unlocked.` }
   const realSeed = seed?.trim() || Math.random().toString(36).slice(2, 10)
   const c: CampaignState = {
     id: `camp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-    name: `${players[0]!.name}'s lineage`,
+    name: runName?.trim().slice(0, 60) || `${players[0]!.name}'s lineage`,
     seed: realSeed,
     rngState: hashSeed(realSeed),
     createdAt: new Date().toISOString(),
@@ -54,14 +68,12 @@ export function createCampaign(
     chapter,
     heroes: players.map(p => ({
       playerId: p.id, playerName: p.name, classId: 'sentinel' as ClassId,
-      alive: true, memories: [], relicId: null,
+      alive: true, relicIds: [],
     })),
     map: null,
     encounter: null,
     deck: null,
     spells: [],
-    preparations: [],
-    activePreparations: [],
     exiledCards: [],
     exileBurden: 0,
     wardenDefiantUsed: false,
@@ -71,10 +83,13 @@ export function createCampaign(
     shrineBlessing: false,
     pendingChoice: null,
     deathVote: null,
-    memoryDraft: null,
     classPicks: Object.fromEntries(players.map(p => [p.id, null])),
     log: [],
     debug: {},
+    // snapshot the Kingdom's unlocked item pools for this run (meta: grows on death)
+    unlockedRelics: [...(kingdom.unlockedRelics ?? [])],
+    unlockedSpells: [...(kingdom.unlockedSpells ?? [])],
+    itemStopsThisChapter: 0,
   }
   clog(c, `🏰 A new lineage sets out. Seed: ${realSeed}. Chapter ${chapter}.`)
   clog(c, '⚔️ Choose your heroes — the campaign starts with the core roster.')
@@ -97,17 +112,8 @@ export function applyClassPick(c: CampaignState, playerId: string, classId: Clas
   if (Object.values(c.classPicks).every(v => v !== null)) {
     const { r, done } = rng(c)
     c.map = buildMap(c.chapter, r)
-    // small-company provisions (balance-testing): at 1-2 players each hero
-    // starts with a standard relic to close the party-CT gap vs 4 players
-    if (c.heroes.length <= 2) {
-      for (const h of c.heroes) {
-        const pool = itemPool(c, 'relic', 'standard').filter(i => !c.heroes.some(o => o.relicId === i.id))
-        if (pool.length) {
-          h.relicId = r.pick(pool).id
-          clog(c, `🏺 Small company provisions: ${h.playerName} sets out with ${getItem(h.relicId).name}.`)
-        }
-      }
-    }
+    // No starting relic (canon 2026-06-15): every relic must be purposefully
+    // bought (Caravan) or won (Lair / gate spoils). Heroes set out bare.
     done()
     setupChapterDeck(c)
     c.phase = 'road'
@@ -166,6 +172,7 @@ function labelOf(kind: NodeKind): string {
   return {
     start: 'the trailhead', camp: 'a camp', boss: 'the castle gates',
     skirmish: 'a skirmish', veteran: 'a veteran patrol', elite: 'an elite warband',
+    recruit: 'a recruit encounter', draft: 'a draft',
     forge: 'the Forge', abbey: 'the Abbey', market: 'the Market',
     tower: 'the Tower', shrine: 'the Shrine', lair: 'a Lair',
     event: 'a strange happening',
@@ -178,23 +185,47 @@ function resolveNode(c: CampaignState, nodeId: string, kind: NodeKind) {
       startEncounter(c, nodeId, kind)
       c.phase = 'encounter'
       break
+    case 'recruit':
+      // Continent-1: fight number-card enemies that can be recruited on exact kill
+      startEncounter(c, nodeId, 'skirmish', { isRecruit: true })
+      c.phase = 'encounter'
+      break
     case 'lair':
       clog(c, '🕸 The Lair: an elite gate guards a rare prize.')
       startEncounter(c, nodeId, 'elite', { isLair: true })
       c.phase = 'encounter'
       break
-    case 'boss':
-      startEncounter(c, nodeId, 'boss')
+    case 'boss': {
+      // Council of Tens: ascending-deck mode, chapter 3 (continent 1 finale)
+      const isCouncil = EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 1 && c.chapter === 3
+      if (isCouncil) {
+        clog(c, '⚔️ THE COUNCIL OF TENS awaits. All four 10s block the ascent.')
+        startEncounter(c, nodeId, 'boss', { isCouncil: true })
+      } else {
+        startEncounter(c, nodeId, 'boss')
+      }
       c.phase = 'encounter'
       break
+    }
     case 'camp':
       c.phase = 'camp'
       campRest(c)   // reset canon: rests reshuffle the deck and redraw hands
       clog(c, '🏕 The party makes camp. Plan, prepare, recover.')
       break
-    case 'forge': offerItems(c, 'relic', 'standard', 2, 'The Forge offers its work — choose a relic.'); break
-    case 'abbey': offerItems(c, 'spell', 'standard', 2, 'The Abbey shares its rites — choose a spell.'); break
-    case 'market': offerItems(c, 'preparation', 'standard', 3, 'The Market trades in readiness — choose a preparation.'); break
+    case 'draft': offerDraft(c); break
+    case 'forge':
+      // Ascending-deck: the Forge stamps TOKENS (offer-menu). Otherwise: a relic.
+      if (EXPERIMENTS.ascendingDeck) offerForge(c)
+      else offerItems(c, 'relic', 'standard', 2, 'The Forge offers its work — choose a relic.')
+      break
+    case 'abbey':
+      if (EXPERIMENTS.ascendingDeck) offerSanctum(c)
+      else offerItems(c, 'spell', 'standard', 2, 'The Abbey shares its rites — choose a spell.')
+      break
+    case 'market':
+      if (EXPERIMENTS.ascendingDeck) offerCaravan(c)
+      else offerItems(c, 'spell', 'standard', 3, 'The Market trades in readiness — choose a spell.')
+      break
     case 'tower': {
       c.phase = 'landmark'
       c.pendingChoice = {
@@ -210,6 +241,7 @@ function resolveNode(c: CampaignState, nodeId: string, kind: NodeKind) {
       break
     }
     case 'shrine':
+      if (EXPERIMENTS.ascendingDeck) { offerShrine(c); break }
       c.shrineBlessing = true
       clog(c, '⛩ The Shrine blesses the party: next encounter, everyone draws 1 and the hand cap is raised by 1.')
       c.phase = 'road'
@@ -238,9 +270,9 @@ function rewardBonus(c: CampaignState): number {
   return c.heroes.length <= 2 ? 1 : 0
 }
 
-function offerItems(c: CampaignState, kind: 'relic' | 'spell' | 'preparation', tier: 'standard' | 'rare', n: number, prompt: string) {
+function offerItems(c: CampaignState, kind: 'relic' | 'spell', tier: 'standard' | 'rare', n: number, prompt: string) {
   const { r, done } = rng(c)
-  const owned = new Set([...c.spells, ...c.preparations, ...c.heroes.map(h => h.relicId).filter(Boolean) as string[]])
+  const owned = new Set([...c.spells, ...c.heroes.flatMap(h => h.relicIds)])
   let pool = itemPool(c, kind, tier).filter(i => !owned.has(i.id))
   if (c.debug.forceNextRewardId) {
     pool = [getItem(c.debug.forceNextRewardId)]
@@ -253,6 +285,333 @@ function offerItems(c: CampaignState, kind: 'relic' | 'spell' | 'preparation', t
   c.pendingChoice = {
     kind: 'landmark_reward', forPlayerId: null, prompt,
     options: options.map(i => ({ id: i.id, label: `${i.name}${i.tier === 'rare' ? ' ★' : ''}`, detail: i.text })),
+  }
+}
+
+// ── Ascending-deck item economy (relics/spells from specific places) ─────────
+// Relics from the Caravan + important battles; spells from the Sanctum. Both
+// draw from the run's unlocked pool. A per-chapter cap keeps item stops to 2-3.
+
+const ITEM_STOPS_PER_CHAPTER = 3
+
+/** True (and counts) if another relic/spell stop is allowed this chapter. */
+function consumeItemStop(c: CampaignState): boolean {
+  const n = c.itemStopsThisChapter ?? 0
+  if (n >= ITEM_STOPS_PER_CHAPTER) return false
+  c.itemStopsThisChapter = n + 1
+  return true
+}
+
+/** Logical card ids carrying a curse (a token with negative spend or hold). */
+function cursedCardIds(c: CampaignState): string[] {
+  const out: string[] = []
+  for (const [id, list] of Object.entries(c.cardTokens ?? {})) {
+    if (list.some(t => { const d = getTokenDef(t.defId); return !!d && ((d.spend ?? 0) < 0 || (d.hold ?? 0) < 0) })) out.push(id)
+  }
+  return out
+}
+
+// The Caravan — relics: buy 1 of 2, or a dark deal (curse 3 cards → a rare).
+function offerCaravan(c: CampaignState) {
+  if (!consumeItemStop(c)) {
+    c.tokenBudget = (c.tokenBudget ?? 0) + 1
+    clog(c, '🐫 The Caravan has moved on — you salvage a measure of forge budget instead.')
+    c.phase = 'road'; autoAdvanceAfterGate(c); return
+  }
+  const { r, done } = rng(c)
+  const ownedR = new Set(c.heroes.flatMap(h => h.relicIds))
+  const std = r.shuffle(itemPool(c, 'relic', 'standard').filter(i => !ownedR.has(i.id))).slice(0, 2)
+  done()
+  const options = std.map(i => ({ id: i.id, label: i.name, detail: i.text }))
+  const rares = itemPool(c, 'relic', 'rare').filter(i => !ownedR.has(i.id))
+  if (rares.length && eligibleForgeCards(c).length >= 3)
+    options.push({ id: 'caravan:darkdeal', label: '🖤 Dark deal — curse 3 cards for a RARE relic', detail: 'Stamps −1 (Undercut) on three of your cards, then grants a rare relic.' })
+  if (options.length === 0) { clog(c, '🐫 The Caravan has nothing you lack.'); c.phase = 'road'; autoAdvanceAfterGate(c); return }
+  c.phase = 'landmark'
+  c.pendingChoice = { kind: 'landmark_reward', forPlayerId: null, prompt: '🐫 The Caravan — take one relic, or strike a dark deal.', options }
+}
+
+function applyCaravanDarkDeal(c: CampaignState): { error?: string } {
+  const { r, done } = rng(c)
+  const ownedR = new Set(c.heroes.flatMap(h => h.relicIds))
+  const rare = r.shuffle(itemPool(c, 'relic', 'rare').filter(i => !ownedR.has(i.id)))[0]
+  const targets = r.shuffle(eligibleForgeCards(c)).slice(0, 3)
+  done()
+  if (!rare) { c.pendingChoice = null; c.phase = 'road'; autoAdvanceAfterGate(c); return {} }
+  for (const id of targets) stampToken(c, id, { defId: 'undercut' })
+  clog(c, `🖤 Dark deal struck — ${targets.map(cardLabelFromId).join(', ')} cursed (−1) for ${getItem(rare.id).name}.`)
+  c.pendingChoice = null
+  if (grantItem(c, rare.id)) return {}   // relic slots full → release choice awaits
+  c.phase = 'road'; autoAdvanceAfterGate(c); return {}
+}
+
+// The Sanctum — spells: take 1 of 2, or a rite (spend the top 2 of your deck → rare).
+function offerSanctum(c: CampaignState) {
+  if (!consumeItemStop(c)) {
+    c.tokenBudget = (c.tokenBudget ?? 0) + 1
+    clog(c, '✨ The Sanctum is spent — you draw a measure of forge budget from its embers.')
+    c.phase = 'road'; autoAdvanceAfterGate(c); return
+  }
+  const { r, done } = rng(c)
+  const owned = new Set(c.spells)
+  const std = r.shuffle(itemPool(c, 'spell', 'standard').filter(i => !owned.has(i.id))).slice(0, 2)
+  done()
+  const options = std.map(i => ({ id: i.id, label: i.name, detail: i.text }))
+  const rares = itemPool(c, 'spell', 'rare').filter(i => !owned.has(i.id))
+  if (rares.length && (c.deck?.tavern.length ?? 0) >= 2)
+    options.push({ id: 'sanctum:rite', label: '✨ Rite — spend the top 2 of your deck for a RARE spell', detail: 'Sends 2 Tavern cards to the discard, then grants a rare spell.' })
+  if (options.length === 0) { clog(c, '✨ The Sanctum has nothing you lack.'); c.phase = 'road'; autoAdvanceAfterGate(c); return }
+  c.phase = 'landmark'
+  c.pendingChoice = { kind: 'landmark_reward', forPlayerId: null, prompt: '✨ The Sanctum — take one spell, or pay the rite.', options }
+}
+
+function applySanctumRite(c: CampaignState): { error?: string } {
+  const { r, done } = rng(c)
+  const owned = new Set(c.spells)
+  const rare = r.shuffle(itemPool(c, 'spell', 'rare').filter(i => !owned.has(i.id)))[0]
+  done()
+  if (!rare) { c.pendingChoice = null; c.phase = 'road'; autoAdvanceAfterGate(c); return {} }
+  const deck = c.deck
+  if (deck) { const paid = deck.tavern.splice(Math.max(0, deck.tavern.length - 2), 2); deck.discard.push(...paid) }
+  clog(c, `✨ The rite is paid (top 2 of your deck) — you gain ${getItem(rare.id).name}.`)
+  c.pendingChoice = null
+  grantItem(c, rare.id)   // spells never trigger a slot-full choice
+  c.phase = 'road'; autoAdvanceAfterGate(c); return {}
+}
+
+// The Shrine — cleanse a curse (or, with none, the old blessing).
+function offerShrine(c: CampaignState) {
+  const cursed = cursedCardIds(c)
+  if (cursed.length === 0) {
+    c.shrineBlessing = true
+    clog(c, '⛩ The Shrine blesses the party: next encounter everyone draws 1 and the hand cap is +1.')
+    c.phase = 'road'; autoAdvanceAfterGate(c); return
+  }
+  c.phase = 'landmark'
+  c.pendingChoice = {
+    kind: 'landmark_reward', forPlayerId: null,
+    prompt: '⛩ The Shrine — lift a curse from one of your cards.',
+    options: cursed.map(id => ({ id: `shrine:cleanse:${id}`, label: `Cleanse ${cardLabelFromId(id)}`, detail: 'Removes one −1 curse.' })),
+  }
+}
+
+function applyShrineCleanse(c: CampaignState, cardId: string): { error?: string } {
+  const list = c.cardTokens?.[cardId]
+  if (list) {
+    const idx = list.findIndex(t => { const d = getTokenDef(t.defId); return !!d && ((d.spend ?? 0) < 0 || (d.hold ?? 0) < 0) })
+    if (idx >= 0) { list.splice(idx, 1); if (list.length === 0) delete c.cardTokens![cardId] }
+  }
+  clog(c, `⛩ The Shrine lifts a curse from ${cardLabelFromId(cardId)}.`)
+  c.pendingChoice = null
+  c.phase = 'road'; autoAdvanceAfterGate(c); return {}
+}
+
+// ── Ascending-deck forge (Step 5) — stamp tokens on cards ────────────────────
+// Offer-menu model: a forge node contributes +1 budget, then offers tokens to
+// stamp; each stamp spends 1 budget. Earned budget (backfill redundancy, Council,
+// Bloodprice) is spent here too. Two-step pick: choose a token → choose a card.
+
+function cardLabelFromId(id: string): string {
+  const suit = id[0]!
+  const rank = id.slice(1)
+  return `${rank}${suitSymbol(suit as Suit)}`
+}
+
+/** Logical card ids in the persistent deck that can still take a token. */
+function eligibleForgeCards(c: CampaignState): string[] {
+  const deck = c.deck
+  if (!deck) return []
+  const ids = new Set<string>()
+  for (const card of [...deck.tavern, ...deck.discard, ...deck.hands.flat()]) {
+    if (card.rank === 'Jo') continue
+    const id = `${card.suit}${card.rank}`
+    if ((c.cardTokens?.[id]?.length ?? 0) < MAX_TOKENS_PER_CARD) ids.add(id)
+  }
+  return [...ids].sort()
+}
+
+function tokenSummary(c: CampaignState, cardId: string): string | undefined {
+  const list = c.cardTokens?.[cardId]
+  if (!list?.length) return undefined
+  return list.map(t => getTokenDef(t.defId)?.short ?? t.defId).join(' ')
+}
+
+function offerForge(c: CampaignState) {
+  c.tokenBudget = (c.tokenBudget ?? 0) + 1   // the forge's own contribution
+  clog(c, '⚒️ The Forge fires up — stamp tokens onto your cards.')
+  presentForgeTokens(c)
+}
+
+function presentForgeTokens(c: CampaignState) {
+  const budget = c.tokenBudget ?? 0
+  if (budget <= 0 || eligibleForgeCards(c).length === 0) {
+    if (budget > 0) clog(c, '⚒️ No cards can take more tokens right now.')
+    c.pendingChoice = null
+    c.phase = 'road'
+    autoAdvanceAfterGate(c)
+    return
+  }
+  const { r, done } = rng(c)
+  const ids = r.shuffle([...FORGEABLE_TOKEN_IDS]).slice(0, 3)
+  const options = ids.map(id => {
+    const d = getTokenDef(id)!
+    if (d.needsSuit) {
+      const suit = r.pick(['C', 'D', 'H', 'S'] as Suit[])
+      return { id: `forge:${id}:${suit}`, label: `${d.name} ${suitSymbol(suit)}`, detail: d.text }
+    }
+    return { id: `forge:${id}`, label: d.name, detail: d.text }
+  })
+  done()
+  options.push({ id: 'forge:done', label: 'Leave the forge', detail: `Keep ${budget} budget for later.` })
+  c.phase = 'landmark'
+  c.pendingChoice = {
+    kind: 'forge_token', forPlayerId: null,
+    prompt: `The Forge offers its work (budget: ${budget}). Choose a token to stamp.`,
+    options,
+  }
+}
+
+// Fragment track (Continent 1): spend 2 token fragments to apply a weak C-tier
+// token, triggerable any time the player is on the road. Reuses the forge_token
+// → forge_card two-step, flagged `fragmentApply` so it spends fragments (not the
+// Forge budget) and returns to the road instead of looping the forge menu.
+export function applyFragmentStart(c: CampaignState, _playerId: string, _hostId: string): { error?: string } {
+  if (!EXPERIMENTS.ascendingDeck) return { error: 'Fragments are an ascending-deck feature.' }
+  if (c.phase !== 'road') return { error: 'Apply fragment tokens from the road.' }
+  if (c.pendingChoice) return { error: 'Resolve the current choice first.' }
+  if ((c.tokenFragments ?? 0) < 2) return { error: 'Collect 2 fragments to apply a token.' }
+  if (eligibleForgeCards(c).length === 0) return { error: 'No card can take another token.' }
+  c.phase = 'landmark'
+  c.pendingChoice = {
+    kind: 'forge_token', forPlayerId: null, fragmentApply: true, returnTo: 'road',
+    prompt: `Apply a token fragment (${c.tokenFragments} held). Choose a C-tier token to stamp.`,
+    options: [
+      ...C_TIER_TOKEN_IDS.map(id => { const d = getTokenDef(id)!; return { id: `forge:${id}`, label: d.name, detail: d.text } }),
+      { id: 'forge:done', label: 'Not now', detail: 'Keep your fragments for later.' },
+    ],
+  }
+  return {}
+}
+
+function applyForgeToken(c: CampaignState, optionId: string): { error?: string } {
+  const fragmentApply = !!c.pendingChoice?.fragmentApply
+  const returnTo = c.pendingChoice?.returnTo
+  if (optionId === 'forge:done') {
+    c.pendingChoice = null
+    c.phase = fragmentApply ? (returnTo ?? 'road') : 'road'
+    if (!fragmentApply) autoAdvanceAfterGate(c)
+    return {}
+  }
+  const [, defId, suit] = optionId.split(':')
+  if (!defId || !getTokenDef(defId)) return { error: 'Unknown token.' }
+  if (fragmentApply && !C_TIER_TOKEN_IDS.includes(defId)) return { error: 'Fragments apply only C-tier tokens.' }
+  const token: Token = suit ? { defId, suit } : { defId }
+  const cards = eligibleForgeCards(c)
+  if (cards.length === 0) { if (fragmentApply) { c.pendingChoice = null; c.phase = returnTo ?? 'road' } else presentForgeTokens(c); return {} }
+  const d = getTokenDef(defId)!
+  c.pendingChoice = {
+    kind: 'forge_card', forPlayerId: c.pendingChoice?.forPlayerId ?? null, forgeToken: token,
+    fragmentApply, returnTo,
+    prompt: `Stamp ${d.name}${suit ? ' ' + suitSymbol(suit as Suit) : ''} on which card?`,
+    options: cards.map(id => ({ id, label: cardLabelFromId(id), detail: tokenSummary(c, id) })),
+  }
+  return {}
+}
+
+function applyForgeCard(c: CampaignState, optionId: string, token: Token): { error?: string } {
+  const fragmentApply = !!c.pendingChoice?.fragmentApply
+  const returnTo = c.pendingChoice?.returnTo
+  const err = stampToken(c, optionId, token)
+  if (err) return { error: err }
+  const d = getTokenDef(token.defId)!
+  if (fragmentApply) {
+    c.tokenFragments = Math.max(0, (c.tokenFragments ?? 0) - 2)
+    clog(c, `   ✦ Applied ${d.name} onto ${cardLabelFromId(optionId)} (2 fragments spent).`)
+    c.pendingChoice = null
+    c.phase = returnTo ?? 'road'
+    return {}
+  }
+  c.tokenBudget = Math.max(0, (c.tokenBudget ?? 0) - 1)
+  clog(c, `   ✒ Forged ${d.name}${token.suit ? ' ' + suitSymbol(token.suit as Suit) : ''} onto ${cardLabelFromId(optionId)}.`)
+  presentForgeTokens(c)   // offer again while budget remains, else leave the forge
+  return {}
+}
+
+// ── Ascending-deck drafts (Step 6) — steer the early deck ────────────────────
+// A draft is a solo per-hero pick (forPlayerId-scoped, so it bypasses the
+// casino tie-break). Each option bundles an unowned tier card with an immediate
+// tempo burst (draw-N-now) — per the locked offer rule, a bare backfill-able
+// card never stands alone; it must carry something unobtainable elsewhere, and
+// unrepeatable tempo is that thing. (Token / dual-type / forge-exile draft
+// archetypes depend on the Step-5 token economy and are intentionally deferred.)
+const DRAFT_TEMPO = 3
+let _dftUid = 70000
+const dftUid = () => `dft${++_dftUid}`
+
+function offerDraft(c: CampaignState) {
+  // Drafts are a Continent-1 deck-steering tool. Outside Continent 1 (or with
+  // the flag off) the node degrades to a market so the road never spins.
+  if (!(EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 1)) {
+    offerItems(c, 'spell', 'standard', 3, 'The caravan trades in readiness — choose a spell.')
+    return
+  }
+  const tierRanks = RECRUIT_RANKS_BY_CHAPTER[c.chapter] ?? ['6', '7']
+  const suits: Suit[] = ['C', 'D', 'H', 'S']
+  const owned = new Set(c.ownedCards ?? [])
+  const unowned: { suit: Suit; rank: string }[] = []
+  for (const rank of tierRanks)
+    for (const suit of suits)
+      if (!owned.has(`${suit}${rank}`)) unowned.push({ suit, rank })
+
+  const { r, done } = rng(c)
+  const pool = r.shuffle(unowned)
+  done()
+
+  const cardOption = (card: { suit: Suit; rank: string }) => ({
+    id: `draft:${card.suit}${card.rank}:${DRAFT_TEMPO}`,
+    label: `${card.rank}${suitSymbol(card.suit)} + draw ${DRAFT_TEMPO}`,
+    detail: `Recruit ${card.rank}${suitSymbol(card.suit)} into your deck now and immediately draw ${DRAFT_TEMPO}.`,
+  })
+  const plainCardOption = (card: { suit: Suit; rank: string }) => ({
+    id: `draft:${card.suit}${card.rank}:0`,
+    label: `${card.rank}${suitSymbol(card.suit)} (just the card)`,
+    detail: `Recruit ${card.rank}${suitSymbol(card.suit)} into your deck. No tempo rider — a clean add.`,
+  })
+  const tempoOption = (n: number) => ({
+    id: `draft:tempo:${n}`,
+    label: `Draw ${n} now`,
+    detail: `Pure tempo — immediately draw ${n} cards. Nothing joins the deck.`,
+  })
+  // Graft archetype (needs Step-5 tokens): add a 2nd suit to one of your cards.
+  const graftOption = () => {
+    const suit = r.pick(suits)
+    return {
+      id: `draft:graft:${suit}`,
+      label: `Graft ${suitSymbol(suit)} onto a card`,
+      detail: `Add ${suitSymbol(suit)} as a second suit to your best eligible card — it then fires two levers.`,
+    }
+  }
+  const canGraft = eligibleForgeCards(c).length > 0
+
+  // Three distinct draft categories (locked 2026-06-15):
+  //   A — recruit a tier card you lack + draw 3 (tempo)
+  //   B — graft a 2nd suit onto one of your cards (token archetype)
+  //   C — a clean tier card, no rider ("just the card")
+  // Pad toward three real options; degrade gracefully when the tier runs dry.
+  const options: { id: string; label: string; detail?: string }[] = []
+  if (pool.length >= 1) options.push(cardOption(pool[0]!))      // A
+  if (canGraft) options.push(graftOption())                    // B
+  if (pool.length >= 2) options.push(plainCardOption(pool[1]!)) // C
+  if (options.length < 3) options.push(tempoOption(DRAFT_TEMPO + 2))
+  if (options.length < 2) options.push(tempoOption(DRAFT_TEMPO))
+  options.splice(3)   // at most three
+
+  const owner = c.heroes.find(h => h.alive) ?? c.heroes[0]!
+  c.phase = 'landmark'
+  c.pendingChoice = {
+    kind: 'draft_pick', forPlayerId: owner.playerId,
+    prompt: 'A draft — steer your deck. Every option carries an immediate tempo burst.',
+    options,
   }
 }
 
@@ -336,11 +695,39 @@ export function applyChoice(c: CampaignState, playerId: string, optionId: string
     return {}
   }
 
+  if (pc.kind === 'draft_pick') {
+    return resolveDraftPick(c, pc, optionId)
+  }
+
+  if (pc.kind === 'forge_token') {
+    return applyForgeToken(c, optionId)
+  }
+
+  if (pc.kind === 'forge_card') {
+    if (!pc.forgeToken) { c.pendingChoice = null; c.phase = 'road'; return { error: 'No token to forge.' } }
+    return applyForgeCard(c, optionId, pc.forgeToken)
+  }
+
+  if (pc.kind === 'relic_full') {
+    // optionId is the relic to RELEASE; the holder keeps the other two
+    const target = c.heroes.find(h => h.playerId === pc.forPlayerId) ?? c.heroes.find(h => h.alive)!
+    target.relicIds = pc.options.map(o => o.id).filter(id => id !== optionId)
+    clog(c, `   ${target.playerName} releases ${getItem(optionId).name}; carries ${target.relicIds.map(id => getItem(id).name).join(' & ')}.`)
+    c.pendingChoice = null
+    c.phase = 'road'
+    autoAdvanceAfterGate(c)
+    return {}
+  }
+
   return { error: 'Unhandled choice.' }
 }
 
 // resolve a landmark_reward option (after a vote or a direct pick)
 function resolveRewardOption(c: CampaignState, optionId: string, pc: PendingChoice): { error?: string } {
+  // ascending-deck item-economy special options (Caravan / Sanctum / Shrine)
+  if (optionId === 'caravan:darkdeal') return applyCaravanDarkDeal(c)
+  if (optionId === 'sanctum:rite') return applySanctumRite(c)
+  if (optionId.startsWith('shrine:cleanse:')) return applyShrineCleanse(c, optionId.slice('shrine:cleanse:'.length))
   if (optionId.startsWith('hero-')) {
     c.nextStarterIndex = parseInt(optionId.slice(5))
     clog(c, `🗼 ${c.heroes[c.nextStarterIndex]!.playerName} will take the first turn of the next encounter.`)
@@ -364,10 +751,71 @@ function resolveRewardOption(c: CampaignState, optionId: string, pc: PendingChoi
     ;(c as CampaignState & { bossIntel?: boolean }).bossIntel = true
     return {}
   }
-  grantItem(c, optionId)
+  if (grantItem(c, optionId)) return {}   // relic slots full: release choice awaits
   c.pendingChoice = null
   c.phase = 'road'
   autoAdvanceAfterGate(c)   // province: gates sweep the party forward
+  return {}
+}
+
+// Resolve a draft pick: optionId is `draft:<cardId>:<tempo>` (recruit a tier
+// card + tempo burst) or `draft:tempo:<n>` (pure tempo). Determinism is moot
+// here — the choice is the player's and the cards drawn come off the (already
+// seeded) Tavern in order.
+function resolveDraftPick(c: CampaignState, pc: PendingChoice, optionId: string): { error?: string } {
+  const [, body, tempoStr] = optionId.split(':')
+  const tempo = parseInt(tempoStr ?? '0') || 0
+  const deck = c.deck
+
+  // Graft archetype: add a 2nd suit to the player's best eligible card.
+  if (body === 'graft') {
+    const suit = tempoStr as Suit
+    const target = eligibleForgeCards(c)
+      .filter(id => id[0] !== suit && !(c.cardTokens?.[id]?.some(t => t.defId === 'graft' && t.suit === suit)))
+      .sort((a, b) => cardValue(b.slice(1)) - cardValue(a.slice(1)))[0]
+    if (target) {
+      stampToken(c, target, { defId: 'graft', suit })
+      clog(c, `🃏 Draft: grafts ${suitSymbol(suit)} onto ${cardLabelFromId(target)} — now a dual-type card.`)
+    } else {
+      c.tokenBudget = (c.tokenBudget ?? 0) + 1
+      clog(c, '🃏 Draft: no card could take the graft — +1 forge budget instead.')
+    }
+    c.pendingChoice = null
+    c.phase = 'road'
+    return {}
+  }
+
+  if (body && body !== 'tempo') {
+    const cardId = body                 // e.g. 'S6'
+    const suit = cardId[0] as Suit
+    const rank = cardId.slice(1) as Card['rank']
+    if ((c.ownedCards ?? []).includes(cardId)) {
+      // already owned (shouldn't happen — offers are unowned) → redundancy token
+      c.tokenBudget = (c.tokenBudget ?? 0) + 1
+      clog(c, `🃏 Draft: ${rank}${suitSymbol(suit)} already owned — +1 token budget.`)
+    } else {
+      c.ownedCards = [...(c.ownedCards ?? []), cardId]
+      if (deck) deck.tavern.unshift({ suit, rank, id: dftUid() })
+      clog(c, `🃏 Draft: ${rank}${suitSymbol(suit)} joins the deck.`)
+    }
+  }
+
+  // Tempo burst: draw into the owning hero's hand from the Tavern (cap-bound).
+  if (tempo > 0 && deck) {
+    const ownerIdx = Math.max(0, c.heroes.findIndex(h => h.playerId === pc.forPlayerId))
+    const hand = deck.hands[ownerIdx] ?? []
+    const cap = maxHandSize(c, ownerIdx)
+    let drawn = 0
+    while (drawn < tempo && deck.tavern.length > 0 && hand.length < cap) {
+      hand.push(deck.tavern.shift()!)
+      drawn++
+    }
+    deck.hands[ownerIdx] = hand
+    if (drawn > 0) clog(c, `🃏 Draft tempo: ${c.heroes[ownerIdx]!.playerName} draws ${drawn}.`)
+  }
+
+  c.pendingChoice = null
+  c.phase = 'road'
   return {}
 }
 
@@ -447,23 +895,34 @@ function applyRunEvent(c: CampaignState, eventId: string, optId: string) {
   }
 }
 
-function grantItem(c: CampaignState, itemId: string) {
+// Returns true if granting the item raised a follow-up choice (relic slots full)
+// that the caller must leave pending instead of advancing the road.
+function grantItem(c: CampaignState, itemId: string): boolean {
   const item = getItem(itemId)
   if (item.kind === 'spell') {
     c.spells.push(itemId)
     clog(c, `📖 The team gains the spell ${item.name}.`)
-  } else if (item.kind === 'preparation') {
-    c.preparations.push(itemId)
-    clog(c, `🎒 The team gains the preparation ${item.name}.`)
   } else if (item.kind === 'relic') {
-    // one relic slot per hero; goes to the first living hero without one,
-    // otherwise replaces the current player's relic (discard/replace canon)
-    const free = c.heroes.find(h => h.alive && !h.relicId)
-    const target = free ?? c.heroes.find(h => h.alive)!
-    if (target.relicId) clog(c, `   ${target.playerName} discards ${getItem(target.relicId).name}.`)
-    target.relicId = itemId
-    clog(c, `🏺 ${target.playerName} equips ${item.name}.`)
+    // up to RELIC_SLOTS relics per hero; fill an open slot, else the holder
+    // must release one (the choice is theirs — canon: no silent overwrite)
+    const free = c.heroes.find(h => h.alive && h.relicIds.length < RELIC_SLOTS)
+    if (free) {
+      free.relicIds.push(itemId)
+      clog(c, `🏺 ${free.playerName} equips ${item.name}.`)
+      return false
+    }
+    const target = c.heroes.find(h => h.alive)!
+    c.phase = 'landmark'
+    c.pendingChoice = {
+      kind: 'relic_full', forPlayerId: target.playerId,
+      prompt: `${target.playerName}'s relic slots are full — release one to make room for ${item.name}.`,
+      options: [...target.relicIds, itemId].map(rid => ({
+        id: rid, label: `${getItem(rid).name}${rid === itemId ? ' (new)' : ''}`, detail: getItem(rid).text,
+      })),
+    }
+    return true
   }
+  return false
 }
 
 // ── Encounter end hooks (called by rooms layer after each encounter action) ──
@@ -474,11 +933,34 @@ function reclaimDeck(c: CampaignState) {
   if (s) c.deck = { tavern: s.tavern, discard: s.discard, hands: s.hands }
 }
 
-export function checkEncounterEnd(c: CampaignState) {
+// Meta: death/milestone grows the Kingdom item pool (breadth, not power). Loads
+// and saves the persistent Kingdom directly so it applies to FUTURE runs.
+function unlockNextItems(relics: number, spells: number): boolean {
+  const k = loadKingdom()
+  let changed = false
+  for (let i = 0; i < relics; i++) {
+    const next = RELIC_UNLOCK_ORDER.find(id => !(k.unlockedRelics ?? []).includes(id))
+    if (next) { (k.unlockedRelics ??= []).push(next); changed = true }
+  }
+  for (let i = 0; i < spells; i++) {
+    const next = SPELL_UNLOCK_ORDER.find(id => !(k.unlockedSpells ?? []).includes(id))
+    if (next) { (k.unlockedSpells ??= []).push(next); changed = true }
+  }
+  if (changed) saveKingdom(k)
+  return changed
+}
+
+export function checkEncounterEnd(c: CampaignState, kingdom?: KingdomState) {
   const s = c.encounter
   if (!s || s.outcome === 'active') return
   reclaimDeck(c)
-  if (s.outcome === 'wiped') { c.encounter = null; return }
+  if (s.outcome === 'wiped') {
+    c.encounter = null
+    // death banks options: the next run's relic/spell pool grows by one each.
+    if (EXPERIMENTS.ascendingDeck && unlockNextItems(1, 1))
+      clog(c, '🕯 In death the Kingdom remembers — new relics and spells await the next run.')
+    return
+  }
 
   if (s.outcome === 'won') {
     // snapshot the killing turn's end result before the encounter is nulled —
@@ -486,7 +968,7 @@ export function checkEncounterEnd(c: CampaignState) {
     const rankNode = c.map?.nodes.find(n => n.id === s.nodeId)
     c.lastFight = {
       tier: s.tier,
-      rank: s.tier === 'boss' && EXPERIMENTS.provinceMode && rankNode
+      rank: s.tier === 'boss' && (EXPERIMENTS.provinceMode || (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2)) && rankNode
         ? (['J', 'Q', 'K'] as const)[Math.min(c.map!.nodes.filter(n => n.kind === 'boss' && n.layer < rankNode.layer).length, 2)]!
         : null,
       handSizes: s.hands.map(h => h.length),
@@ -495,21 +977,47 @@ export function checkEncounterEnd(c: CampaignState) {
     }
     const node = c.map!.nodes.find(n => n.id === s.nodeId)!
     if (s.tier === 'boss') {
-      // Province mode: the Gates and the Courtyard are intermediate rank
-      // fights — pay spoils and march on. Only the Throne completes the run.
-      if (EXPERIMENTS.provinceMode && node.next.length > 0) {
+      // ── Council of Tens victory (ascending-deck, ch3) ──────────────────────
+      // Complete the 10-set: recruit any unowned 10s into ownedCards;
+      // owned 10s → tokenBudget. Then flow into chapter_complete (→ continent seam).
+      if (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 1 && c.chapter === 3) {
+        const SUITS_ALL = ['C', 'D', 'H', 'S'] as const
+        let granted = 0, tokensGranted = 0
+        for (const suit of SUITS_ALL) {
+          const cardId = `${suit}10`
+          if ((c.ownedCards ?? []).includes(cardId)) {
+            c.tokenBudget = (c.tokenBudget ?? 0) + 1
+            tokensGranted++
+          } else {
+            c.ownedCards = [...(c.ownedCards ?? []), cardId]
+            granted++
+          }
+        }
+        clog(c, `👑 THE COUNCIL OF TENS FALLS! ${granted} 10s recruited, ${tokensGranted} token budget from duplicates.`)
+        clog(c, '   The number deck is complete. The ascent begins.')
+        c.encounter = null
+        if (kingdom) completeChapter(c, kingdom)
+        else c.phase = 'chapter_complete'
+        return
+      }
+
+      // Province / ascending-deck: the Gates and the Courtyard are intermediate
+      // gate fights — pay spoils and march on; only the Throne completes the
+      // chapter. Continent 1 (ch1/ch2) uses number gates with the same flow.
+      // (Ch3's Council of Tens is handled above and never reaches here.)
+      const useProvinceBossSplit = EXPERIMENTS.provinceMode
+        || (EXPERIMENTS.ascendingDeck && (continentOf(c.chapter) === 2
+          || (continentOf(c.chapter) === 1 && c.chapter !== 3)))
+      if (useProvinceBossSplit && node.next.length > 0) {
         const { r, done } = rng(c)
         const isCourtyard = c.map!.nodes.some(n => n.kind === 'boss' && n.layer < node.layer)
         const pool = (isCourtyard
           ? [...itemPool(c, 'relic', 'rare'), ...itemPool(c, 'spell', 'rare')]
-          : [...itemPool(c, 'spell', 'standard'), ...itemPool(c, 'preparation', 'standard'), ...itemPool(c, 'relic', 'standard')])
-          .filter(i => !c.spells.includes(i.id) && !c.preparations.includes(i.id) && !c.heroes.some(h => h.relicId === i.id))
+          : [...itemPool(c, 'spell', 'standard'), ...itemPool(c, 'relic', 'standard')])
+          .filter(i => !c.spells.includes(i.id) && !c.heroes.some(h => h.relicIds.includes(i.id)))
         const options = r.shuffle(pool).slice(0, 3 + rewardBonus(c))
         done()
         c.encounter = null
-        const cx = c as CampaignState & { secondWindUsed?: boolean; wardenVigilUsed?: boolean }
-        cx.secondWindUsed = false      // mercy renews each act
-        cx.wardenVigilUsed = false     // the Warden's vigil renews with it
         clog(c, isCourtyard ? '👑 The Courtyard is yours. The Throne room lies ahead.' : '🏰 The Gates have fallen. The Courtyard awaits.')
         if (options.length) {
           c.phase = 'landmark'
@@ -525,14 +1033,15 @@ export function checkEncounterEnd(c: CampaignState) {
         return
       }
       c.encounter = null
-      beginMemoryDraft(c)
+      if (kingdom) completeChapter(c, kingdom)
+      else { c.phase = 'campaign_won' }   // defensive: real boss clears always pass kingdom
       return
     }
     // encounter rewards (controlled drop tables)
     if (node.kind === 'lair') {
       const { r, done } = rng(c)
       const pool = [...itemPool(c, 'relic', 'rare'), ...itemPool(c, 'spell', 'rare')]
-        .filter(i => !c.spells.includes(i.id) && !c.heroes.some(h => h.relicId === i.id))
+        .filter(i => !c.spells.includes(i.id) && !c.heroes.some(h => h.relicIds.includes(i.id)))
       const options = r.shuffle(pool).slice(0, 2 + rewardBonus(c))
       done()
       c.encounter = null
@@ -546,22 +1055,18 @@ export function checkEncounterEnd(c: CampaignState) {
       } else c.phase = 'road'
       return
     }
-    // standard encounter drops: skirmish → random standard prep; veteran/elite → choice
+    // standard encounter drops: skirmish/recruit → no spoils (the fight is a
+    // "test your engine" grind; a recruit's reward IS the recruited card);
+    // veteran/elite → choice. (Canon 2026-06-15: filler no longer leaks spells.)
     const { r, done } = rng(c)
-    if (node.kind === 'skirmish') {
-      const pool = itemPool(c, 'preparation', 'standard').filter(i => !c.preparations.includes(i.id))
-      if (pool.length) {
-        const item = r.pick(pool)
-        c.preparations.push(item.id)
-        clog(c, `🎒 Spoils: the team gains ${item.name}.`)
-      }
+    if (node.kind === 'skirmish' || node.kind === 'recruit') {
       done()
       c.encounter = null
       c.phase = 'road'
       return
     }
-    const pool = [...itemPool(c, 'spell', 'standard'), ...itemPool(c, 'preparation', 'standard'), ...(node.kind === 'elite' ? itemPool(c, 'relic', 'rare') : [])]
-      .filter(i => !c.spells.includes(i.id) && !c.preparations.includes(i.id) && !c.heroes.some(h => h.relicId === i.id))
+    const pool = [...itemPool(c, 'spell', 'standard'), ...(node.kind === 'elite' ? itemPool(c, 'relic', 'rare') : [])]
+      .filter(i => !c.spells.includes(i.id) && !c.heroes.some(h => h.relicIds.includes(i.id)))
     const options = r.shuffle(pool).slice(0, (node.kind === 'elite' ? 3 : 2) + rewardBonus(c))
     done()
     c.encounter = null
@@ -660,30 +1165,6 @@ function bumpTurn(c: CampaignState) {
 
 // ── Camp ─────────────────────────────────────────────────────────────────────
 
-export function applyActivatePreparation(c: CampaignState, playerId: string, prepId: string, hostId: string): { error?: string } {
-  if (c.phase !== 'camp') return { error: 'Preparations are activated at camp.' }
-  if (playerId !== hostId) return { error: 'The host activates preparations (table consensus assumed).' }
-  const i = c.preparations.indexOf(prepId)
-  if (i < 0) return { error: 'The team does not own that preparation.' }
-  if (c.activePreparations.length >= ACTIVE_PREP_CAP) return { error: `At most ${ACTIVE_PREP_CAP} preparations may be active (v0 cap).` }
-  if (prepId === 'p-brace-command') {
-    // consumed at camp: choose starting hero now, then return to camp
-    c.preparations.splice(i, 1)
-    c.phase = 'landmark'
-    c.pendingChoice = {
-      kind: 'landmark_reward', forPlayerId: null,
-      prompt: 'Brace Command: choose who starts the next encounter.',
-      options: c.heroes.filter(h => h.alive).map(h => ({ id: `hero-${c.heroes.indexOf(h)}`, label: h.playerName })),
-      returnTo: 'camp',
-    }
-    return {}
-  }
-  c.preparations.splice(i, 1)
-  c.activePreparations.push(prepId)
-  clog(c, `🎒 ${getItem(prepId).name} will trigger at the next encounter.`)
-  return {}
-}
-
 export function applyExileAtCamp(c: CampaignState, playerId: string): { error?: string } {
   if (c.phase !== 'camp') return { error: 'Exile works at camp.' }
   const hero = c.heroes.find(h => h.playerId === playerId)
@@ -760,19 +1241,19 @@ function applyReplacementPick(c: CampaignState, playerId: string, classId: strin
   const deadIdx = c.heroes.findIndex(h => !h.alive && h.playerId === playerId)
   if (deadIdx < 0) return { error: 'No fallen hero of yours.' }
   const hero = c.heroes[deadIdx]!
-  const prevRelic = hero.relicId   // died with the hero — don't deal it right back
+  const prevRelics = hero.relicIds   // died with the hero — don't deal them right back
   hero.classId = classId as ClassId
   hero.alive = true
-  hero.memories = []
-  hero.relicId = null
+  hero.relicIds = []
 
   // camp join canon: stronger onboarding bonus — a standard relic
   const { r, done } = rng(c)
   const pool = itemPool(c, 'relic', 'standard')
-    .filter(i => i.id !== prevRelic && !c.heroes.some(h => h.relicId === i.id))
+    .filter(i => !prevRelics.includes(i.id) && !c.heroes.some(h => h.relicIds.includes(i.id)))
   if (pool.length) {
-    hero.relicId = r.pick(pool).id
-    clog(c, `   Onboarding: equipped ${getItem(hero.relicId).name}.`)
+    const gid = r.pick(pool).id
+    hero.relicIds.push(gid)
+    clog(c, `   Onboarding: equipped ${getItem(gid).name}.`)
   }
   done()
   dealReplacementHand(c, deadIdx)
@@ -782,40 +1263,7 @@ function applyReplacementPick(c: CampaignState, playerId: string, classId: strin
   return {}
 }
 
-// ── Memory draft + chapter transitions ───────────────────────────────────────
-
-function beginMemoryDraft(c: CampaignState) {
-  const survivors = c.heroes.map((h, i) => (h.alive ? i : -1)).filter(i => i >= 0)
-  const { r, done } = rng(c)
-  c.memoryDraft = {
-    drafts: survivors.map(hi => {
-      const owned = new Set(c.heroes[hi]!.memories)
-      const options = r.shuffle(MEMORY_POOL.filter(m => !owned.has(m))).slice(0, 3)
-      return { heroIndex: hi, options, picked: null }
-    }),
-  }
-  done()
-  c.phase = 'memory_draft'
-  clog(c, `👑 ${c.chapter === 1 ? 'The First Ascension is complete!' : 'The Broken Court has fallen!'} Each survivor drafts a Memory.`)
-}
-
-export function applyMemoryPick(c: CampaignState, playerId: string, memoryId: string, kingdom: KingdomState): { error?: string } {
-  if (c.phase !== 'memory_draft' || !c.memoryDraft) return { error: 'No draft in progress.' }
-  const hi = c.heroes.findIndex(h => h.playerId === playerId)
-  const draft = c.memoryDraft.drafts.find(d => d.heroIndex === hi)
-  if (!draft) return { error: 'You have no draft (only survivors draft).' }
-  if (draft.picked) return { error: 'Already picked.' }
-  if (!draft.options.includes(memoryId)) return { error: 'Not one of your options.' }
-  draft.picked = memoryId
-  c.heroes[hi]!.memories.push(memoryId)
-  clog(c, `🧠 ${c.heroes[hi]!.playerName} keeps the memory: ${getItem(memoryId).name}.`)
-
-  if (c.memoryDraft.drafts.every(d => d.picked)) {
-    c.memoryDraft = null
-    completeChapter(c, kingdom)
-  }
-  return {}
-}
+// ── Chapter transitions ──────────────────────────────────────────────────────
 
 function completeChapter(c: CampaignState, kingdom: KingdomState) {
   if (EXPERIMENTS.provinceMode && c.chapter === 1) {
@@ -830,6 +1278,29 @@ function completeChapter(c: CampaignState, kingdom: KingdomState) {
     clog(c, '👑 The Throne is taken — the province is liberated. New provinces open to the Kingdom.')
     return
   }
+
+  // ── Ascending-deck: Continent 1 chapter transitions (1 → 2 → 3 → seam → 4) ─
+  if (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 1) {
+    if (c.chapter < 3) {
+      // ch1 → ch2, ch2 → ch3: interlude within Continent 1
+      if (!kingdom.unlockedChapters.includes(c.chapter + 1)) kingdom.unlockedChapters.push(c.chapter + 1)
+      saveKingdom(kingdom)
+      c.phase = 'chapter_complete'
+      clog(c, `🏰 Chapter ${c.chapter} complete. The path deepens — Chapter ${c.chapter + 1} awaits.`)
+      return
+    }
+    // ch3 complete (Council of Tens defeated) → continent seam → ch4 (province)
+    if (!kingdom.unlockedChapters.includes(4)) kingdom.unlockedChapters.push(4)
+    for (const cid of ['commander', 'warden'] as ClassId[])
+      if (!kingdom.unlockedClasses.includes(cid)) kingdom.unlockedClasses.push(cid)
+    kingdom.specializationsUnlocked = true
+    saveKingdom(kingdom)
+    c.phase = 'chapter_complete'
+    clog(c, '🌅 Continent 1 conquered — the number deck is complete.')
+    clog(c, '   The royals await. Rest, then ascend to Continent 2.')
+    return
+  }
+
   if (c.chapter === 1) {
     // kingdom unlocks: chapter 2, specializations, Tier 2 classes
     if (!kingdom.unlockedChapters.includes(2)) kingdom.unlockedChapters.push(2)
@@ -841,6 +1312,16 @@ function completeChapter(c: CampaignState, kingdom: KingdomState) {
     clog(c, '🏰 Kingdom unlocks: Chapter 2, specializations, Commander, Warden.')
     clog(c, 'Rest now. The Broken Court waits beyond the interlude.')
   } else {
+    // ── Ascending-deck: Continent-2 province victory ────────────────────────
+    if (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2) {
+      for (const cid of ['gambler', 'exile', 'oracle'] as ClassId[])
+        if (!kingdom.unlockedClasses.includes(cid)) kingdom.unlockedClasses.push(cid)
+      kingdom.campaignsWon++
+      saveKingdom(kingdom)
+      c.phase = 'campaign_won'
+      clog(c, '👑 The province falls. Continent 2 is yours — the full campaign is won!')
+      return
+    }
     for (const cid of ['gambler', 'exile', 'oracle'] as ClassId[])
       if (!kingdom.unlockedClasses.includes(cid)) kingdom.unlockedClasses.push(cid)
     kingdom.campaignsWon++
@@ -850,22 +1331,86 @@ function completeChapter(c: CampaignState, kingdom: KingdomState) {
   }
 }
 
+/**
+ * Ascending-deck Step 3 — backfill ladder (Continent 1 only).
+ * Grants the tier of number-cards for the completed chapter:
+ *   ch1 → 6s+7s   ch2 → 8s+9s   mid ch3 → 10s
+ * For any card already owned (recruited via exact-kill earlier), grants
+ * a +1 tokenBudget instead of a duplicate (redundancy → token path).
+ */
+export function backfillAct(c: CampaignState) {
+  const SUITS: Suit[] = ['C', 'D', 'H', 'S']
+  // which ranks to backfill for each chapter number
+  const BACKFILL_RANKS: Record<number, string[]> = {
+    1: ['6', '7'],
+    2: ['8', '9'],
+    3: ['10'],
+  }
+  const ranks = BACKFILL_RANKS[c.chapter]
+  if (!ranks || ranks.length === 0) return  // no backfill for this chapter
+
+  let granted = 0
+  let tokensGranted = 0
+  for (const rank of ranks) {
+    for (const suit of SUITS) {
+      const cardId = `${suit}${rank}`
+      const owned = c.ownedCards ?? []
+      if (owned.includes(cardId)) {
+        // already recruited — redundancy → token budget
+        c.tokenBudget = (c.tokenBudget ?? 0) + 1
+        tokensGranted++
+      } else {
+        // new card — add to ownedCards (will be injected into deck on next setupChapterDeck)
+        c.ownedCards = [...owned, cardId]
+        granted++
+      }
+    }
+  }
+  clog(c, `📖 Backfill (ch${c.chapter}): ${granted} new cards (${ranks.join('+')}) + ${tokensGranted} token budget from duplicates.`)
+}
+
 export function applyContinueChapter(c: CampaignState, playerId: string, hostId: string): { error?: string } {
   if (c.phase !== 'chapter_complete') return { error: 'No chapter transition pending.' }
   if (playerId !== hostId) return { error: 'The host leads the march.' }
-  c.chapter = 2
+
+  // ── Ascending-deck: backfill at end of each chapter, then increment ────────
+  // Backfill must run BEFORE the chapter counter advances (uses current chapter
+  // to determine which rank tier to grant). Canon: Continent 1 only.
+  // Ch3 is EXEMPT — the Council of Tens victory already handled the 10-set
+  // backfill directly (recruit unowned 10s + owned → tokenBudget).
+  if (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 1 && c.chapter !== 3) {
+    backfillAct(c)
+  }
+
+  // chapter counter increments BEFORE the map build (ascending-deck canon:
+  // buildMap receives the new chapter number)
+  c.chapter = c.chapter + 1
+
   // chapter-scoped state resets
   c.exiledCards = []
   c.exileBurden = 0
   c.gamblerWagerUsed = false
   c.ironReprieveUsed = false
-  c.activePreparations = []
+  c.itemStopsThisChapter = 0   // relic/spell-stop budget refreshes each chapter
+
   const { r, done } = rng(c)
-  c.map = buildMap(2, r)
+  c.map = buildMap(c.chapter, r)
   done()
-  setupChapterDeck(c)   // each chapter starts with a fresh full deck
+
+  // ── Continent seam (ch3 → ch4): rebuild deck for continent 2 ──────────────
+  // On the seam, setupChapterDeck must build a FULL deck (all A-10s, now owned)
+  // rather than a small start, because continent 2 = province mode which
+  // expects the complete deck. The ownedCards list carries the number-cards;
+  // setupChapterDeck (ascending-deck flag) will inject them into the full deck.
+  // For the province (continent 2), we temporarily reuse the ascending-deck
+  // setupChapterDeck path which already handles injecting ownedCards.
+  setupChapterDeck(c)
   c.phase = 'road'
-  clog(c, '🗺 Chapter 2: the Broken Court. The road is harder and the rewards are richer.')
+  if (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2) {
+    clog(c, `🗺 CONTINENT 2 — Chapter ${c.chapter}: the province awaits. Your complete deck marches with you.`)
+  } else {
+    clog(c, `🗺 Chapter ${c.chapter}: the road deepens.`)
+  }
   logNodeCT(c)
   return {}
 }
@@ -894,8 +1439,7 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
     abilityText: CLASSES[h.classId].abilityText +
       (CLASSES[h.classId].siegeText ? ` ⚔ Siege: ${CLASSES[h.classId].siegeText}` : ''),
     alive: h.alive,
-    memories: h.memories.map(m => ({ id: m, name: getItem(m).name, text: getItem(m).text })),
-    relic: h.relicId ? { id: h.relicId, name: getItem(h.relicId).name, text: getItem(h.relicId).text, tier: getItem(h.relicId).tier } : null,
+    relics: h.relicIds.map(rid => ({ id: rid, name: getItem(rid).name, text: getItem(rid).text, tier: getItem(rid).tier })),
     handSize: s ? s.hands[i]!.length : (c.deck?.hands[i]?.length ?? 0),
     isCurrentPlayer: !!s && s.currentPlayerIndex === i && s.outcome === 'active',
   }))
@@ -927,7 +1471,6 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
     encounter = {
       tier: s.tier,
       modifier: mod ? { id: mod.id, name: mod.name, text: mod.mechanicText } : null,
-      preps: s.preps.map(p => ({ id: p, name: getItem(p).name, text: getItem(p).text })),
       bossModifier: revealBoss && bossMod ? bossMod : (bossMod ? { id: 'hidden', name: '???', text: 'Something is wrong with this court…' } : null),
       turnPhase: s.turnPhase,
       currentPlayerIndex: s.currentPlayerIndex,
@@ -953,15 +1496,24 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
       events: s.events,
       eventSeq: s.eventSeq,
       wagerArmed: s.wagerArmedBy !== null,
-      canWager: !!me && me.classId === 'gambler' && me.alive && !c.gamblerWagerUsed && s.outcome === 'active',
-      myRelicActivatable: !!me?.relicId && activatable.includes(me.relicId) && !s.flags[`relicUsed:${myHeroIndex}`],
+      canWager: !!me && me.classId === 'gambler' && me.alive && !s.flags['gamblerWagerUsed'] && s.outcome === 'active',
+      activatableRelics: me ? me.relicIds.filter(r => activatable.includes(r) && !s.flags[`relicUsed:${r}:${myHeroIndex}`]) : [],
       myBoosts: computeBoosts(c, s, myHeroIndex),
       // pile contents are public knowledge, but SORTED — draw order stays hidden
       tavernCards: sortedPile(s.tavern),
       discardCards: sortedPile(s.discard),
+      // ascending-deck: draw pool is per-player; only the active hero sees theirs
+      drawPool: s.turnPhase === 'draw_select' && s.drawSelectHeroIdx === myHeroIndex
+        ? (s.drawPool ?? [])
+        : undefined,
+      drawSelectKeep: s.turnPhase === 'draw_select' && s.drawSelectHeroIdx === myHeroIndex
+        ? (s.drawSelectCap ?? Math.max(0, maxHandSize(c, myHeroIndex) - s.hands[myHeroIndex]!.length))
+        : undefined,
+      cardTokens: projectCardTokens(c),
       siegeRank: (() => {
-        // province mode: which rank gate this boss node is (Gates/Courtyard/Throne)
-        if (s.tier !== 'boss' || !EXPERIMENTS.provinceMode || !c.map) return null
+        // province mode or ascending-deck continent-2: which rank gate this boss node is
+        const useRankSplit = EXPERIMENTS.provinceMode || (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2)
+        if (s.tier !== 'boss' || !useRankSplit || !c.map) return null
         const node = c.map.nodes.find(n => n.id === s.nodeId)
         if (!node) return null
         const before = c.map.nodes.filter(n => n.kind === 'boss' && n.layer < node.layer).length
@@ -989,8 +1541,6 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
     encounter,
     lastFight: c.lastFight ?? null,
     spells: c.spells.map(itemView),
-    preparations: c.preparations.map(itemView),
-    activePreparations: c.activePreparations.map(itemView),
     pendingChoice: c.pendingChoice
       ? (() => {
           const { votes, ...pub } = c.pendingChoice
@@ -1015,15 +1565,6 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
           isBoss: false,
         }
       : null,
-    memoryDraft: c.memoryDraft
-      ? {
-          myOptions: (() => {
-            const d = c.memoryDraft!.drafts.find(dd => dd.heroIndex === myHeroIndex && !dd.picked)
-            return d ? d.options.map(itemView) : null
-          })(),
-          waitingOn: c.memoryDraft.drafts.filter(d => !d.picked).map(d => c.heroes[d.heroIndex]!.playerName),
-        }
-      : null,
     exileAvailable:
       c.phase === 'camp' &&
       myHeroIndex >= 0 &&
@@ -1036,6 +1577,10 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
       specializationsUnlocked: kingdom.specializationsUnlocked,
     },
     log: c.log,
+    cardTokens: projectCardTokens(c),
+    tokenBudget: c.tokenBudget,
+    tokenFragments: c.tokenFragments,
+    ascendingDeck: EXPERIMENTS.ascendingDeck,
   }
 }
 

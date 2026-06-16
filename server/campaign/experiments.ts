@@ -2,6 +2,13 @@
 // via CLI flags (scripts/sim.ts --owner-only / --boss-reshuffle) so live play
 // is never affected.
 export const EXPERIMENTS = {
+  // ── Ascending Deck (Continents 1-2) — Step 5 (tokens) is now built; this is
+  // the LIVE playtest mode (2026-06-14). Tokens, class signatures, the forge, and
+  // the full ch1→Council→province arc are exercised by smoke Tests A-E. Smoke pins
+  // it false for the canon/legacy tests. Set false to return to the province proto.
+  // NOTE: runs paired with provinceMode:false (the tested ascending config).
+  ascendingDeck: true,
+
   // (ownerOnlyClassTriggers was promoted to canon 2026-06-11 — playtest note:
   // "classes should only affect the player playing that class". B2/B3 settled.)
   // Entering a boss encounter performs a full camp-style rest first
@@ -18,8 +25,11 @@ export const EXPERIMENTS = {
   // 4 Queens / 4 Kings) with road acts between them. Any hero death = full
   // run reset. Classes curate the deck at setup (option B) instead of siege
   // ultimates. Castle checkpoint off (the roads between ranks are the rest).
-  // LIVE for playtesting (2026-06-11, Gab) — smoke.ts pins canon for tests.
-  provinceMode: true,
+  // Province prototype — superseded as the LIVE mode by ascendingDeck (2026-06-14),
+  // which reuses province machinery for its Continent 2. Paired OFF with the
+  // ascending playtest (the config smoke Tests A-E/D validate). Flip both to return
+  // to the standalone province prototype.
+  provinceMode: false,
   // Gates sweep the party forward without a route choice (random on forks).
   // OFF for now (2026-06-11, Gab): players keep agency after a gate falls.
   autoMarchAfterGates: false,

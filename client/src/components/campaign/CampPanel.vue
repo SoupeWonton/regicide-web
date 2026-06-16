@@ -41,33 +41,6 @@ function act(action: Record<string, unknown>) {
       </div>
     </div>
 
-    <!-- Preparations -->
-    <div class="card bg-base-100">
-      <div class="card-body p-4 gap-2">
-        <div class="flex items-center justify-between">
-          <p class="font-semibold text-sm">🎒 Preparations</p>
-          <span class="text-xs text-base-content/40">{{ state.activePreparations.length }}/2 active</span>
-        </div>
-
-        <div v-if="state.activePreparations.length" class="space-y-1">
-          <div v-for="p in state.activePreparations" :key="p.id" class="text-xs px-2 py-1 rounded bg-success/10 text-success">
-            ✓ {{ p.name }} — {{ p.text }}
-          </div>
-        </div>
-
-        <div v-if="state.preparations.length" class="space-y-2">
-          <ItemCard
-            v-for="p in state.preparations" :key="p.id"
-            :id="p.id" :name="p.name" :text="p.text" :tier="p.tier"
-            :disabled="!state.isHost || state.activePreparations.length >= 2"
-            @click="act({ type: 'activate_prep', prepId: p.id })"
-          />
-        </div>
-        <p v-else-if="!state.activePreparations.length" class="text-xs text-base-content/40">No preparations owned. Markets and victories provide them.</p>
-        <p v-if="!state.isHost" class="text-xs text-base-content/30">The host activates preparations.</p>
-      </div>
-    </div>
-
     <!-- Team inventory -->
     <div v-if="state.spells.length" class="card bg-base-100">
       <div class="card-body p-4 gap-2">
@@ -95,8 +68,7 @@ function act(action: Record<string, unknown>) {
             <span class="text-xs font-normal text-base-content/50">{{ h.className }}</span>
           </p>
           <p class="text-[11px] text-base-content/50">{{ h.abilityText }}</p>
-          <p v-if="h.relic" class="text-[11px] text-accent">🏺 {{ h.relic.name }} — {{ h.relic.text }}</p>
-          <p v-for="m in h.memories" :key="m.id" class="text-[11px] text-info">🧠 {{ m.name }} — {{ m.text }}</p>
+          <p v-for="rl in h.relics" :key="rl.id" class="text-[11px] text-accent">🏺 {{ rl.name }} — {{ rl.text }}</p>
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import type { Card, Enemy, TurnPhase } from '../types'
+import type { Card, Enemy } from '../types'
 
 // ── Content identifiers ──────────────────────────────────────────────────────
 
@@ -9,7 +9,7 @@ export type ClassId =
 
 export type CtCategory = 'Shield' | 'Access' | 'Recovery' | 'Initiative' | 'Consistency'
 
-export type ItemKind = 'relic' | 'spell' | 'preparation' | 'memory'
+export type ItemKind = 'relic' | 'spell'
 export type ItemTier = 'standard' | 'rare'
 
 export type GearSlot = 'armor' | 'arms' | 'trinket'
@@ -19,7 +19,7 @@ export interface ItemDef {
   kind: ItemKind
   tier: ItemTier
   name: string
-  ct: number          // Road CT (linear axis — see systems/catastrophe-tolerance.md v2)
+  ct: number          // Road CT (linear axis — see docs/design/systems/catastrophe-tolerance.md v2)
   siegeCt?: number    // Siege CT (castle axis; 1.0 ≈ +10pp castle conversion). Omitted = 0.
   slot?: GearSlot     // relics only — gear-slot taxonomy (armor 1 / arms 2 / trinket 4 per hero)
   category: CtCategory
@@ -53,9 +53,68 @@ export interface EncounterDef {
 
 // ── Road ─────────────────────────────────────────────────────────────────────
 
+// ── Ascending Deck types (Step 0, gated behind EXPERIMENTS.ascendingDeck) ────
+
+/**
+ * A permanent per-card modifier instance (Step 5). References a TokenDef in the
+ * catalog (`content.ts` TOKEN_DEFS) by id; `suit` is the resolved target suit for
+ * graft/transmute tokens. Keyed in `CampaignState.cardTokens` by logical card id
+ * (`${suit}${rank}`, e.g. 'S6').
+ */
+export interface Token {
+  defId: string
+  /** Resolved suit for graft (add) / transmute (replace) tokens. */
+  suit?: string
+}
+
+/** Catalog entry describing a token's effect, power, and forge availability. */
+export interface TokenDef {
+  id: string
+  name: string
+  short: string          // card-face badge text, e.g. '+1', '♦', 'Scry'
+  kind: 'value' | 'suit' | 'lever' | 'keyword'
+  spend?: number         // value delta applied when the card is PLAYED (offense + lever size)
+  hold?: number          // value delta applied when the card is DISCARDED to soak (defense)
+  suitOp?: 'add' | 'replace'                       // suit tokens
+  lever?: 'shield' | 'draw' | 'recover' | 'edge'   // lever-magnitude tokens (+1 / edge +2 dmg)
+  keyword?: 'scry' | 'mark' | 'banner' | 'bloodprice'
+  power: 1 | 2 | 3 | 4
+  source: 'F' | 'C' | 'S'   // Forge-common / Class-tree / Spell-Shrine
+  needsSuit?: boolean       // graft/transmute: the forge offer must resolve a suit
+  forgeable?: boolean       // appears in forge-node offers
+  text: string
+}
+
+/** Token projected for the client (resolved display info; no catalog needed). */
+export interface ClientToken {
+  defId: string
+  name: string
+  short: string
+  sym: string                        // single card-face glyph (suit tokens → suit glyph)
+  kind: TokenDef['kind']
+  suit?: string
+  spend: number                      // played-value delta (for the damage preview)
+  suitOp?: 'add' | 'replace'         // suit tokens: graft (add) vs transmute (replace)
+  lever?: TokenDef['lever']          // shield/draw/recover/edge magnitude tokens
+  keyword?: TokenDef['keyword']      // scry/mark/banner/bloodprice
+  tone: 'good' | 'bad' | 'neutral'   // green / red / neutral badge
+  text: string
+}
+
+/** A single option in a solo per-hero draft offer. */
+export interface DraftOption {
+  id: string
+  label: string
+  detail?: string
+  /** What the player receives on pick (card id, token spec, or tempo action). */
+  payload: { cardId?: string; token?: Token; tempoDraw?: number }
+}
+
 export type NodeKind =
   | 'start' | 'camp' | 'boss'
   | 'skirmish' | 'veteran' | 'elite'
+  | 'recruit'                              // Continent-1: number-enemy fight
+  | 'draft'                                // Continent-1: steer the deck (solo per-hero pick)
   | 'forge' | 'abbey' | 'market' | 'tower' | 'shrine' | 'lair'
   | 'event'
 
@@ -84,8 +143,7 @@ export interface Hero {
   playerName: string
   classId: ClassId
   alive: boolean
-  memories: string[]        // memory item ids (hero-bound, lost on death)
-  relicId: string | null    // one relic slot per hero (v0 canon)
+  relicIds: string[]        // up to RELIC_SLOTS relics per hero; a further one forces a release
 }
 
 export type CampaignPhase =
@@ -96,29 +154,29 @@ export type CampaignPhase =
   | 'death_vote'            // Retreat vs Last Stand
   | 'camp'                  // camp/interlude planning
   | 'replace_hero'          // dead player picks replacement class
-  | 'memory_draft'          // chapter end memory drafts
   | 'chapter_complete'      // interlude between chapters / campaign won screen
   | 'campaign_won'
   | 'campaign_lost'
 
 export interface PendingChoice {
-  kind: 'landmark_reward' | 'replacement' | 'exile_pick' | 'memory'
+  kind: 'landmark_reward' | 'replacement' | 'exile_pick' | 'relic_full' | 'draft_pick'
+       | 'forge_token' | 'forge_card'      // ascending-deck Step 5: two-step forge
   forPlayerId: string | null   // null → team vote (or host when solo)
   prompt: string
   options: { id: string; label: string; detail?: string }[]
   returnTo?: 'camp' | 'road'   // phase to restore after the pick (default road)
   votes?: Record<string, string>   // team rewards: playerId → optionId (secret ballot)
+  // forge_card step: the token chosen at the forge_token step, awaiting a target card
+  forgeToken?: Token
+  // true when this forge_token/forge_card flow is the fragment track (spends 2
+  // token fragments + only offers C-tier tokens) rather than the Forge budget.
+  fragmentApply?: boolean
 }
 
 export interface DeathVoteState {
   deadHeroIndex: number
   votes: Record<string, 'retreat' | 'last_stand' | 'defiant_stand'>
   defiantAvailable: boolean   // Warden once-per-run extra fork option
-}
-
-export interface MemoryDraftState {
-  // one draft (3 options) per surviving hero, resolved in any order
-  drafts: { heroIndex: number; options: string[]; picked: string | null }[]
 }
 
 // ── Encounter runtime state ──────────────────────────────────────────────────
@@ -137,15 +195,26 @@ export interface EncounterEvent {
   big?: boolean
 }
 
+/**
+ * Campaign-local turn phase union. NEVER add 'draw_select' to server/types.ts
+ * TurnPhase — that is the base quick-game type and must stay untouched.
+ * 'draw_select' is a campaign-only pause: the player chose which cards to keep
+ * from the overdraw pool.
+ */
+export type CampaignTurnPhase =
+  | 'play' | 'discard' | 'choose_next'   // mirrors base TurnPhase
+  | 'setup'                               // encounter setup peek
+  | 'draw_select'                         // ascending-deck: overdraw hold
+  | 'over'                                // encounter finished
+
 export interface EncounterState {
   nodeId: string
   tier: EncounterTier
   modifierId: string | null      // null for Chapter 1 boss (canon: no modifier)
   bossModifierId: string | null  // Chapter 2 boss hidden modifier
   bossModifierRevealed: boolean  // Tower intel can reveal it
-  preps: string[]                // preparations that fired at this encounter's start (for UI)
 
-  turnPhase: TurnPhase | 'setup' | 'over'
+  turnPhase: CampaignTurnPhase
   currentPlayerIndex: number     // index into campaign.heroes
   nextPlayerIndex: number
   enemyDeck: Card[]
@@ -168,6 +237,15 @@ export interface EncounterState {
   // commander/jester handoff after kill
   pendingChooseNext: boolean
 
+  // ascending-deck: overdraw pool waiting for player keep-selection.
+  // Only populated when turnPhase === 'draw_select'.
+  drawPool?: Card[]
+  // ascending-deck: which hero index the draw_select belongs to
+  drawSelectHeroIdx?: number
+  // keep-limit override for the current draw_select. Diamonds leave this unset
+  // (limit = empty hand slots); Tactical Surge sets a fixed cap ("keep 2 of 5").
+  drawSelectCap?: number
+
   flags: EncounterFlags          // modifier + ability one-shot bookkeeping
 
   events: EncounterEvent[]       // current action's event batch (playback)
@@ -176,6 +254,30 @@ export interface EncounterState {
 
 // ── Campaign root ────────────────────────────────────────────────────────────
 
+// Run telemetry for human-runs vs bot-floor comparison. Counted at the same
+// event sites the simulator observes (scripts/sim.ts RunRecord semantics) and
+// appended to data/human-runs/runs.csv when the run ends. Optional so saves
+// from before this field load fine (a resumed old save counts from resume).
+export interface RunTelemetry {
+  startedAt: string
+  encountersFought: number
+  encountersWon: number
+  retreats: number
+  heroDeaths: number
+  exactKills: number
+  royalsBanished: number
+  jesters: number
+  yields: number
+  itemsGained: number
+  gatesCleared: number
+  deckAtThrone: number
+  royalsAtThrone: number
+  itemsSeen: string[]      // every item id held at any point
+  lossNodeKind: string
+  lossModifier: string
+  recorded: boolean        // CSV row already written for this run
+}
+
 export interface CampaignState {
   id: string
   name: string
@@ -183,7 +285,7 @@ export interface CampaignState {
   rngState: number
   createdAt: string
   phase: CampaignPhase
-  chapter: 1 | 2
+  chapter: number      // widened from 1|2 — ascending-deck uses chapters 1-6
   heroes: Hero[]
   map: RoadMapState | null
   encounter: EncounterState | null
@@ -205,8 +307,6 @@ export interface CampaignState {
   } | null
 
   spells: string[]               // team-owned spell inventory (item ids)
-  preparations: string[]         // owned, not yet activated
-  activePreparations: string[]   // activated at camp; consumed at next encounter start (cap 2)
 
   exiledCards: { suit: string; rank: string }[]  // Exile: removed from deck builds this chapter
   exileBurden: number
@@ -227,13 +327,31 @@ export interface CampaignState {
     tie: boolean
   } | null
   deathVote: DeathVoteState | null
-  memoryDraft: MemoryDraftState | null
 
   classPicks: Record<string, ClassId | null>  // during class_select, by playerId
 
   log: string[]
   // debug/playtest controls (admin canon: deterministic testing support)
   debug: { forceNextEncounterId?: string; forceNextRewardId?: string }
+
+  // human-run telemetry — maintained by campaign/telemetry.ts via the session
+  // dispatcher only, so simulator-driven campaigns never write human rows.
+  // recordRun: player opt-out from the lobby checkbox (undefined = record)
+  telemetry?: RunTelemetry
+  recordRun?: boolean
+
+  // ── Ascending Deck fields (EXPERIMENTS.ascendingDeck, optional + guarded) ──
+  // All three are optional so saves from before this feature load fine.
+  // Guards: always access via `c.ownedCards ?? []` etc.
+  ownedCards?: string[]                          // card ids recruited this run
+  tokenBudget?: number                           // Forge (F-tier) token budget
+  tokenFragments?: number                        // fragment track: 2 → 1 C-tier token (road apply)
+  cardTokens?: Record<string, Token[]>           // cardId → token list
+  // item-economy: unlocked pools snapshotted from the Kingdom at run creation
+  unlockedRelics?: string[]
+  unlockedSpells?: string[]
+  // cap on relic/spell-granting landmarks per chapter (extra ones give forge budget)
+  itemStopsThisChapter?: number
 }
 
 // ── Kingdom (permanent unlock state) ─────────────────────────────────────────
@@ -244,6 +362,10 @@ export interface KingdomState {
   specializationsUnlocked: boolean
   campaignsWon: number
   heroesLost: number
+  // ascending-deck meta: the item pool starts small and grows on death/milestone.
+  // Optional so pre-existing kingdom.json files load (defaulted on load).
+  unlockedRelics?: string[]
+  unlockedSpells?: string[]
 }
 
 // ── Client projections ───────────────────────────────────────────────────────
@@ -256,8 +378,7 @@ export interface ClientHero {
   className: string
   abilityText: string
   alive: boolean
-  memories: { id: string; name: string; text: string }[]
-  relic: { id: string; name: string; text: string; tier: ItemTier } | null
+  relics: { id: string; name: string; text: string; tier: ItemTier }[]
   handSize: number
   isCurrentPlayer: boolean
 }
@@ -276,7 +397,6 @@ export interface ClientEncounterState {
   tier: EncounterTier
   modifier: { id: string; name: string; text: string } | null
   bossModifier: { id: string; name: string; text: string } | null  // only if revealed (or over)
-  preps: { id: string; name: string; text: string }[]              // fired at encounter start
   turnPhase: string
   currentPlayerIndex: number
   enemiesRemaining: number
@@ -293,12 +413,13 @@ export interface ClientEncounterState {
   pendingChooseNext: boolean
   wagerArmed: boolean
   canWager: boolean
-  myRelicActivatable: boolean
+  activatableRelics: string[]   // relic ids the viewing hero can activate right now
   // live once-per-enemy boosts for the viewing player (UI previews)
   myBoosts: {
     S: number; D: number; H: number
     dmgPlus: number; dmgMult: number
     execReady: boolean; dCap: number | null; hHalf: boolean
+    comboMax: number   // max combo total — Combat Cache raises it 10→12
   }
   // province mode: which rank gate a boss fight is (J=Gates, Q=Courtyard, K=Throne)
   siegeRank: 'J' | 'Q' | 'K' | null
@@ -307,6 +428,12 @@ export interface ClientEncounterState {
   discardCards: Card[]
   events: EncounterEvent[]
   eventSeq: number
+  // ascending-deck: overdraw selection pool (only present during draw_select)
+  drawPool?: Card[]
+  // how many of the drawPool the viewing hero may keep (empty slots, or a spell cap)
+  drawSelectKeep?: number
+  // ascending-deck: tokens stamped on cards, keyed by logical id (`${suit}${rank}`)
+  cardTokens?: Record<string, ClientToken[]>
 }
 
 export interface ClientCampaignState {
@@ -323,8 +450,6 @@ export interface ClientCampaignState {
   encounter: ClientEncounterState | null
   lastFight: { tier: EncounterTier; rank: 'J' | 'Q' | 'K' | null; handSizes: number[]; tavern: number; discard: number } | null
   spells: { id: string; name: string; text: string; tier: ItemTier }[]
-  preparations: { id: string; name: string; text: string; tier: ItemTier }[]
-  activePreparations: { id: string; name: string; text: string }[]
   pendingChoice: (Omit<PendingChoice, 'votes'> & {
     mine: boolean
     teamVote: boolean
@@ -334,8 +459,16 @@ export interface ClientCampaignState {
   }) | null
   rewardDraw: { seq: number; options: { id: string; label: string; detail?: string }[]; winnerId: string; tie: boolean } | null
   deathVote: { deadHeroName: string; options: string[]; votes: Record<string, string>; myVote: string | null; isBoss: boolean } | null
-  memoryDraft: { myOptions: { id: string; name: string; text: string }[] | null; waitingOn: string[] } | null
   exileAvailable: boolean
   kingdom: { unlockedChapters: number[]; unlockedClasses: ClassId[]; specializationsUnlocked: boolean }
   log: string[]
+  // ascending-deck: tokens stamped on cards, keyed by logical id (`${suit}${rank}`).
+  // Lets the road/camp/class-select screens render tokened cards.
+  cardTokens?: Record<string, ClientToken[]>
+  // ascending-deck: unspent forge budget (tokens you may still stamp)
+  tokenBudget?: number
+  // fragment track: how many token fragments held (2 → apply a C-tier token)
+  tokenFragments?: number
+  // ascending-deck mode is active (drives token UI: class-select stamps, badges)
+  ascendingDeck?: boolean
 }

@@ -159,11 +159,11 @@ Players do not draw at the start of their turn. Cards are drawn via the ♦ Diam
 
 ---
 
-## Campaign Mode (MVP — this branch)
+## Campaign Mode (`Design_V2` branch)
 
-The `campaign` branch implements a playable MVP of the campaign design in `campaign/`, `classes/`, `systems/` and `items/`. The campaign bible is canon; this is the v0 scope (Chapter 1 + Chapter 2).
+The `Design_V2` branch implements a playable campaign building on the design under `docs/design/` (start at `docs/README.md`). The campaign bible (`docs/design/campaign/campaign-bible.md`) is the original design canon; a **solo-first economy redesign** (see `CLAUDE.md` and `docs/design/`) has since superseded parts of it — notably, **memories and preparations are removed** and **relics now use two slots per hero**.
 
-**Loop:** Kingdom → Chapter → Team → road commitment → encounters → camp/interlude → mandatory pre-boss camp → boss → memory draft → next chapter.
+**Loop:** Kingdom → Chapter → Team → road commitment → encounters → camp/interlude → boss (gate) → next act → final boss → win.
 
 From the room lobby the host can start a **Quick Game** (base Regicide, unchanged) or a **Campaign** (chapter + optional deterministic seed), or **resume** a saved campaign.
 
@@ -173,11 +173,11 @@ What's in:
 - **Encounters:** skirmish/veteran/elite fights with 15 modifier rules adapted from the Chapter 1 encounter pack. **The deck persists across road encounters** (hands, Tavern and discard carry over — attrition canon); only camp/interlude rests reshuffle and redraw, and an empty Tavern is only refilled by ♥ Hearts or a rest. Ch.1 boss = literal 12-royal castle, no modifier. Ch.2 boss = castle + hidden modifier (Tower intel can reveal it).
 - **Classes:** all 9 (4 core + Commander/Warden/Gambler/Exile/Oracle) with their core abilities. Campaigns start core-only; Tier 2/3 enter via the death/replacement flow once unlocked. Specializations are deferred (canon: post-Ch.1 unlock — flag exists, effects not implemented).
 - **Death:** hero death → Retreat / Last Stand vote (dead player votes; majority, host tiebreak). Warden adds Defiant Stand once per run. No retreat at bosses. Replacement at camp from a randomized subset, class must differ.
-- **Items:** relics (one slot per hero), team spells, camp preparations (cap 2 active), chapter-end Memory drafts (3 choices, hero-bound, lost on death).
+- **Items:** **relics (two slots per hero** — a third offered relic forces you to release one) plus team spells. Relics are axis-owners (e.g. every ♦ draws +1, every ♠ shields +1). Memories and camp preparations have been removed.
 - **Persistence:** Kingdom unlocks (`server/data/kingdom.json`) and per-campaign saves survive restarts. Manual abandon keeps Kingdom unlocks.
 - **Playtest controls:** deterministic seed input at campaign creation; `debug_force` socket action to force next encounter/reward; CT logging per node.
 
-Known MVP simplifications (flagged for iteration): Forge grants relics instead of card upgrades, value-adjust token items deferred, single map variant per chapter (target ~10), meta currency not shipped, discard-recovery preparations omitted (preps fire right after a camp rest empties the discard, so they'd never do anything — design question for the item pool).
+Not yet implemented (flagged for iteration): the four-axis camp allocation (♦/♥/♠/♣ pips), the Forge (+1 permanent card upgrade), Exile-as-a-landmark-service, value-adjust meta currency, multiple map variants per chapter. The party economy still runs on the old single-relic assumptions — the redesign is solo-first.
 
 Tests: `cd server && npx tsx scripts/smoke.ts` (engine) and `npx tsx scripts/e2e.ts` against a running server (protocol).
 

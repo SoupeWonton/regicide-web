@@ -2,13 +2,13 @@
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { socket } from '../../socket'
 import type { ClientCampaignState, Card, EncounterEvent } from '../../types'
-import { cardValue, suitSymbol, CLASS_ICONS } from './cards'
+import { cardValue, suitSymbol, CLASS_ICONS, tokensOf, tokenToneClass, tokenSpend, effectiveSuits } from './cards'
 import OverlayModal from './OverlayModal.vue'
 import HeroPortrait from './HeroPortrait.vue'
 import ItemCard from './ItemCard.vue'
 import { sfx } from '../../sound'
 
-const ACTIVATABLE_RELICS = ['r-bone-thread', 'r-sainted-scalpel', 'r-signal-whistle']
+const ACTIVATABLE_RELICS = ['r-bone-thread', 'r-sainted-scalpel']
 
 const props = defineProps<{ state: ClientCampaignState; code: string }>()
 
@@ -26,7 +26,14 @@ const inDiscard = computed(() => enc.value.turnPhase === 'discard' && isMyTurn.v
 const inChoose = computed(() => enc.value.turnPhase === 'choose_next' && isMyTurn.value)
 const myPeek = computed(() => enc.value.turnPhase === 'setup' && enc.value.setupPeek?.mine)
 
+// ascending-deck: overdraw-and-select phase
+const inDrawSelect = computed(() =>
+  enc.value.turnPhase === 'draw_select' && enc.value.drawPool !== undefined && isMyTurn.value)
+const drawPoolSelected = ref<number[]>([])
+
 const hand = computed(() => enc.value.myHand)
+// ascending-deck: tokens stamped on a card (for badges on the card face)
+function cardTokensOf(card: Card) { return tokensOf(enc.value.cardTokens, card) }
 const pileCards = computed(() =>
   showPile.value === 'tavern' ? enc.value.tavernCards : showPile.value === 'discard' ? enc.value.discardCards : [])
 
@@ -183,7 +190,8 @@ const comboError = computed(() => {
   if (aces.length > 1) return 'Only one Ace per combo'
   if (new Set(cards.map(c => c.rank)).size > 1) return 'Must be same rank (or use Ace)'
   const total = cards.reduce((s, c) => s + cardValue(c.rank), 0)
-  if (total > 10) return `Total ${total} exceeds 10`
+  const max = enc.value.myBoosts?.comboMax ?? 10   // Combat Cache raises this to 12
+  if (total > max) return `Total ${total} exceeds ${max}`
   return null
 })
 
@@ -205,26 +213,42 @@ const preview = computed(() => {
   const cards = selected.value.map(i => hand.value[i]!).filter(Boolean)
   if (!b || !enemy || !cards.length || cards[0]!.rank === 'Jo') return null
 
-  const base = cards.reduce((s, card) => s + cardValue(card.rank), 0)
-  const immune = enemy.immunityNullified ? null : enemy.card.suit
-  const suits = new Set(cards.map(card => card.suit).filter(su => su !== immune))
-  const blocked = [...new Set(cards.map(card => card.suit))].filter(su => su === immune)
+  // token-aware base: printed value + value-token deltas (Hone/Temper/…)
+  const tok = (card: Card) => cardTokensOf(card)
+  const base = Math.max(0, cards.reduce((s, card) => s + cardValue(card.rank) + tokenSpend(tok(card)), 0))
 
+  const immune = enemy.immunityNullified ? null : enemy.card.suit
+  // effective suits across all cards, including graft (added) / transmute (replaced)
+  const suits = new Set<string>()
+  let immuneBlocked = false
+  for (const card of cards) for (const su of effectiveSuits(card, tok(card))) {
+    if (su === immune) immuneBlocked = true; else suits.add(su)
+  }
+  const blocked = immuneBlocked ? [immune!] : []
+
+  // per-card lever/keyword tokens that actually fire their suit
+  const fires = (card: Card, su: string) => su !== immune && effectiveSuits(card, tok(card)).includes(su)
+  const lever = (l: string, su: string) => cards.reduce((n, card) => n + (fires(card, su) ? tok(card).filter(t => t.lever === l).length : 0), 0)
+  const edgeB = lever('edge', 'C'), plateB = lever('shield', 'S'), drawB = lever('draw', 'D'), mendB = lever('recover', 'H')
+  const markDmg = cards.reduce((n, card) => n + tok(card).filter(t => t.keyword === 'mark').length * 2, 0)
+
+  // mirror server order: (base+dmgPlus) ×2[♣] +edge +mark ×dmgMult, then exec
   let dmg = base + b.dmgPlus
-  if (suits.has('C')) dmg *= 2
+  if (suits.has('C')) { dmg *= 2; dmg += edgeB * 2 }
+  dmg += markDmg
   dmg *= b.dmgMult
   let hpAfter = enemy.hp - dmg
   let exec = false
   if (hpAfter > 0 && hpAfter <= 2 && b.execReady) { hpAfter -= 2; exec = true }
 
-  const rawDraw = b.dCap !== null ? Math.min(base + b.D, b.dCap) : base + b.D
-  const rawHeal = b.hHalf ? Math.ceil((base + b.H) / 2) : base + b.H
+  const rawDraw = b.dCap !== null ? Math.min(base + b.D + drawB, b.dCap) : base + b.D + drawB
+  const rawHeal = b.hHalf ? Math.ceil((base + b.H + mendB) / 2) : base + b.H + mendB
   return {
     base, dmg, exec,
     kills: hpAfter <= 0,
     exact: hpAfter === 0,
     blocked,
-    shield: suits.has('S') ? base + b.S : null,
+    shield: suits.has('S') ? base + b.S + plateB : null,
     draws: suits.has('D') ? Math.min(rawDraw, enc.value.tavernCount) : null,
     heal: suits.has('H') ? Math.min(rawHeal, enc.value.discardCount) : null,
   }
@@ -239,6 +263,8 @@ function isImmuneSuit(suit: string) {
 function suitClass(suit: string) {
   return suit === 'H' || suit === 'D' ? 'suit-red' : 'suit-black'
 }
+
+const confirmAbandon = ref(false)
 
 // ── Actions ──────────────────────────────────────────────────────────────────
 function act(action: Record<string, unknown>) {
@@ -279,15 +305,18 @@ function castSpell(spellId: string) {
   act({ type: 'cast_spell', spellId })
 }
 
-function onRelicClick() {
-  if (!enc.value.myRelicActivatable || !inPlay.value) return
-  if (me.value?.relic?.id === 'r-signal-whistle') whistleMode.value = true
-  else activateRelic()
+const whistleRelicId = ref<string | null>(null)
+
+function onRelicClick(relicId: string) {
+  if (!inPlay.value || !enc.value.activatableRelics.includes(relicId)) return
+  if (relicId === 'r-signal-whistle') { whistleRelicId.value = relicId; whistleMode.value = true }
+  else activateRelic(undefined, relicId)
 }
 
-function activateRelic(targetIndex?: number) {
+function activateRelic(targetIndex?: number, relicId?: string) {
   whistleMode.value = false
-  act({ type: 'activate_relic', targetIndex })
+  act({ type: 'activate_relic', targetIndex, relicId: relicId ?? whistleRelicId.value ?? undefined })
+  whistleRelicId.value = null
 }
 
 function confirmPeek() {
@@ -295,6 +324,20 @@ function confirmPeek() {
   const order = peekOrder.value.length === n ? [...peekOrder.value] : Array.from({ length: n }, (_, i) => i)
   peekOrder.value = []
   act({ type: 'setup_reorder', order })
+}
+
+// ascending-deck: confirm which cards to keep from the overdraw pool
+function toggleDrawPool(i: number) {
+  const idx = drawPoolSelected.value.indexOf(i)
+  if (idx >= 0) { drawPoolSelected.value.splice(idx, 1); return }
+  // don't let the player pick more than they're allowed to keep
+  if (drawPoolSelected.value.length >= (enc.value.drawSelectKeep ?? 0)) return
+  drawPoolSelected.value.push(i)
+}
+
+function confirmKeepDrawn() {
+  act({ type: 'keep_drawn', keepIndices: [...drawPoolSelected.value] })
+  drawPoolSelected.value = []
 }
 
 function togglePeekCard(i: number) {
@@ -308,8 +351,7 @@ socket.on('error', (msg: string) => { errorMsg.value = msg })
 
 function heroTooltip(h: (typeof props.state.heroes)[number]): string {
   const lines = [`${h.className} — ${h.abilityText}`]
-  if (h.relic) lines.push(`🏺 ${h.relic.name}: ${h.relic.text}`)
-  for (const m of h.memories) lines.push(`🧠 ${m.name}: ${m.text}`)
+  for (const rl of h.relics) lines.push(`🏺 ${rl.name}: ${rl.text}`)
   if (!h.alive) lines.push('💀 Fallen — can be replaced at camp.')
   return lines.join('\n')
 }
@@ -348,12 +390,36 @@ const netAttack = computed(() => {
         <p v-if="enc.bossModifier" class="text-xs" :class="enc.bossModifier.id === 'hidden' ? 'text-warning/60 italic' : 'text-warning'">
           {{ enc.bossModifier.name }}: {{ enc.bossModifier.text }}
         </p>
-        <p v-for="p in enc.preps" :key="p.id" class="text-xs text-success/90" :title="p.text">
-          🎒 {{ p.name }} — active this fight
-        </p>
       </div>
     </div>
 
+
+    <!-- Ascending-deck: overdraw-and-select — choose which cards to keep -->
+    <OverlayModal v-if="enc.turnPhase === 'draw_select'" tone="primary">
+      <template v-if="inDrawSelect">
+        <p class="text-sm font-semibold text-center">
+          ♦ Overdraw pool — keep up to {{ enc.drawSelectKeep ?? 0 }}
+          card{{ (enc.drawSelectKeep ?? 0) !== 1 ? 's' : '' }}
+        </p>
+        <div class="flex gap-2 justify-center flex-wrap">
+          <button
+            v-for="(card, i) in enc.drawPool" :key="card.id"
+            class="card-face w-14 h-20 font-mono flex flex-col items-center justify-center relative transition-transform hover:-translate-y-1"
+            :class="drawPoolSelected.includes(i) ? 'ring-2 ring-primary' : ''"
+            @click="toggleDrawPool(i)"
+          >
+            <span class="text-xl font-bold" :class="suitClass(card.suit)">{{ card.rank }}</span>
+            <span class="text-base" :class="suitClass(card.suit)">{{ suitSymbol(card.suit) }}</span>
+          </button>
+        </div>
+        <button class="btn btn-primary btn-sm" @click="confirmKeepDrawn">
+          Keep {{ drawPoolSelected.length }} card{{ drawPoolSelected.length !== 1 ? 's' : '' }}
+        </button>
+      </template>
+      <p v-else class="text-sm text-center text-base-content/50 soft-pulse">
+        ♦ Someone is selecting from their draw pool…
+      </p>
+    </OverlayModal>
 
     <!-- Setup peek — floats over the stage, nothing else to do during setup -->
     <OverlayModal v-if="enc.turnPhase === 'setup'" tone="primary">
@@ -670,8 +736,22 @@ const netAttack = computed(() => {
               v-else-if="inPlay && card.rank !== 'Jo' && suitBoost(card.suit) !== 0"
               class="boost-badge absolute -top-1.5 -left-1.5 text-[9px] rounded-full px-1 h-4 flex items-center justify-center font-bold shadow"
               :class="suitBoost(card.suit) > 0 ? 'bg-success text-success-content' : 'bg-error text-error-content'"
-              :title="suitBoost(card.suit) > 0 ? 'Boosted by your class/relic/memory' : 'Penalized by the encounter modifier'"
+              :title="suitBoost(card.suit) > 0 ? 'Boosted by your class/relic' : 'Penalized by the encounter modifier'"
             >{{ suitBoost(card.suit) > 0 ? '+' + suitBoost(card.suit) : suitBoost(card.suit) }}</span>
+            <!-- ascending-deck: token badges — a clear glyph per token, stacked
+                 down the top-left edge (visible in the fan); the card's rank/suit
+                 stays the prominent identity. Suit tokens show the grafted suit. -->
+            <span
+              v-if="cardTokensOf(card).length"
+              class="absolute -left-2 top-1/2 -translate-y-1/2 flex flex-col gap-0.5 z-[55]"
+            >
+              <span
+                v-for="(tk, ti) in cardTokensOf(card)" :key="ti"
+                class="w-[18px] h-[18px] rounded-full border flex items-center justify-center text-[11px] leading-none font-bold shadow-sm"
+                :class="tokenToneClass(tk.tone)"
+                :title="tk.name + ' — ' + tk.text"
+              >{{ tk.sym }}</span>
+            </span>
           </button>
         </div>
         <p v-if="hand.length === 0" key="empty-hand" class="text-xs text-base-content/40 py-6">No cards — yield and pray.</p>
@@ -683,7 +763,7 @@ const netAttack = computed(() => {
       </div>
 
       <!-- Arsenal: the team's magic, physically on the table -->
-      <div v-if="state.spells.length || me?.relic || (enc.canWager && !enc.wagerArmed)" class="mt-2">
+      <div v-if="state.spells.length || me?.relics.length || (enc.canWager && !enc.wagerArmed)" class="mt-2">
         <p class="text-[9px] uppercase tracking-[0.25em] text-base-content/35 mb-1">Arsenal</p>
         <div class="flex gap-2 overflow-x-auto pb-1.5">
           <ItemCard
@@ -693,10 +773,10 @@ const netAttack = computed(() => {
             @click="castSpell(sp.id)"
           />
           <ItemCard
-            v-if="me?.relic"
-            :id="me.relic.id" :name="me.relic.name" :text="me.relic.text" :tier="me.relic.tier" sm
-            :disabled="ACTIVATABLE_RELICS.includes(me.relic.id) && (!enc.myRelicActivatable || !inPlay)"
-            @click="onRelicClick()"
+            v-for="rl in me?.relics ?? []" :key="rl.id"
+            :id="rl.id" :name="rl.name" :text="rl.text" :tier="rl.tier" sm
+            :disabled="ACTIVATABLE_RELICS.includes(rl.id) && !(inPlay && enc.activatableRelics.includes(rl.id))"
+            @click="onRelicClick(rl.id)"
           />
           <ItemCard
             v-if="enc.canWager && !enc.wagerArmed"
@@ -706,6 +786,22 @@ const netAttack = computed(() => {
             @click="act({ type: 'arm_wager' })"
           />
         </div>
+      </div>
+
+      <!-- Abandon run escape hatch (host only) -->
+      <div v-if="state.isHost && enc.outcome === 'active'" class="mt-3 text-center">
+        <template v-if="!confirmAbandon">
+          <button class="btn btn-ghost btn-xs text-error/30 hover:text-error" @click="confirmAbandon = true">Abandon lineage</button>
+        </template>
+        <template v-else>
+          <div class="flex flex-col items-center gap-2 p-3 rounded-lg bg-error/10 border border-error/30">
+            <p class="text-xs text-error font-semibold">Abandon this run? All progress is lost.</p>
+            <div class="flex gap-2">
+              <button class="btn btn-error btn-xs" @click="act({ type: 'abandon_campaign' })">Yes, abandon</button>
+              <button class="btn btn-ghost btn-xs" @click="confirmAbandon = false">Cancel</button>
+            </div>
+          </div>
+        </template>
       </div>
 
       <!-- Whistle target — overlay, tap outside to cancel -->
@@ -741,9 +837,6 @@ const netAttack = computed(() => {
           <p v-if="enc.bossModifier" class="text-xs leading-snug" :class="enc.bossModifier.id === 'hidden' ? 'text-warning/60 italic' : 'text-warning'">
             {{ enc.bossModifier.name }}: {{ enc.bossModifier.text }}
           </p>
-          <p v-for="p in enc.preps" :key="p.id" class="text-xs text-success/90 leading-snug" :title="p.text">
-            🎒 {{ p.name }}
-          </p>
           <p v-if="enc.wagerArmed" class="text-xs text-warning font-bold">🎲 Wager live — kill or pay</p>
         </div>
       </div>
@@ -757,8 +850,7 @@ const netAttack = computed(() => {
               <span class="font-normal text-primary/60 font-display text-[10px]">{{ h.className }}</span>
             </p>
             <p class="text-[10px] text-base-content/50 leading-snug">{{ h.abilityText }}</p>
-            <p v-if="h.relic" class="text-[10px] text-accent leading-snug" :title="h.relic.text">🏺 {{ h.relic.name }}</p>
-            <p v-for="m in h.memories" :key="m.id" class="text-[10px] text-info leading-snug" :title="m.text">🧠 {{ m.name }}</p>
+            <p v-for="rl in h.relics" :key="rl.id" class="text-[10px] text-accent leading-snug" :title="rl.text">🏺 {{ rl.name }}</p>
           </div>
         </div>
       </div>

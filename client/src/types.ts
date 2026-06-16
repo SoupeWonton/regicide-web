@@ -51,7 +51,7 @@ export interface RoomInfo {
 
 export type CampaignPhase =
   | 'class_select' | 'road' | 'landmark' | 'encounter' | 'death_vote'
-  | 'camp' | 'replace_hero' | 'memory_draft' | 'chapter_complete'
+  | 'camp' | 'replace_hero' | 'chapter_complete'
   | 'campaign_won' | 'campaign_lost'
 
 export interface ItemView { id: string; name: string; text: string; tier: 'standard' | 'rare' }
@@ -64,8 +64,7 @@ export interface ClientHero {
   className: string
   abilityText: string
   alive: boolean
-  memories: { id: string; name: string; text: string }[]
-  relic: ItemView | null
+  relics: ItemView[]
   handSize: number
   isCurrentPlayer: boolean
 }
@@ -84,7 +83,6 @@ export interface ClientEncounterState {
   tier: 'skirmish' | 'veteran' | 'elite' | 'boss'
   modifier: { id: string; name: string; text: string } | null
   bossModifier: { id: string; name: string; text: string } | null
-  preps: { id: string; name: string; text: string }[]
   turnPhase: string
   currentPlayerIndex: number
   enemiesRemaining: number
@@ -101,13 +99,35 @@ export interface ClientEncounterState {
   pendingChooseNext: boolean
   wagerArmed: boolean
   canWager: boolean
-  myRelicActivatable: boolean
+  activatableRelics: string[]
   myBoosts: SuitBoosts
   siegeRank: 'J' | 'Q' | 'K' | null
   tavernCards: Card[]
   discardCards: Card[]
   events: EncounterEvent[]
   eventSeq: number
+  // ascending-deck: overdraw pool waiting for player keep-selection
+  drawPool?: Card[]
+  // how many of the drawPool the viewing hero may keep
+  drawSelectKeep?: number
+  // ascending-deck: tokens stamped on cards, keyed by logical id (`${suit}${rank}`)
+  cardTokens?: Record<string, ClientToken[]>
+}
+
+// ascending-deck Step 5: a token projected for display on a card face
+export interface ClientToken {
+  defId: string
+  name: string
+  short: string
+  sym: string
+  kind: 'value' | 'suit' | 'lever' | 'keyword'
+  suit?: string
+  spend: number
+  suitOp?: 'add' | 'replace'
+  lever?: 'shield' | 'draw' | 'recover' | 'edge'
+  keyword?: 'scry' | 'mark' | 'banner' | 'bloodprice'
+  tone: 'good' | 'bad' | 'neutral'
+  text: string
 }
 
 export interface SuitBoosts {
@@ -119,6 +139,7 @@ export interface SuitBoosts {
   execReady: boolean
   dCap: number | null
   hHalf: boolean
+  comboMax: number   // max combo total — Combat Cache raises it 10→12
 }
 
 export interface EncounterEvent {
@@ -154,15 +175,20 @@ export interface ClientCampaignState {
   encounter: ClientEncounterState | null
   lastFight: { tier: string; rank: 'J' | 'Q' | 'K' | null; handSizes: number[]; tavern: number; discard: number } | null
   spells: ItemView[]
-  preparations: ItemView[]
-  activePreparations: ItemView[]
   pendingChoice: PendingChoiceView | null
   rewardDraw: { seq: number; options: { id: string; label: string; detail?: string }[]; winnerId: string; tie: boolean } | null
   deathVote: { deadHeroName: string; options: string[]; votes: Record<string, string>; myVote: string | null; isBoss: boolean } | null
-  memoryDraft: { myOptions: ItemView[] | null; waitingOn: string[] } | null
   exileAvailable: boolean
   kingdom: { unlockedChapters: number[]; unlockedClasses: string[]; specializationsUnlocked: boolean }
   log: string[]
+  // ascending-deck: tokens stamped on cards, keyed by logical id (`${suit}${rank}`)
+  cardTokens?: Record<string, ClientToken[]>
+  // ascending-deck: unspent forge budget
+  tokenBudget?: number
+  // fragment track: token fragments held (2 → apply a C-tier token on the road)
+  tokenFragments?: number
+  // ascending-deck mode active (drives token UI: class-select stamps, card badges)
+  ascendingDeck?: boolean
 }
 
 export interface SaveSummary {

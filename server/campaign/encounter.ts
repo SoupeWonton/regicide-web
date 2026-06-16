@@ -1,15 +1,19 @@
 import type { Card, Enemy, Suit } from '../types'
-import { cardValue, cardLabel, suitSymbol, enemyStats, jesterCount } from '../deck'
+import { cardValue, cardLabel, suitSymbol, enemyStats, isNumberRank, numberEnemyStats, jesterCount } from '../deck'
 import { createRng } from '../rng'
-import type { CampaignState, EncounterState, EncounterTier, EncounterEvent, Hero } from './types'
-import { getEncounterDef, getItem, encountersOf, BOSS_MODIFIERS, CLASSES } from './content'
+import type { CampaignState, CampaignTurnPhase, EncounterState, EncounterTier, EncounterEvent } from './types'
+import { getEncounterDef, getItem, encountersOf, BOSS_MODIFIERS, CLASSES, CLASS_SIGNATURES, SIGNATURE_CARDS } from './content'
 import { EXPERIMENTS, CURATION_CUT } from './experiments'
 import { appendGameLog } from './store'
+import { spendDelta, holdDelta, cardSuits, leverBonus, markDamage, hasKeyword } from './tokens'
+
+/** Returns the continent number for a given chapter. Inlined to avoid circular import with campaign.ts. */
+function continentOf(chapter: number): number { return Math.ceil(chapter / 3) }
 
 // Campaign encounter engine. A superset of the base Regicide rules with hook
-// points for encounter modifiers, class core abilities, relics, spells,
-// preparations and memories. Operates by mutating campaign.encounter in place;
-// all actions validate before mutating.
+// points for encounter modifiers, class core abilities, relics, and spells.
+// Operates by mutating campaign.encounter in place; all actions validate
+// before mutating.
 
 const SUITS: Suit[] = ['C', 'D', 'H', 'S']
 const PLAYER_RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10'] as const
@@ -45,8 +49,8 @@ export function maxHandSize(c: CampaignState, heroIdx?: number): number {
   let size = base
   if (s?.flags['shrineBlessing']) size += 1
   if (s?.bossModifierId === 'starving-court') size -= 1
-  // Reliquary relic: hand cap +1 during boss fights
-  if (s?.tier === 'boss' && c.heroes.some(h => h.alive && h.relicId === 'r-reliquary')) size += 1
+  // Reliquary relic: hand cap +1 (every encounter)
+  if (s && c.heroes.some(h => h.alive && h.relicIds.includes('r-reliquary'))) size += 1
   // Quartermaster: hand cap +1 for the Quartermaster's OWN hand (playtest
   // canon 2026-06-11: class powers affect only the player running the class)
   if (heroIdx !== undefined && c.heroes[heroIdx]?.alive && c.heroes[heroIdx]!.classId === 'quartermaster') size += 1
@@ -60,8 +64,6 @@ function rng(c: CampaignState) {
     done() { c.rngState = r.state() },
   }
 }
-
-function heroHasMemory(h: Hero, id: string): boolean { return h.memories.includes(id) }
 
 function flagKey(base: string, idx?: number): string { return idx === undefined ? base : `${base}:${idx}` }
 
@@ -93,6 +95,55 @@ function buildCampaignDeck(c: CampaignState, shuffler: <T>(a: T[]) => T[]): Card
 /** Chapter start: fresh full deck, full hands. */
 export function setupChapterDeck(c: CampaignState) {
   const { r, done } = rng(c)
+
+  // ── Ascending-deck (Continent 1): start-small 20-card deck ────────────────
+  // A–5, all 4 suits = 20 cards + jesters. Curation block is DEAD under this
+  // flag (superseded by the small start canon). Recruited number-cards carry
+  // in via c.ownedCards — they are injected back into the tavern on setup.
+  if (EXPERIMENTS.ascendingDeck) {
+    // Stamp each class's level-1 signature tokens once, at run start (ch1).
+    // First tokens of the run → empty cardTokens means not yet signed.
+    if (c.chapter === 1 && Object.keys(c.cardTokens ?? {}).length === 0) {
+      c.cardTokens ??= {}
+      for (const hi of aliveIndices(c)) {
+        const cls = c.heroes[hi]!.classId
+        const sig = CLASS_SIGNATURES[cls] ?? []
+        const slots = SIGNATURE_CARDS[cls] ?? []
+        for (let i = 0; i < sig.length && i < slots.length; i++) {
+          const cardId = slots[i]!
+          ;(c.cardTokens[cardId] ??= []).push(sig[i]!)
+        }
+        if (sig.length) clog(c, `✒ ${c.heroes[hi]!.playerName} (${CLASSES[cls].name}) stamps ${sig.length} signature tokens.`)
+      }
+    }
+    const START_RANKS: typeof PLAYER_RANKS[number][] = ['A', '2', '3', '4', '5']
+    const cards: Card[] = []
+    for (const suit of SUITS)
+      for (const rank of START_RANKS)
+        cards.push({ suit, rank, id: uid() })
+    const jesters = CAMPAIGN_JESTERS[c.heroes.length] ?? 0
+    for (let i = 0; i < jesters; i++) cards.push({ suit: 'C', rank: 'Jo', id: uid() })
+    // inject recruited cards from previous encounters (ownedCards → deck, if not already present)
+    // ownedCards are the canonical list; duplicates are not injected (one copy per card id).
+    const ownedIds = new Set<string>()
+    for (const cardId of c.ownedCards ?? []) {
+      if (!ownedIds.has(cardId)) {
+        ownedIds.add(cardId)
+        const suit = cardId[0] as Suit
+        const rank = cardId.slice(1) as typeof PLAYER_RANKS[number]
+        cards.push({ suit, rank, id: uid() })
+      }
+    }
+    const tavern = r.shuffle(cards)
+    c.deck = { tavern, discard: [], hands: c.heroes.map(() => []) }
+    for (const hi of aliveIndices(c))
+      for (let i = 0; i < maxHandSize(c, hi); i++)
+        if (c.deck.tavern.length) c.deck.hands[hi]!.push(c.deck.tavern.pop()!)
+    done()
+    clog(c, `🃏 Ascending Deck: ${cards.length - jesters} cards (A–5 + ${ownedIds.size} recruited). Hands drawn.`)
+    return
+  }
+
   let tavern = buildCampaignDeck(c, a => r.shuffle(a))
   // Province mode — class curation (deckbuild option B): each suited class
   // removes its N lowest own-suit cards. Quality up, total runway down.
@@ -136,19 +187,6 @@ export function campRest(c: CampaignState) {
   clog(c, '🔄 The party rests — the deck is reshuffled and hands are redrawn.')
 }
 
-/** In-fight full rest: shuffle everything into the Tavern, redraw all hands. */
-function castleCheckpoint(c: CampaignState, s: EncounterState) {
-  const pool = [...s.tavern, ...s.discard, ...s.hands.flat()]
-  const { r, done } = rng(c)
-  s.tavern = r.shuffle(pool)
-  s.discard = []
-  s.hands = c.heroes.map(() => [])
-  for (const hi of aliveIndices(c))
-    for (let i = 0; i < maxHandSize(c, hi); i++)
-      if (s.tavern.length) s.hands[hi]!.push(s.tavern.pop()!)
-  done()
-}
-
 /** Camp replacement: the new hero draws a full hand. */
 export function dealReplacementHand(c: CampaignState, heroIdx: number) {
   const deck = c.deck
@@ -162,57 +200,205 @@ export function dealReplacementHand(c: CampaignState, heroIdx: number) {
 // Encounter composition scales with party size (balance-testing): the boss
 // castle is canon and never scales, but road fights shed a body at low
 // counts so pressure tracks the party's total hand capacity.
-function buildEnemyStack(tier: EncounterTier, isLair: boolean, players: number, shuffler: <T>(a: T[]) => T[], rankOnly?: 'J' | 'Q' | 'K'): Card[] {
+/** Tier ranks for each Continent-1 chapter. */
+export const RECRUIT_RANKS_BY_CHAPTER: Record<number, string[]> = {
+  1: ['6', '7'],
+  2: ['8', '9'],
+  3: ['10'],
+}
+
+// Continent-1 number gates (ascending-deck): each chapter's three boss nodes are
+// Gates / Courtyard / Throne, made of NUMBER cards (never royals before ch4).
+//   ch1 → Gates 4×6 · Courtyard 4×7 · Throne 4×6 + 4×7
+//   ch2 → Gates 4×8 · Courtyard 4×9 · Throne 4×8 + 4×9
+// (ch3's boss is the Council of Tens — handled separately.) Killing a gate enemy
+// recruits/backfills it exactly like a road recruit; pre-recruited cards yield a
+// forge token instead (the existing number-enemy kill resolution handles both).
+export const C1_GATE_RANKS: Record<number, string[][]> = {
+  1: [['6'], ['7'], ['6', '7']],
+  2: [['8'], ['9'], ['8', '9']],
+}
+
+/**
+ * Build a recruit-encounter enemy stack for Continent-1 ascending-deck mode.
+ * Enemies are lazily selected from the **unowned** cards of the chapter's tier
+ * so the player is always offered a card they need (dupe-guard layer 1).
+ * If the entire tier is already owned the stack falls back to a filler fight
+ * (generic veteran-tier royals) — the caller degrades the tier accordingly.
+ * Solo gets 2 enemies, party gets 3.
+ */
+function buildRecruitStack(
+  chapter: number, players: number,
+  shuffler: <T>(a: T[]) => T[],
+  ownedCards: string[],
+): { cards: Card[]; degraded: boolean } {
+  const rankPool = RECRUIT_RANKS_BY_CHAPTER[chapter] ?? ['6', '7']
+  const allSuits: Suit[] = ['C', 'D', 'H', 'S']
+
+  // Build the full unowned pool for this tier
+  const unowned: { suit: Suit; rank: string }[] = []
+  for (const rank of rankPool) {
+    for (const suit of allSuits) {
+      if (!ownedCards.includes(`${suit}${rank}`)) {
+        unowned.push({ suit, rank })
+      }
+    }
+  }
+
+  // Tier complete → degrade to filler. Continent 1 NEVER fields royals, so the
+  // fallback is owned cards of this tier (a re-fight that pays forge tokens),
+  // not the old J/Q/K stack.
+  if (unowned.length === 0) {
+    const owned = shuffler(rankPool.flatMap(rank => allSuits.map(suit => ({ suit, rank }))))
+    const n = players === 1 ? 2 : 3
+    const degraded: Card[] = owned.slice(0, n).map(e => ({ suit: e.suit, rank: e.rank as Card['rank'], id: uid() }))
+    return { cards: degraded, degraded: true }
+  }
+
+  // Ramp the opener: solo Chapter 1 is a SINGLE enemy (a 20-card deck shouldn't
+  // face two fights-worth of immunity at once); solo later chapters field 2.
+  const enemyCount = players === 1 ? (chapter === 1 ? 1 : 2) : 3
+  // Shuffle the unowned pool and take enemyCount cards, preferring SUIT VARIETY so
+  // you never face two same-suit enemies (which would deny the same lever twice).
+  const pool = shuffler([...unowned])
+  const cards: Card[] = []
+  const usedSuits = new Set<Suit>()
+  for (const e of pool) {
+    if (cards.length >= enemyCount) break
+    if (usedSuits.has(e.suit)) continue
+    usedSuits.add(e.suit)
+    cards.push({ suit: e.suit, rank: e.rank as Card['rank'], id: uid() })
+  }
+  // top up from the rest if variety left us short
+  for (const e of pool) {
+    if (cards.length >= enemyCount) break
+    if (cards.some(card => card.suit === e.suit && card.rank === e.rank)) continue
+    cards.push({ suit: e.suit, rank: e.rank as Card['rank'], id: uid() })
+  }
+  // If pool smaller than enemyCount, pad from the full tier (may repeat a suit/rank)
+  while (cards.length < enemyCount) {
+    const extra = shuffler([...allSuits])[0]!
+    const rank = shuffler([...rankPool])[0]! as Card['rank']
+    cards.push({ suit: extra, rank, id: uid() })
+  }
+  return { cards, degraded: false }
+}
+
+/**
+ * Build the Council of Tens enemy stack: all four 10s at once.
+ * This is the Continent-1 boss — defeating it completes the 10-set and
+ * triggers the Continent 1→2 transition.
+ */
+function buildCouncilStack(shuffler: <T>(a: T[]) => T[]): Card[] {
+  const suits: Suit[] = ['C', 'D', 'H', 'S']
+  return shuffler(suits.map(suit => ({ suit, rank: '10' as Card['rank'], id: uid() })))
+}
+
+// Continent-1 number-fight ranks per chapter (no royals): the tier the chapter
+// recruits, the low filler one rank below it, and the "next tier" a Lair pulls.
+function c1FightRanks(chapter: number): { tier: string[]; lo: string; next: string[] } {
+  const tier = RECRUIT_RANKS_BY_CHAPTER[chapter] ?? ['6', '7']
+  const nextByCh: Record<number, string[]> = { 1: ['8', '9'], 2: ['10'], 3: ['10'] }
+  return { tier, lo: String(Number(tier[0]) - 1), next: nextByCh[chapter] ?? ['10'] }
+}
+
+// Pick `perRank` enemies of each rank, preferring UNOWNED suits (so you face the
+// cards you still need to recruit); falls back to owned suits (which on exact
+// kill yield a token fragment instead).
+function pickNumberStack(ranks: string[], perRank: number, owned: string[], shuffler: <T>(a: T[]) => T[]): Card[] {
+  const allSuits: Suit[] = ['C', 'D', 'H', 'S']
+  const out: Card[] = []
+  for (const rank of ranks) {
+    const unowned = shuffler(allSuits.filter(s => !owned.includes(`${s}${rank}`)))
+    const ownedS = shuffler(allSuits.filter(s => owned.includes(`${s}${rank}`)))
+    for (const suit of [...unowned, ...ownedS].slice(0, perRank))
+      out.push({ suit, rank: rank as Card['rank'], id: uid() })
+  }
+  return out
+}
+
+function buildEnemyStack(tier: EncounterTier, isLair: boolean, players: number, shuffler: <T>(a: T[]) => T[], rankOnly?: 'J' | 'Q' | 'K', isRecruit?: boolean, chapter?: number, ownedCards?: string[], isCouncil?: boolean, gateRanks?: string[]): { cards: Card[]; recruitDegraded?: boolean } {
+  const owned = ownedCards ?? []
+  // Council of Tens (Continent-1 ch3 boss): all four 10s at once
+  if (isCouncil && EXPERIMENTS.ascendingDeck) {
+    return { cards: buildCouncilStack(shuffler) }
+  }
+  // Continent-1 number gates (ch1/ch2 boss nodes): 3 per rank solo (Throne = 6),
+  // 4 in a party. Gate kills recruit via the number-enemy resolution.
+  if (gateRanks && gateRanks.length) {
+    return { cards: shuffler(pickNumberStack(gateRanks, players === 1 ? 3 : 4, owned, shuffler)) }
+  }
+  // Continent-1 recruit fights (legacy node kind; maps no longer emit these)
+  if (isRecruit && EXPERIMENTS.ascendingDeck) {
+    const result = buildRecruitStack(chapter ?? 1, players, shuffler, owned)
+    return { cards: result.cards, recruitDegraded: result.degraded }
+  }
+  // Continent-1 (ascending): NO royals before ch4. Road fights are number-enemies.
+  //   skirmish = [low filler + tier card]  (kill the tier card → recruit; low → fragment)
+  //   veteran  = the tier ranks (6 & 7)    (auto-recruit on any kill — flagged at start)
+  //   lair     = one next-tier card (8-9)  (recruit it + the rare lair bonus)
+  if (EXPERIMENTS.ascendingDeck && continentOf(chapter ?? 1) === 1 && tier !== 'boss') {
+    const { tier: tierRanks, lo, next } = c1FightRanks(chapter ?? 1)
+    if (isLair) return { cards: pickNumberStack([shuffler([...next])[0]!], 1, owned, shuffler) }
+    if (tier === 'veteran') return { cards: pickNumberStack(tierRanks, 1, owned, shuffler) }
+    return { cards: pickNumberStack([lo, tierRanks[0]!], 1, owned, shuffler) }   // skirmish
+  }
   const mk = (rank: 'J' | 'Q' | 'K', suits: Suit[]) => suits.map(suit => ({ suit, rank: rank as Card['rank'], id: uid() }))
   if (tier === 'boss') {
     // province rank fight: one rank — solo fields 3 royals, parties the full 4
     // (playtest 2026-06-11: 2-royal gates at low counts were too easy)
-    if (rankOnly) return shuffler(mk(rankOnly, shuffler([...SUITS]).slice(0, players === 1 ? 3 : 4)))
+    if (rankOnly) return { cards: shuffler(mk(rankOnly, shuffler([...SUITS]).slice(0, players === 1 ? 3 : 4))) }
     if (EXPERIMENTS.shortCastle) {
       const ranks: ('J' | 'Q' | 'K')[] = ['J', 'Q', 'K']
-      return ranks.flatMap(rank => shuffler(mk(rank, shuffler([...SUITS]).slice(0, 3))))
+      return { cards: ranks.flatMap(rank => shuffler(mk(rank, shuffler([...SUITS]).slice(0, 3)))) }
     }
-    return [
+    return { cards: [
       ...shuffler(mk('J', [...SUITS])),
       ...shuffler(mk('Q', [...SUITS])),
       ...shuffler(mk('K', [...SUITS])),
-    ]
+    ] }
   }
   const pickSuits = (n: number) => shuffler([...SUITS]).slice(0, n)
-  // Province mode: solo road fights are single-royal duels (a solo "skirmish"
-  // of 2 Jacks was effectively a gate fight — measurement 2026-06-11).
-  const soloProvince = EXPERIMENTS.provinceMode && players === 1
-  if (tier === 'skirmish') return mk('J', pickSuits(soloProvince ? 1 : 2))
+  // Solo road fights are single-royal duels (a solo "skirmish" of 2 Jacks was
+  // effectively a gate fight). Applies in province mode AND ascending Continent-1
+  // filler (where a 20-card A–5 deck cannot face two royals at once).
+  const soloProvince = players === 1 && (
+    EXPERIMENTS.provinceMode || (EXPERIMENTS.ascendingDeck && continentOf(chapter ?? 1) === 1))
+  if (tier === 'skirmish') return { cards: mk('J', pickSuits(soloProvince ? 1 : 2)) }
   if (tier === 'veteran') {
-    if (soloProvince) return mk('Q', pickSuits(1))
-    return players <= 2
+    if (soloProvince) return { cards: mk('Q', pickSuits(1)) }
+    return { cards: players <= 2
       ? [...mk('J', pickSuits(1)), ...mk('Q', pickSuits(1))]
-      : [...mk('J', pickSuits(2)), ...mk('Q', pickSuits(1))]
+      : [...mk('J', pickSuits(2)), ...mk('Q', pickSuits(1))] }
   }
   // elite (lair variant is shorter but heavier)
-  if (isLair) return players === 1 ? mk('K', pickSuits(1)) : [...mk('Q', pickSuits(1)), ...mk('K', pickSuits(1))]
-  return players === 1
+  if (isLair) return { cards: players === 1 ? mk('K', pickSuits(1)) : [...mk('Q', pickSuits(1)), ...mk('K', pickSuits(1))] }
+  return { cards: players === 1
     ? [...mk('J', pickSuits(1)), ...mk('Q', pickSuits(1))]
-    : [...mk('J', pickSuits(1)), ...mk('Q', pickSuits(1)), ...mk('K', pickSuits(1))]
+    : [...mk('J', pickSuits(1)), ...mk('Q', pickSuits(1)), ...mk('K', pickSuits(1))] }
 }
 
 // ── Encounter creation ───────────────────────────────────────────────────────
 
-export function startEncounter(c: CampaignState, nodeId: string, tier: EncounterTier, opts: { isLair?: boolean } = {}) {
+export function startEncounter(c: CampaignState, nodeId: string, tier: EncounterTier, opts: { isLair?: boolean; isRecruit?: boolean; isCouncil?: boolean } = {}) {
   const { r, done } = rng(c)
   const shuffler = <T>(a: T[]) => r.shuffle(a)
 
   // modifier pick (boss Ch1 has none — canon; boss Ch2 uses hidden boss modifier)
+  // Council of Tens (ascending-deck boss) also has no modifier — it IS the event.
   let modifierId: string | null = null
   let bossModifierId: string | null = null
-  if (tier !== 'boss') {
+  // Ascending-deck ramp: NO modifier on recruit fights (the recruiting tutorial)
+  // or on Chapter 1 at all — a 20-card A–5 deck shouldn't also fight a rule-bend.
+  const noModifier = EXPERIMENTS.ascendingDeck && (opts.isRecruit || c.chapter === 1)
+  if (tier !== 'boss' && !noModifier) {
     // debug override (playtest canon: force outcomes)
     const pool = c.debug.forceNextEncounterId
       ? [getEncounterDef(c.debug.forceNextEncounterId)]
       : encountersOf(tier)
     modifierId = pool.length ? r.pick(pool).id : null
     c.debug.forceNextEncounterId = undefined
-  } else if (c.chapter === 2) {
+  } else if (c.chapter === 2 && !opts.isCouncil) {
     bossModifierId = r.pick(BOSS_MODIFIERS).id
     // Oracle siege ultimate — Unveil the Court: the hidden court modifier is
     // read in advance and nullified.
@@ -226,21 +412,36 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
   // Province mode: a boss node is one rank of the split castle — which rank
   // depends on how many rank gates lie behind us (Gates → Courtyard → Throne).
   let rankOnly: 'J' | 'Q' | 'K' | undefined
-  if (tier === 'boss' && EXPERIMENTS.provinceMode) {
+  let gateRanks: string[] | undefined   // Continent-1 number gates (ch1/ch2)
+  // Which gate are we at? 0 = Gates, 1 = Courtyard, 2 = Throne.
+  const gateIndex = (nodeId: string) => {
     const node = c.map!.nodes.find(n => n.id === nodeId)!
-    const ranksBefore = c.map!.nodes.filter(n => n.kind === 'boss' && n.layer < node.layer).length
-    rankOnly = (['J', 'Q', 'K'] as const)[Math.min(ranksBefore, 2)]
+    return Math.min(c.map!.nodes.filter(n => n.kind === 'boss' && n.layer < node.layer).length, 2)
+  }
+  // Province-style rank split: gate = one rank per boss node.
+  // Active in province mode OR in ascending-deck continent-2 (which also uses PROVINCE_1).
+  const useProvinceBossSplit = EXPERIMENTS.provinceMode || (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2)
+  if (tier === 'boss' && useProvinceBossSplit && !opts.isCouncil) {
+    rankOnly = (['J', 'Q', 'K'] as const)[gateIndex(nodeId)]
+  } else if (tier === 'boss' && EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 1 && !opts.isCouncil) {
+    // Continent-1 ch1/ch2: number gates (Gates/Courtyard/Throne) — never royals.
+    gateRanks = C1_GATE_RANKS[c.chapter]?.[gateIndex(nodeId)]
   }
 
   const heroesAlive = aliveIndices(c)
+  const stackResult = buildEnemyStack(tier, !!opts.isLair, heroesAlive.length, shuffler, rankOnly, opts.isRecruit, c.chapter, c.ownedCards ?? [], opts.isCouncil, gateRanks)
+  // If the recruit tier was fully owned, the node degrades to a filler fight
+  // (the player already has all the cards — enemies are now generic royals)
+  if (stackResult.recruitDegraded) {
+    clog(c, `   ⚡ All ${RECRUIT_RANKS_BY_CHAPTER[c.chapter]?.join('+')} cards already owned — recruit node degrades to filler fight.`)
+  }
   const s: EncounterState = {
     nodeId, tier, modifierId, bossModifierId,
     bossModifierRevealed: false,
-    preps: [...c.activePreparations],
     turnPhase: 'setup',
     currentPlayerIndex: heroesAlive[0]!,
     nextPlayerIndex: heroesAlive[1 % heroesAlive.length]!,
-    enemyDeck: buildEnemyStack(tier, !!opts.isLair, heroesAlive.length, shuffler, rankOnly),
+    enemyDeck: stackResult.cards,
     currentEnemy: null,
     defeatedCount: 0,
     totalEnemies: 0,
@@ -289,26 +490,16 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
   c.nextStarterIndex = null
   s.nextPlayerIndex = nextAliveAfter(c, s.currentPlayerIndex)
 
-  // preparations fire at encounter start, then are consumed (camp canon)
-  for (const pid of c.activePreparations) {
-    const item = getItem(pid)
-    clog(c, `🎒 Preparation active: ${item.name}.`)
-    if (pid === 'p-hand-brief') {
-      for (let i = 0; i < 2; i++) if (s.tavern.length) s.hands[s.currentPlayerIndex]!.push(s.tavern.pop()!)
-    }
-    if (pid === 'p-shield-drill') s.flags['prepShieldDrill'] = true
-    if (pid === 'p-light-fortify') s.flags['prepLightFortify'] = true
-    if (pid === 'p-spare-edge') s.flags['prepSpareEdge'] = true
-    if (pid === 'p-fortified-entry') s.flags['prepFortifiedEntry'] = true
-    if (pid === 'p-surgical-reserve') s.flags['prepSurgicalReserve'] = true
-    if (pid === 'p-route-intel') s.flags['prepRouteIntel'] = true
-    if (pid === 'p-last-march') s.flags['prepLastMarch'] = true
-    // p-brace-command is consumed at camp (starting hero choice)
-  }
-  c.activePreparations = []
-
   const def = modifierId ? getEncounterDef(modifierId) : null
-  const bossLabel = rankOnly === 'J' ? 'THE GATES — four Jacks bar the way.'
+  // Continent-1 number gates get their own labels (Gates/Courtyard/Throne of numbers).
+  const gateNumLabel = gateRanks
+    ? gateRanks.length > 1
+      ? `THE THRONE — every ${gateRanks.join(' and ')} rises. Complete the rank.`
+      : `THE ${gateIndex(nodeId) === 0 ? 'GATES' : 'COURTYARD'} — four ${gateRanks[0]}s bar the way.`
+    : null
+  const bossLabel = opts.isCouncil ? 'THE COUNCIL OF TENS — all four 10s rise. Defeat them all to ascend.'
+    : gateNumLabel ? gateNumLabel
+    : rankOnly === 'J' ? 'THE GATES — four Jacks bar the way.'
     : rankOnly === 'Q' ? 'THE COURTYARD — four Queens hold the yard.'
     : rankOnly === 'K' ? 'THE THRONE — four Kings. No retreat.'
     : c.chapter === 1 ? 'The Castle stands before you — 12 royals.' : 'The Broken Court awaits — 12 royals, and something is wrong.'
@@ -342,17 +533,12 @@ function setupPeekPhase(c: CampaignState, s: EncounterState) {
     return true
   }
 
-  if (s.flags['prepRouteIntel'] && peek(s.currentPlayerIndex, 3, true, 'Route Intel')) return
   const oracle = c.heroes.findIndex(h => h.alive && h.classId === 'oracle')
-  if (oracle >= 0 && peek(oracle, 3, true, 'the Oracle’s sight')) {
-    s.flags['oracleForesight'] = oracle   // Foresight: their first play deals +1
+  if (oracle >= 0 && peek(oracle, 3, true, "the Oracle’s sight")) {
     return
   }
-  const scry = c.heroes.findIndex(h => h.alive && h.relicId === 'r-scry-band')
-  if (scry >= 0 && peek(scry, 2, true, 'the Scry Band')) return
-  const recon = c.heroes.findIndex(h => h.alive && heroHasMemory(h, 'm-court-recon'))
-  if (recon >= 0 && peek(recon, 2, false, 'Court Recon')) return
-
+  const scry = c.heroes.findIndex(h => h.alive && h.relicIds.includes('r-scry-band'))
+  if (scry >= 0 && peek(scry, 3, true, 'the Scry Band')) return
   s.turnPhase = 'play'
   clog(c, `👉 ${c.heroes[s.currentPlayerIndex]!.playerName}'s turn.`)
 }
@@ -362,6 +548,7 @@ export function applySetupReorder(c: CampaignState, playerId: string, order: num
   if (!s || s.turnPhase !== 'setup' || !s.setupPeek) return { error: 'No setup peek active.' }
   if (s.setupPeek.playerId !== playerId) return { error: 'Not your peek.' }
   const n = s.setupPeek.cards.length
+  const isOracleReorder = c.heroes.find(h => h.playerId === playerId)?.classId === 'oracle'
   if (s.setupPeek.canReorder && order.length === n && [...order].sort().every((v, i) => v === i)) {
     const fog = s.modifierId === 'fog-marker' ? 1 : 0
     const reordered = order.map(i => s.setupPeek!.cards[i]!)
@@ -369,6 +556,12 @@ export function applySetupReorder(c: CampaignState, playerId: string, order: num
     const base = s.tavern.length - fog - n
     for (let i = 0; i < n; i++) s.tavern[base + i] = reordered[n - 1 - i]!
     clog(c, `🔮 Top of the Tavern rearranged.`)
+    // Oracle Displacement: mark the card now at the top so it pays off when played
+    if (isOracleReorder && s.tavern.length > 0) {
+      const topCard = s.tavern[s.tavern.length - 1 - fog]!
+      s.flags['oracleMarked'] = `${topCard.suit}${topCard.rank}`
+      clog(c, `🔮 ${topCard.rank}${topCard.suit} marked — Displacement primed.`)
+    }
   }
   s.setupPeek = null
   s.turnPhase = 'play'
@@ -387,7 +580,18 @@ function revealNextEnemy(c: CampaignState, s: EncounterState) {
   }
   const card = s.enemyDeck.shift()!
   ev(s, 'reveal', `${cardLabel(card)} steps forward`, 'blood')
-  const { hp, attack } = enemyStats(card.rank as 'J' | 'Q' | 'K')
+  // Guard: number-rank enemies (Continent-1 recruit fights) use numberEnemyStats;
+  // royal-rank enemies use enemyStats. Never pass a number rank to enemyStats —
+  // it returns NaN (it only accepts 'J'|'Q'|'K').
+  let { hp, attack } = isNumberRank(card.rank)
+    ? numberEnemyStats(card.rank as '2'|'3'|'4'|'5'|'6'|'7'|'8'|'9'|'10')
+    : enemyStats(card.rank as 'J'|'Q'|'K')
+  // Continent-1 filler royals (degraded recruit nodes, generic skirmishes) are
+  // scaled to the small A–5 deck — a full-stat Jack (20 HP / 10 ATK) is lethal.
+  if (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 1 && !isNumberRank(card.rank)) {
+    hp = Math.ceil(hp * 0.55)
+    attack = Math.max(3, Math.ceil(attack * 0.5))
+  }
   const enemy: Enemy = { card, hp, maxHp: hp, attack, shield: 0, immunityNullified: false }
 
   if (s.bossModifierId === 'iron-court') { enemy.hp += 5; enemy.maxHp += 5 }
@@ -396,7 +600,7 @@ function revealNextEnemy(c: CampaignState, s: EncounterState) {
   // Exile siege ultimate — Tithe of the Severed: at the first royal's reveal,
   // permanently exile the top 2 Tavern cards; their value wounds the royal
   // (cannot kill outright).
-  if (s.tier === 'boss' && !EXPERIMENTS.provinceMode && c.heroes.some(h => h.alive && h.classId === 'exile') &&
+  if (s.tier === 'boss' && c.heroes.some(h => h.alive && h.classId === 'exile') &&
       s.tavern.length >= 2 && once(s, 'ult.exile')) {
     const sacrificed = [s.tavern.pop()!, s.tavern.pop()!]
     const wound = Math.min(sacrificed.reduce((t, cd) => t + cardValue(cd.rank), 0), enemy.hp - 1)
@@ -408,7 +612,6 @@ function revealNextEnemy(c: CampaignState, s: EncounterState) {
   // per-enemy hooks reset
   for (const k of Object.keys(s.flags)) if (k.startsWith('enemy.')) delete s.flags[k]
   if (s.modifierId === 'blackwall-captain') s.flags['enemy.guard'] = 3
-  if (s.flags['prepShieldDrill']) { enemy.shield += 2; s.flags['prepShieldDrill'] = false }
 
   s.currentEnemy = enemy
   clog(c, `⚔️ New enemy: ${cardLabel(card)} — ${enemy.hp} HP / ${enemy.attack} ATK${s.flags['enemy.guard'] ? ' / Guard 3' : ''}`)
@@ -433,7 +636,8 @@ function drawForHero(c: CampaignState, s: EncounterState, heroIdx: number, n: nu
   return drawn
 }
 
-function resolveDiamonds(c: CampaignState, s: EncounterState, playerIdx: number, amount: number) {
+function resolveDiamonds(c: CampaignState, s: EncounterState, playerIdx: number, amount: number, leverExtra = 0, allowPause = true) {
+  if (leverExtra) { amount += leverExtra; clog(c, `   ♦ Provision: +${leverExtra} to the draw pool.`); ev(s, 'proc', `♦ Provision +${leverExtra}`, 'gold') }
   // modifiers
   if (s.modifierId === 'dry-cart' && once(s, 'dryCartDone')) {
     amount = Math.max(1, amount - 1)
@@ -450,16 +654,52 @@ function resolveDiamonds(c: CampaignState, s: EncounterState, playerIdx: number,
   // class / relic / memory access boosts
   // owner-only (playtest canon 2026-06-11): only the Quartermaster's own Diamonds proc
   const qmActive = c.heroes[playerIdx]!.classId === 'quartermaster'
-  if (qmActive && once(s, 'enemy.qmDiamond')) { amount += 1; clog(c, '   📦 Quartermaster: +1 draw.'); ev(s, 'proc', '📦 Quartermaster +1 draw', 'gold') }
-  const holder = c.heroes[playerIdx]!
-  if (holder.relicId === 'r-field-satchel' && once(s, flagKey('satchel', playerIdx))) amount += 1
-  if (holder.relicId === 'r-grand-provision') {
-    const used = ((s.flags[flagKey('provision', playerIdx)] as number) ?? 0)
-    if (used < 2) { amount += 1; s.flags[flagKey('provision', playerIdx)] = used + 1 }
-  }
-  if (heroHasMemory(holder, 'm-quartered-rations') && once(s, flagKey('m-rations', playerIdx))) amount += 1
+  // Quartermaster: +1 draw ONCE PER FIGHT (canon 2026-06-15 — was once per enemy,
+  // which snowballed the multi-enemy number gates). `qmDiamondFight` has no
+  // `enemy.` prefix so it survives enemy resets; a fresh encounter clears it.
+  if (qmActive && once(s, 'qmDiamondFight')) { amount += 1; clog(c, '   📦 Quartermaster: +1 draw.'); ev(s, 'proc', '📦 Quartermaster +1 draw', 'gold') }
+  // (Diamond axis-engine relics retired 2026-06-14 — that role is the Provision token.)
 
-  // clockwise draw among alive heroes
+  // ── Ascending-deck: overdraw-and-select ──────────────────────────────────
+  // Under the flag, all cards go into a temporary pool; the active player
+  // picks which to keep (up to empty hand slots). The rest return to the top
+  // of the Tavern. This makes diamond value a selection-quality lever (never
+  // wasteful overflow) without touching the multi-hero clockwise logic below.
+  if (EXPERIMENTS.ascendingDeck) {
+    const pool: Card[] = []
+    for (let i = 0; i < amount && s.tavern.length > 0; i++) {
+      pool.push(s.tavern.pop()!)
+    }
+    if (pool.length === 0) {
+      clog(c, '   ♦ Tavern empty — nothing to draw.')
+      ev(s, 'suit', '♦ Draw 0 (empty)', 'info')
+      return
+    }
+    const emptySlots = maxHandSize(c, playerIdx) - s.hands[playerIdx]!.length
+    if (emptySlots <= 0 || pool.length <= emptySlots || !allowPause) {
+      // Hand is full, pool fits exactly, or pausing is disallowed (kill path) —
+      // no selection needed, keep the highest-value cards that fit.
+      const take = Math.min(pool.length, Math.max(0, emptySlots))
+      pool.sort((a, b) => cardValue(b.rank) - cardValue(a.rank))
+      const keep = pool.slice(0, take)
+      const ret = pool.slice(take)
+      s.hands[playerIdx]!.push(...keep)
+      // return the excess to the top of the Tavern (in reverse draw order)
+      for (const card of ret.reverse()) s.tavern.push(card)
+      clog(c, `   ♦ Drew ${keep.length} card${keep.length !== 1 ? 's' : ''} (${ret.length} returned).`)
+      ev(s, 'suit', `♦ Draw ${keep.length}`, 'info')
+    } else {
+      // Player must choose: pause in draw_select phase
+      s.drawPool = pool
+      s.drawSelectHeroIdx = playerIdx
+      s.turnPhase = 'draw_select'
+      clog(c, `   ♦ Drew ${pool.length} into pool — keep up to ${emptySlots} (${pool.length - emptySlots} returns).`)
+      ev(s, 'suit', `♦ Pool of ${pool.length} — select ${emptySlots} to keep`, 'info')
+    }
+    return
+  }
+
+  // ── Standard (non-ascending) clockwise draw among alive heroes ────────────
   let remaining = amount
   let idx = playerIdx
   let passes = 0
@@ -473,7 +713,8 @@ function resolveDiamonds(c: CampaignState, s: EncounterState, playerIdx: number,
   ev(s, 'suit', `♦ Draw ${amount - remaining}`, 'info')
 }
 
-function resolveHearts(c: CampaignState, s: EncounterState, playerIdx: number, amount: number) {
+function resolveHearts(c: CampaignState, s: EncounterState, playerIdx: number, amount: number, leverExtra = 0) {
+  if (leverExtra) { amount += leverExtra; clog(c, `   ♥ Mend: +${leverExtra} recovery.`); ev(s, 'proc', `♥ Mend +${leverExtra}`, 'gold') }
   if (s.modifierId === 'pale-bell-matron' && ((s.flags['exactKills'] as number) ?? 0) < 2) {
     amount = Math.ceil(amount / 2)
     clog(c, '   🔔 Pale Bell Matron: recovery halved.')
@@ -493,8 +734,6 @@ function resolveHearts(c: CampaignState, s: EncounterState, playerIdx: number, a
   // owner-only (playtest canon 2026-06-11): only the Surgeon's own Hearts proc
   const surgeonActive = c.heroes[playerIdx]!.classId === 'surgeon'
   if (surgeonActive && once(s, 'enemy.surgeonHeart')) { amount += 1; clog(c, '   ⚕️ Surgeon: +1 recovery.'); ev(s, 'proc', '⚕️ Surgeon +1 recovery', 'gold') }
-  const holder = c.heroes[playerIdx]!
-  if (heroHasMemory(holder, 'm-surgical-notes') && once(s, flagKey('m-notes', playerIdx))) amount += 1
 
   const toRecover = Math.min(amount, s.discard.length)
   if (toRecover > 0) {
@@ -507,17 +746,17 @@ function resolveHearts(c: CampaignState, s: EncounterState, playerIdx: number, a
   ev(s, 'suit', `♥ ${toRecover} back to the Tavern`, 'info')
 }
 
-function resolveSpades(c: CampaignState, s: EncounterState, playerIdx: number, amount: number) {
+function resolveSpades(c: CampaignState, s: EncounterState, playerIdx: number, amount: number, leverExtra = 0) {
   const enemy = s.currentEnemy!
-  let bonus = 0
+  let bonus = leverExtra
+  if (leverExtra) { clog(c, `   ♠ Plate: +${leverExtra} shield.`); ev(s, 'proc', `♠ Plate +${leverExtra}`, 'gold') }
   const holder = c.heroes[playerIdx]!
-  if (holder.classId === 'sentinel' && once(s, 'enemy.sentinelSpade')) { bonus += 2; clog(c, '   🛡 Sentinel: +2 shield.'); ev(s, 'proc', '🛡 Sentinel +2 shield', 'gold') }
-  if (holder.relicId === 'r-iron-stitch' && once(s, flagKey('stitch', playerIdx))) bonus += 1
-  if (holder.relicId === 'r-bastion-sigil') {
-    const used = ((s.flags[flagKey('bastion', playerIdx)] as number) ?? 0)
-    if (used < 2) { bonus += 1; s.flags[flagKey('bastion', playerIdx)] = used + 1 }
+  // Sentinel — Spade Commit: all-Spade turn gains +3; mixed-suit turn gains nothing.
+  // Decision: commit to Spades for max shield, or mix suits for recovery/draw/damage.
+  if (holder.classId === 'sentinel' && s.lastPlayed.every(cd => cd.suit === 'S')) {
+    bonus += 3; clog(c, '   🛡 Sentinel: Spade commit — +3 shield.'); ev(s, 'proc', '🛡 Sentinel +3', 'gold')
   }
-  if (heroHasMemory(holder, 'm-steady-formation') && once(s, flagKey('m-formation', playerIdx))) bonus += 1
+  // (Spade axis-engine relics retired 2026-06-14 — that role is the Plate token.)
 
   enemy.shield += amount + bonus
   // spade-reactive modifiers
@@ -531,9 +770,28 @@ function resolveSpades(c: CampaignState, s: EncounterState, playerIdx: number, a
   ev(s, 'suit', `♠ Shield +${amount + bonus} → net ${Math.max(0, enemy.attack - enemy.shield)}`, 'info')
 }
 
+/**
+ * Scry token (v2): foresee the top 3 of the Tavern and **bury your worst upcoming
+ * card** — the lowest-value of the next three is sent to the bottom, so your next
+ * draws skew higher. Deterministic consistency, no overflow. (A full player-choice
+ * reorder/keep-or-discard pause is the planned upgrade — see ascending-deck.md.)
+ * Tavern is drawn from the END (`pop`), so "top 3" = the last three cards.
+ */
+function scryTopTavern(c: CampaignState, s: EncounterState) {
+  const n = s.tavern.length
+  if (n < 3) return
+  const top = [n - 1, n - 2, n - 3]
+  let worst = top[0]!
+  for (const i of top) if (cardValue(s.tavern[i]!.rank) < cardValue(s.tavern[worst]!.rank)) worst = i
+  const [buried] = s.tavern.splice(worst, 1)
+  s.tavern.unshift(buried!)   // to the bottom (drawn last)
+  clog(c, `   👁 Scry: you foresee the Tavern and bury ${cardLabel(buried!)} — better draws ahead.`)
+  ev(s, 'proc', '👁 Scry — bury worst', 'gold')
+}
+
 // ── Core actions ─────────────────────────────────────────────────────────────
 
-function validateCampaignCombo(cards: Card[]): string | null {
+function validateCampaignCombo(cards: Card[], maxTotal = 10): string | null {
   if (cards.length === 0) return 'No cards selected.'
   if (cards.length === 1) return null
   if (cards.some(card => card.rank === 'Jo')) return 'Jesters must be played alone.'
@@ -542,7 +800,7 @@ function validateCampaignCombo(cards: Card[]): string | null {
   if (aces.length === 1 && nonAces.length === 1) return null
   if (aces.length > 1) return 'Only one Ace per combo.'
   if (new Set(cards.map(card => card.rank)).size > 1) return 'Cards must share a rank (or pair with an Ace).'
-  if (cards.reduce((t, card) => t + cardValue(card.rank), 0) > 10) return 'Combo total exceeds 10.'
+  if (cards.reduce((t, card) => t + cardValue(card.rank), 0) > maxTotal) return `Combo total exceeds ${maxTotal}.`
   return null
 }
 
@@ -557,7 +815,9 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   const sorted = [...new Set(cardIndices)].sort((a, b) => b - a)
   if (sorted.some(i => i < 0 || i >= hand.length)) return { error: 'Invalid card index.' }
   const cards = sorted.map(i => hand[i]!).reverse()
-  const comboError = validateCampaignCombo(cards)
+  // Combat Cache relic: matched combos may total up to 12 instead of 10.
+  const comboMax = c.heroes[pi]!.relicIds.includes('r-combat-cache') ? 12 : 10
+  const comboError = validateCampaignCombo(cards, comboMax)
   if (comboError) return { error: comboError }
 
   beginEvents(s)
@@ -588,47 +848,69 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   }
 
   const enemy = s.currentEnemy!
+  const tok = EXPERIMENTS.ascendingDeck   // token effects gated by the flag
   let base = cards.reduce((sum, card) => sum + cardValue(card.rank), 0)
+  if (tok) {
+    const sd = cards.reduce((sum, card) => sum + spendDelta(c, card), 0)
+    if (sd) {
+      base = Math.max(0, base + sd)
+      clog(c, `   ✒ Tokens: ${sd > 0 ? '+' : ''}${sd} value (base ${base}).`)
+      ev(s, 'proc', `✒ ${sd > 0 ? '+' : ''}${sd} value`, sd > 0 ? 'gold' : 'blood')
+    }
+  }
   clog(c, `${hero.playerName} plays ${cards.map(cardLabel).join(' + ')} (base ${base}).`)
   ev(s, 'play', `${hero.playerName}: ${cards.map(cardLabel).join(' + ')}`, 'plain')
 
-  if (s.flags['prepSpareEdge'] && once(s, 'spareEdgeDone')) {
-    base += 2
-    s.flags['prepSpareEdge'] = false
-    clog(c, '   🗡 Spare Edge: +2 damage.')
-    ev(s, 'proc', '🗡 Spare Edge +2', 'gold')
-  }
   if (s.flags[flagKey('duelCharmReady', pi)]) {
-    base += 2
+    base += 3
     s.flags[flagKey('duelCharmReady', pi)] = false
-    clog(c, '   🏅 Duel Charm: +2 damage.')
-    ev(s, 'proc', '🏅 Duel Charm +2', 'gold')
+    clog(c, '   🏅 Duel Charm: +3 damage.')
+    ev(s, 'proc', '🏅 Duel Charm +3', 'gold')
   }
 
+  // Effective suits: under the flag a card fires its base/transmuted suit + grafts.
   const immuneSuit = enemy.immunityNullified ? null : enemy.card.suit
-  const activeSuits = new Set(cards.map(card => card.suit).filter(su => su !== immuneSuit))
-  if (cards.some(card => card.suit === immuneSuit))
-    clog(c, `   ${suitSymbol(enemy.card.suit)} power blocked by enemy immunity.`)
+  const activeSuits = new Set<string>()
+  let immuneBlocked = false
+  for (const card of cards) {
+    const suits = tok ? cardSuits(c, card) : new Set<string>([card.suit])
+    for (const su of suits) { if (su === immuneSuit) immuneBlocked = true; else activeSuits.add(su) }
+  }
+  if (immuneBlocked) clog(c, `   ${suitSymbol(enemy.card.suit)} power blocked by enemy immunity.`)
+
+  // Lever-magnitude token bonuses (only count cards that actually fire that suit).
+  const plateB = tok ? leverBonus(c, cards, 'shield', 'S') : 0
+  const drawB = tok ? leverBonus(c, cards, 'draw', 'D') : 0
+  const mendB = tok ? leverBonus(c, cards, 'recover', 'H') : 0
+  const edgeB = tok ? leverBonus(c, cards, 'edge', 'C') : 0
 
   let damage = base
   if (activeSuits.has('C')) { damage *= 2; clog(c, `   ♣ Damage doubled: ${base} → ${damage}.`); ev(s, 'suit', `♣ DOUBLE! ${base} → ${damage}`, 'blood', true) }
+  if (activeSuits.has('C') && edgeB) { damage += edgeB * 2; clog(c, `   ♣ Edge: +${edgeB * 2} damage → ${damage}.`); ev(s, 'proc', `♣ Edge +${edgeB * 2}`, 'gold') }
+  if (tok) { const md = markDamage(c, cards); if (md) { damage += md; clog(c, `   ✦ Mark: +${md} damage → ${damage}.`); ev(s, 'proc', `✦ Mark +${md}`, 'gold') } }
   if (s.flags[flagKey('keenEdge', pi)]) { damage *= 2; s.flags[flagKey('keenEdge', pi)] = false; clog(c, `   ✨ Keen Edge: damage doubled → ${damage}.`); ev(s, 'proc', `✨ Keen Edge ×2 → ${damage}`, 'gold', true) }
   if (s.flags[flagKey('crownbreaker', pi)]) { damage *= 3; s.flags[flagKey('crownbreaker', pi)] = false; clog(c, `   👑 Crownbreaker: damage tripled → ${damage}.`); ev(s, 'proc', `👑 Crownbreaker ×3 → ${damage}`, 'gold', true) }
 
-  if (activeSuits.has('S')) resolveSpades(c, s, pi, base)
-  if (activeSuits.has('H')) resolveHearts(c, s, pi, base)
-  if (activeSuits.has('D')) resolveDiamonds(c, s, pi, base)
+  if (activeSuits.has('S')) resolveSpades(c, s, pi, base, plateB)
+  if (activeSuits.has('H')) resolveHearts(c, s, pi, base, mendB)
+  // Diamonds (the draw) resolve AFTER damage/kill below — the draw-select pause
+  // must be the LAST thing in the turn so it can suspend the counterattack
+  // cleanly instead of being overwritten by it.
+  if (tok && hasKeyword(c, cards, 'scry')) scryTopTavern(c, s)
 
-  // Oracle — Foresight: the first play after their peek deals +1 damage
-  if (s.flags['oracleForesight'] === pi && damage > 0 && once(s, 'foresightSpent')) {
-    damage += 1
-    clog(c, '   🔮 Foresight: +1 damage.')
-    ev(s, 'proc', '🔮 Foresight +1', 'gold')
+  // Oracle — Displacement: playing the marked card deals +2 damage (+3 at boss)
+  if (s.flags['oracleMarked'] && hero.classId === 'oracle' && damage > 0 &&
+      cards.some(cd => `${cd.suit}${cd.rank}` === s.flags['oracleMarked']) &&
+      once(s, 'oracleMarkUsed')) {
+    const bonus = s.tier === 'boss' ? 3 : 2
+    damage += bonus
+    clog(c, `   🔮 Displacement: the foreseen card strikes — +${bonus} damage.`)
+    ev(s, 'proc', `🔮 Displacement +${bonus}`, 'gold')
   }
 
   // Gambler siege ultimate — All In: once per castle, the Gambler's first
   // strike is doubled or halved on a coin flip.
-  if (s.tier === 'boss' && !EXPERIMENTS.provinceMode && hero.classId === 'gambler' && damage > 0 && once(s, 'ult.gambler')) {
+  if (s.tier === 'boss' && hero.classId === 'gambler' && damage > 0 && once(s, 'ult.gambler')) {
     const { r, done } = rng(c)
     const jackpot = r.next() < 0.5
     done()
@@ -646,11 +928,6 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   // ── Damage + threshold abilities ──────────────────────────────────────────
   enemy.hp -= damage
   ev(s, 'damage', `💥 ${damage} damage`, 'blood', true)
-  if (enemy.hp === 1 && heroHasMemory(hero, 'm-clean-finish') && once(s, 'cleanFinishDone')) {
-    enemy.hp -= 1
-    clog(c, '   📜 Clean Finish: +1 finishing damage.')
-    ev(s, 'proc', '📜 Clean Finish +1', 'gold')
-  }
   // owner-only (playtest canon 2026-06-11): only the Executioner's own attacks finish
   const execActive = hero.classId === 'executioner'
   // Siege upgrade — Regicide: in the castle, the Executioner's OWN attacks
@@ -670,6 +947,8 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
 
   const wagered = s.wagerArmedBy === pi
   if (enemy.hp <= 0) {
+    // Kill: still draw (no pause — the fight is moving on), then resolve the kill.
+    if (activeSuits.has('D')) resolveDiamonds(c, s, pi, base, drawB, false)
     resolveKill(c, s, pi, enemy.hp === 0)
     if (wagered) {
       s.wagerArmedBy = null
@@ -694,12 +973,84 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
     done()
   }
 
+  // Enemy survives: now resolve the diamond draw. If it pauses for selection,
+  // SUSPEND here — the counterattack runs after the player picks (applyKeepDrawn).
+  if (activeSuits.has('D')) resolveDiamonds(c, s, pi, base, drawB, true)
+  if (s.turnPhase === 'draw_select') {
+    s.flags['pendingCounterPi'] = pi
+    return {}
+  }
+
   return counterattack(c, s, pi)
 }
 
 function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exact: boolean) {
   const enemy = s.currentEnemy!
   s.defeatedCount++
+  const numberEnemy = isNumberRank(enemy.card.rank)
+
+  // ── Token kill-triggers (Banner / Bloodprice) on the cards that landed it ──
+  if (EXPERIMENTS.ascendingDeck && s.lastPlayed.length) {
+    if (hasKeyword(c, s.lastPlayed, 'banner')) {
+      const got = drawForHero(c, s, killerIdx, 1)
+      if (got) { clog(c, '   ⚑ Banner: the kill draws 1.'); ev(s, 'proc', '⚑ Banner — draw 1', 'gold') }
+    }
+    if (exact && hasKeyword(c, s.lastPlayed, 'bloodprice')) {
+      c.tokenBudget = (c.tokenBudget ?? 0) + 1
+      clog(c, '   🩸 Bloodprice: exact kill — +1 forge budget.')
+      ev(s, 'proc', '🩸 Bloodprice +1 budget', 'gold')
+    }
+  }
+
+  // ── Ascending-deck: number-rank enemy resolution (THE GOLDEN RULE) ─────────
+  // Exact (perfect) kill → recruit the card if unowned, else a token fragment.
+  // Overkill → nothing: the enemy just dies (no recruit, no fragment, no defer).
+  if (EXPERIMENTS.ascendingDeck && numberEnemy) {
+    const cardId = `${enemy.card.suit}${enemy.card.rank}`
+    // "Owned" = a recruited card OR a starting-deck card (A–5 are always in hand).
+    // So exact-killing a skirmish low card (a 5) gives a fragment, not a dup recruit.
+    const alreadyOwned = cardValue(enemy.card.rank) <= 5 || (c.ownedCards ?? []).includes(cardId)
+    if (exact && !alreadyOwned) {
+      // First time recruiting this number-enemy: card enters the Tavern
+      s.tavern.unshift(enemy.card)
+      c.ownedCards = [...(c.ownedCards ?? []), cardId]
+      s.flags['exactKills'] = ((s.flags['exactKills'] as number) ?? 0) + 1
+      clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} recruited — slides under the Tavern.`)
+      ev(s, 'kill', `✨ RECRUIT — ${cardLabel(enemy.card)} joins the Tavern`, 'gold', true)
+    } else if (exact) {
+      // Exact kill on a card you already own → a token fragment (2 → 1 C-token).
+      const frags = (c.tokenFragments = (c.tokenFragments ?? 0) + 1)
+      s.flags['exactKills'] = ((s.flags['exactKills'] as number) ?? 0) + 1
+      clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} already owned — +1 token fragment${frags >= 2 ? ' (2 ready — apply one on the road)' : ''}.`)
+      ev(s, 'kill', `✦ FRAGMENT (${frags})`, 'gold', true)
+    } else {
+      // Overkill: golden rule — you get nothing but the kill. (Unrecruited tier
+      // cards are still completed by the chapter-end backfill.)
+      clog(c, `✅ ${cardLabel(enemy.card)} defeated (overkill — no recruit).`)
+      ev(s, 'kill', `✅ ${cardLabel(enemy.card)} DEFEATED`, 'gold', true)
+    }
+    s.currentEnemy = null
+    revealNextEnemy(c, s)
+    if (s.outcome === 'won') {
+      // A number gate (Continent-1 boss) finishes via checkEncounterEnd's boss
+      // path; only a road recruit announces "recruit encounter cleared" here.
+      if (s.tier !== 'boss') {
+        clog(c, '🎉 Recruit encounter cleared!')
+        ev(s, 'kill', '🎉 ENCOUNTER CLEARED', 'gold', true)
+      }
+    } else {
+      s.lastPlayed = []
+      const hero = c.heroes[killerIdx]!
+      if (hero.classId === 'commander' && aliveIndices(c).length > 1) {
+        s.turnPhase = 'choose_next'; s.pendingChooseNext = true
+      } else {
+        applyKeepTurnPenalties(c, s, killerIdx)
+      }
+    }
+    return
+  }
+
+  // ── Standard royal kill resolution ───────────────────────────────────────
   if (exact) {
     s.tavern.unshift(enemy.card)
     s.flags['exactKills'] = ((s.flags['exactKills'] as number) ?? 0) + 1
@@ -710,25 +1061,23 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
       if (pen > 0) s.flags['rotPenalty'] = pen - 1
     }
     const hero = c.heroes[killerIdx]!
-    if (hero.relicId === 'r-duel-charm' && once(s, flagKey('duelCharmKill', killerIdx))) {
+    // Duel Charm — Edge engine: after EVERY exact kill, prime +3 on the next attack.
+    if (hero.relicIds.includes('r-duel-charm')) {
       s.flags[flagKey('duelCharmReady', killerIdx)] = true
-      clog(c, '   🏅 Duel Charm primed: +2 on your next attack.')
+      clog(c, '   🏅 Duel Charm primed: +3 on your next attack.')
     }
-    if (heroHasMemory(hero, 'm-first-blood-ledger') && once(s, flagKey('m-ledger', killerIdx))) {
-      drawForHero(c, s, killerIdx, 1)
-      clog(c, '   📒 First Blood Ledger: drew 1 card.')
-    }
-  } else {
+  } else if (s.tier === 'boss') {
+    // Gate royals keep base-Regicide behavior: overkill → discard (recoverable).
     s.discard.push(enemy.card)
     clog(c, `✅ ${cardLabel(enemy.card)} defeated!`)
     ev(s, 'kill', `☠️ ${cardLabel(enemy.card)} DEFEATED`, 'gold', true)
+  } else {
+    // Road recruit canon (2026-06-11): only a strictly exact kill recruits a
+    // road royal into the deck. Overkilled road royals are banished — they
+    // never enter the player pool. This is the deck-inflation guard.
+    clog(c, `🪦 ${cardLabel(enemy.card)} overkilled — the royal is banished, never recruited.`)
+    ev(s, 'kill', `🪦 ${cardLabel(enemy.card)} BANISHED — no recruit`, 'blood', true)
   }
-  // War Drum relic: in the castle, every fallen royal rallies the party.
-  if (s.tier === 'boss' && c.heroes.some(h => h.alive && h.relicId === 'r-war-drum')) {
-    for (const hi of aliveIndices(c)) drawForHero(c, s, hi, 1)
-    clog(c, '🥁 The War Drum sounds — everyone draws 1.')
-  }
-
   s.currentEnemy = null
   revealNextEnemy(c, s)
   if (s.outcome === 'won') {
@@ -755,12 +1104,15 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
   // owner-only (playtest canon): the handoff is the Commander's own privilege,
   // and their kill presses the advantage — draw 1
   const commanderKiller = hero.classId === 'commander'
-  if (commanderKiller && drawForHero(c, s, killerIdx, 1) > 0) {
-    clog(c, '   ⚜️ Press the Advantage: the Commander draws 1.')
-    ev(s, 'proc', '⚜️ Press the Advantage +1', 'gold')
+  if (commanderKiller) {
+    // Solo: draw 2 on kill (cascade momentum). Multi: draw 1 (handoff is the power).
+    const pressBonus = aliveIndices(c).length === 1 ? 2 : 1
+    if (drawForHero(c, s, killerIdx, pressBonus) > 0) {
+      clog(c, `   ⚜️ Press the Advantage: the Commander draws ${pressBonus}.`)
+      ev(s, 'proc', `⚜️ Press the Advantage +${pressBonus}`, 'gold')
+    }
   }
-  const guardRotation = heroHasMemory(hero, 'm-guard-rotation') && !s.flags[flagKey('m-rotation', killerIdx)]
-  if ((commanderKiller && aliveIndices(c).length > 1) || guardRotation) {
+  if (commanderKiller && aliveIndices(c).length > 1) {
     s.turnPhase = 'choose_next'
     s.pendingChooseNext = true   // optional handoff: may keep the turn
     clog(c, `   ⚜️ Initiative may be handed off — ${hero.playerName} chooses who continues.`)
@@ -831,17 +1183,13 @@ function counterattack(c: CampaignState, s: EncounterState, pi: number): { error
     s.flags['bulwarkChant'] = false
     clog(c, '   🛡 Bulwark Chant: counterattack reduced by 2.')
   }
-  if (s.flags['prepFortifiedEntry'] && once(s, 'fortifiedDone')) {
-    s.flags['prepFortifiedEntry'] = false
-    if (net > 0) { net = 0; clog(c, '   🏯 Fortified Entry: counterattack negated.') }
-  }
   if (s.modifierId === 'hooked-blades' && net === 1 && !s.flags['spadeThisTurn'] && once(s, 'hookedDone')) {
     net = 2
     clog(c, '   🪝 Hooked Blades: 1 damage becomes 2.')
   }
   // Sentinel siege ultimate — Hold the Gate: once per castle, a counterattack
   // against the Sentinel is fully negated.
-  if (net > 0 && s.tier === 'boss' && !EXPERIMENTS.provinceMode && c.heroes[pi]!.classId === 'sentinel' && once(s, 'ult.sentinel')) {
+  if (net > 0 && s.tier === 'boss' && c.heroes[pi]!.classId === 'sentinel' && once(s, 'ult.sentinel')) {
     net = 0
     clog(c, '🛡 HOLD THE GATE! The Sentinel turns the blow aside completely.')
     ev(s, 'proc', '🛡 HOLD THE GATE — negated', 'gold', true)
@@ -850,11 +1198,6 @@ function counterattack(c: CampaignState, s: EncounterState, pi: number): { error
   if (net === 0) {
     clog(c, '🛡 Fully shielded — no damage taken.')
     ev(s, 'counter', '🛡 FULLY SHIELDED', 'info', true)
-    const hero = c.heroes[pi]!
-    if (hero.relicId === 'r-bastion-sigil' && once(s, flagKey('bastionDraw', pi))) {
-      drawForHero(c, s, pi, 1)
-      clog(c, '   🪨 Bastion Sigil: drew 1 card.')
-    }
     advanceTurn(c, s)
     return {}
   }
@@ -865,25 +1208,16 @@ function counterattack(c: CampaignState, s: EncounterState, pi: number): { error
   if (s.modifierId === 'iron-rain-file' && counterIdx % 2 === 0) { needed += 1; clog(c, '   🌧 Iron Rain: +1 discard value required.') }
 
   const hero = c.heroes[pi]!
-  if (heroHasMemory(hero, 'm-calm-under-fire') && once(s, flagKey('m-calm', pi))) { needed = Math.max(0, needed - 1) }
-  if (s.flags['prepLightFortify'] && once(s, 'lightFortifyDone')) { needed = Math.max(0, needed - 1); s.flags['prepLightFortify'] = false; clog(c, '   🧱 Light Fortify: discard check reduced by 1.') }
 
   if (needed === 0) { advanceTurn(c, s); return {} }
 
-  // death checks with mitigation chain
-  const coverable = s.hands[pi]!.reduce((t, card) => t + cardValue(card.rank), 0)
-  if (coverable < needed) {
-    if (s.flags['prepSurgicalReserve'] && once(s, 'surgicalDone')) {
-      s.flags['prepSurgicalReserve'] = false
-      needed = Math.max(1, needed - 3)
-      clog(c, '   🚑 Surgical Reserve: discard check reduced by 3.')
-    }
+  // death checks with mitigation chain (HOLD value: tokens can boost/lower soak)
+  const coverable = s.hands[pi]!.reduce((t, card) => t + cardValue(card.rank) + (EXPERIMENTS.ascendingDeck ? holdDelta(c, card) : 0), 0)
+  if (coverable < needed && hero.relicIds.includes('r-last-lantern') && once(s, flagKey('lantern', pi))) {
+    needed = Math.max(1, needed - 4)
+    clog(c, '   🏮 Last Lantern: discard check reduced by 4.')
   }
-  if (coverable < needed && hero.relicId === 'r-last-lantern' && once(s, flagKey('lantern', pi))) {
-    needed = Math.max(1, needed - 2)
-    clog(c, '   🏮 Last Lantern: discard check reduced by 2.')
-  }
-  if (coverable < needed && hero.relicId === 'r-iron-reprieve' && !c.ironReprieveUsed) {
+  if (coverable < needed && hero.relicIds.includes('r-iron-reprieve') && !c.ironReprieveUsed) {
     c.ironReprieveUsed = true
     needed = 1
     clog(c, '   ⚙️ Iron Reprieve: death prevented — discard check set to 1.')
@@ -922,7 +1256,7 @@ export function applyEncounterDiscard(c: CampaignState, playerId: string, cardIn
   const sorted = [...new Set(cardIndices)].sort((a, b) => b - a)
   if (sorted.some(i => i < 0 || i >= hand.length)) return { error: 'Invalid card index.' }
   const cards = sorted.map(i => hand[i]!)
-  const total = cards.reduce((t, card) => t + cardValue(card.rank), 0)
+  const total = cards.reduce((t, card) => t + cardValue(card.rank) + (EXPERIMENTS.ascendingDeck ? holdDelta(c, card) : 0), 0)
   if (total < s.discardNeeded) return { error: `Total ${total} is less than ${s.discardNeeded}.` }
 
   beginEvents(s)
@@ -932,6 +1266,56 @@ export function applyEncounterDiscard(c: CampaignState, playerId: string, cardIn
   ev(s, 'info', `${c.heroes[pi]!.playerName} pays ${total} in cards`, 'plain')
   s.discardNeeded = 0
   advanceTurn(c, s)
+  return {}
+}
+
+/**
+ * Ascending-deck Step 1: the player selects which cards to keep from the
+ * overdraw pool. `keepIndices` is the subset of `s.drawPool` to keep;
+ * the rest are returned to the top of the Tavern.
+ */
+export function applyKeepDrawn(c: CampaignState, playerId: string, keepIndices: number[]): { error?: string } {
+  const s = c.encounter
+  if (!s || s.turnPhase !== 'draw_select') return { error: 'Not in draw-select phase.' }
+  if (!EXPERIMENTS.ascendingDeck) return { error: 'Ascending deck is not active.' }
+  const pi = c.heroes.findIndex(h => h.playerId === playerId)
+  if (pi !== s.drawSelectHeroIdx) return { error: 'Not your draw selection.' }
+  const pool = s.drawPool ?? []
+  if (pool.length === 0) return { error: 'Draw pool is empty.' }
+
+  // Diamonds cap by empty hand slots; a spell (Tactical Surge) sets a fixed cap.
+  const keepMax = s.drawSelectCap ?? (maxHandSize(c, pi) - s.hands[pi]!.length)
+  const unique = [...new Set(keepIndices)]
+  if (unique.some(i => i < 0 || i >= pool.length)) return { error: 'Invalid pool index.' }
+  if (unique.length > keepMax) return { error: `Can keep at most ${keepMax} cards.` }
+
+  // validate-then-mutate
+  beginEvents(s)
+  const kept: Card[] = []
+  const returned: Card[] = []
+  for (let i = 0; i < pool.length; i++) {
+    if (unique.includes(i)) kept.push(pool[i]!)
+    else returned.push(pool[i]!)
+  }
+
+  s.hands[pi]!.push(...kept)
+  // return rest to top of Tavern in the original pool order (first was drawn first)
+  for (const card of returned.reverse()) s.tavern.push(card)
+
+  s.drawPool = undefined
+  s.drawSelectHeroIdx = undefined
+  s.drawSelectCap = undefined
+  s.turnPhase = 'play'
+
+  clog(c, `   ♦ ${c.heroes[pi]!.playerName} keeps ${kept.length} card${kept.length !== 1 ? 's' : ''}, returns ${returned.length}.`)
+  ev(s, 'suit', `♦ Kept ${kept.length}, returned ${returned.length}`, 'info')
+
+  // Resume the suspended turn: the diamond draw paused before the counterattack.
+  if (s.flags['pendingCounterPi'] !== undefined) {
+    const cpi = s.flags['pendingCounterPi'] as number
+    delete s.flags['pendingCounterPi']
+    return counterattack(c, s, cpi)
+  }
   return {}
 }
 
@@ -964,10 +1348,7 @@ export function applyEncounterChooseNext(c: CampaignState, playerId: string, tar
   if (targetIndex < 0 || targetIndex >= c.heroes.length || !c.heroes[targetIndex]!.alive) return { error: 'Invalid hero.' }
 
   if (s.pendingChooseNext) {
-    // post-kill handoff (Commander / Guard Rotation): target plays immediately
-    const hero = c.heroes[pi]!
-    if (heroHasMemory(hero, 'm-guard-rotation') && !c.heroes.some(h => h.alive && h.classId === 'commander'))
-      s.flags[flagKey('m-rotation', pi)] = true
+    // post-kill handoff (Commander): target plays immediately
     if (targetIndex === pi) {
       applyKeepTurnPenalties(c, s, pi)
     }
@@ -979,7 +1360,7 @@ export function applyEncounterChooseNext(c: CampaignState, playerId: string, tar
     clog(c, `⚜️ Initiative passes to ${c.heroes[targetIndex]!.playerName}.`)
     // Commander siege ultimate — Rally the Line: the first castle handoff to
     // an ally also re-arms them with 2 cards.
-    if (s.tier === 'boss' && !EXPERIMENTS.provinceMode && targetIndex !== pi &&
+    if (s.tier === 'boss' && targetIndex !== pi &&
         c.heroes.some(h => h.alive && h.classId === 'commander') && once(s, 'ult.commander')) {
       const got = drawForHero(c, s, targetIndex, 2)
       if (got > 0) {
@@ -1029,14 +1410,6 @@ function advanceTurn(c: CampaignState, s: EncounterState) {
       clog(c, '📦 Last Requisition! The Quartermaster re-arms the whole party.')
       ev(s, 'proc', '📦 LAST REQUISITION — party draws to full', 'gold', true)
     }
-    // Banner of the Last March (preparation): one full rest when the Tavern
-    // first runs dry.
-    if (s.flags['prepLastMarch'] && s.tavern.length === 0 && (s.discard.length > 0 || s.hands.some(h => h.length > 0))) {
-      s.flags['prepLastMarch'] = false
-      castleCheckpoint(c, s)
-      clog(c, '🚩 The Banner of the Last March is raised — the party takes a full rest.')
-      ev(s, 'proc', '🚩 LAST MARCH — full rest', 'gold', true)
-    }
   }
   if (s.modifierId === 'shieldbreaker-line') {
     if (!s.flags['spadeThisTurn']) {
@@ -1071,37 +1444,11 @@ function heroDies(c: CampaignState, s: EncounterState, pi: number, unpayable: nu
   s.hands[pi] = []
   ev(s, 'death', `💀 ${hero.playerName} FALLS`, 'blood', true)
   clog(c, `💀 ${hero.playerName} the ${hero.classId} falls — ${unpayable} damage could not be paid.`)
-  clog(c, `   Their memories fade with them.`)
-  hero.memories = []
 
-  // Province mode: any death is a full run reset — no votes, no replacements.
-  // The Kingdom records where the run ended (rewards-on-death hook).
+  // Province mode: any death is a full run reset — no votes, no replacements,
+  // no second wind. Dead is dead (canon 2026-06-11). The Kingdom records
+  // where the run ended (rewards-on-death hook).
   if (EXPERIMENTS.provinceMode) {
-    // Second wind (once per act, road fights only): the first death is a
-    // collapse — the hero stands back up at the cost of their hand and the
-    // fight. Rank gates grant no such mercy, and the second fall is final.
-    // (Clearing a rank gate restores the mercy — see campaign.ts.)
-    const cx = c as CampaignState & { secondWindUsed?: boolean; wardenVigilUsed?: boolean }
-    // Warden — Vigil: once per act, the Warden's own collapse is free; the
-    // party's second wind is not spent (death-mitigation identity, owner-only)
-    if (s.tier !== 'boss' && hero.classId === 'warden' && !cx.wardenVigilUsed) {
-      cx.wardenVigilUsed = true
-      hero.alive = true
-      s.outcome = 'retreated'
-      s.turnPhase = 'over'
-      clog(c, `🕯 Vigil! The Warden refuses to fall — the party's second wind is preserved.`)
-      ev(s, 'proc', '🕯 VIGIL — free collapse', 'gold', true)
-      return
-    }
-    if (s.tier !== 'boss' && !cx.secondWindUsed) {
-      cx.secondWindUsed = true
-      hero.alive = true
-      s.outcome = 'retreated'
-      s.turnPhase = 'over'
-      clog(c, `🩸 ${hero.playerName} collapses — and crawls back up. One mercy per act; the next fall is final.`)
-      ev(s, 'proc', '🩸 SECOND WIND — spent', 'blood', true)
-      return
-    }
     s.outcome = 'wiped'
     s.turnPhase = 'over'
     c.phase = 'campaign_lost'
@@ -1188,7 +1535,21 @@ export function applyCastSpell(c: CampaignState, playerId: string, spellId: stri
     }
     case 's-guard-up': if (!s.currentEnemy) return { error: 'No enemy.' }; s.currentEnemy.shield += 3; break
     case 's-bulwark-chant': s.flags['bulwarkChant'] = true; break
-    case 's-tactical-surge': for (const hi of aliveIndices(c)) drawForHero(c, s, hi, 1); break
+    case 's-tactical-surge': {
+      // Rare (rework 2026-06-15): foresee the top 5 of the Tavern and keep 2 —
+      // a selective draw worth its rarity in solo (plain draw-1-each was a dud).
+      const n = Math.min(5, s.tavern.length)
+      if (n === 0) return { error: 'The Tavern is empty — nothing to foresee.' }
+      const pool: Card[] = []
+      for (let i = 0; i < n; i++) pool.push(s.tavern.pop()!)
+      s.drawPool = pool
+      s.drawSelectHeroIdx = pi
+      s.drawSelectCap = Math.min(2, n)
+      s.turnPhase = 'draw_select'
+      clog(c, `   🔭 Tactical Surge: foresee the top ${n} — keep ${Math.min(2, n)}.`)
+      ev(s, 'proc', `🔭 Top ${n} — keep ${Math.min(2, n)}`, 'gold')
+      break
+    }
     case 's-calm-pulse': {
       s.discardNeeded = Math.max(0, s.discardNeeded - 2)
       if (s.discardNeeded === 0) { clog(c, `🧘 Calm Pulse clears the check entirely.`); advanceTurn(c, s) }
@@ -1201,21 +1562,27 @@ export function applyCastSpell(c: CampaignState, playerId: string, spellId: stri
   return {}
 }
 
-export function applyActivateRelic(c: CampaignState, playerId: string, targetIndex?: number): { error?: string } {
+const ACTIVATABLE_RELIC_IDS = ['r-bone-thread', 'r-sainted-scalpel']
+
+export function applyActivateRelic(c: CampaignState, playerId: string, targetIndex?: number, relicId?: string): { error?: string } {
   const s = c.encounter
   if (!s || s.outcome !== 'active') return { error: 'No active encounter.' }
   const pi = c.heroes.findIndex(h => h.playerId === playerId)
   if (pi < 0 || !c.heroes[pi]!.alive) return { error: 'You are not in this fight.' }
   if (pi !== s.currentPlayerIndex || s.turnPhase !== 'play') return { error: 'Activate relics during your play phase.' }
-  const relic = c.heroes[pi]!.relicId
-  if (!relic) return { error: 'No relic equipped.' }
-  if (s.flags[flagKey('relicUsed', pi)]) return { error: 'Relic already used this encounter.' }
+  const activatable = c.heroes[pi]!.relicIds.filter(r => ACTIVATABLE_RELIC_IDS.includes(r))
+  if (activatable.length === 0) return { error: 'No activatable relic equipped.' }
+  const relic = relicId && activatable.includes(relicId) ? relicId
+    : activatable.length === 1 ? activatable[0]!
+    : undefined
+  if (!relic) return { error: 'Choose which relic to activate.' }
+  if (s.flags[`relicUsed:${relic}:${pi}`]) return { error: 'Relic already used this encounter.' }
 
   beginEvents(s)
   ev(s, 'relic', `🏺 ${getItem(relic).name}!`, 'gold', true)
   switch (relic) {
     case 'r-bone-thread': {
-      const n = Math.min(2, s.discard.length)
+      const n = Math.min(4, s.discard.length)
       if (n === 0) return { error: 'Discard pile is empty.' }
       const { r, done } = rng(c)
       s.tavern.unshift(...r.shuffle(s.discard.splice(0, n)))
@@ -1223,21 +1590,16 @@ export function applyActivateRelic(c: CampaignState, playerId: string, targetInd
       break
     }
     case 'r-sainted-scalpel': {
-      const n = Math.min(4, s.discard.length)
+      const n = Math.min(6, s.discard.length)
       const { r, done } = rng(c)
       s.tavern.unshift(...r.shuffle(s.discard.splice(0, n)))
       done()
-      drawForHero(c, s, pi, 1)
-      break
-    }
-    case 'r-signal-whistle': {
-      if (targetIndex === undefined || !c.heroes[targetIndex]?.alive) return { error: 'Choose a living hero.' }
-      s.flags['whistleNext'] = targetIndex
+      drawForHero(c, s, pi, 2)
       break
     }
     default: return { error: 'This relic is passive.' }
   }
-  s.flags[flagKey('relicUsed', pi)] = true
+  s.flags[`relicUsed:${relic}:${pi}`] = true
   clog(c, `🔮 ${c.heroes[pi]!.playerName} activates ${getItem(relic).name}.`)
   return {}
 }
@@ -1255,35 +1617,29 @@ export interface SuitBoosts {
   execReady: boolean
   dCap: number | null
   hHalf: boolean
+  comboMax: number   // max combo total (Combat Cache raises it 10→12)
 }
 
 export function computeBoosts(c: CampaignState, s: EncounterState, hi: number): SuitBoosts {
-  const b: SuitBoosts = { S: 0, D: 0, H: 0, dmgPlus: 0, dmgMult: 1, execReady: false, dCap: null, hHalf: false }
+  const b: SuitBoosts = { S: 0, D: 0, H: 0, dmgPlus: 0, dmgMult: 1, execReady: false, dCap: null, hHalf: false, comboMax: 10 }
   const hero = c.heroes[hi]
   if (!hero?.alive || s.outcome !== 'active') return b
+  if (hero.relicIds.includes('r-combat-cache')) b.comboMax = 12
 
   // spades
-  if (hero.classId === 'sentinel' && !s.flags['enemy.sentinelSpade']) b.S += 2
-  if (hero.relicId === 'r-iron-stitch' && !s.flags[flagKey('stitch', hi)]) b.S += 1
-  if (hero.relicId === 'r-bastion-sigil' && ((s.flags[flagKey('bastion', hi)] as number) ?? 0) < 2) b.S += 1
-  if (heroHasMemory(hero, 'm-steady-formation') && !s.flags[flagKey('m-formation', hi)]) b.S += 1
+  if (hero.classId === 'sentinel') b.S += 3  // max preview; actual fires only on all-Spade turn
   // diamonds
-  if (c.heroes.some(h => h.alive && h.classId === 'quartermaster') && !s.flags['enemy.qmDiamond']) b.D += 1
-  if (hero.relicId === 'r-field-satchel' && !s.flags[flagKey('satchel', hi)]) b.D += 1
-  if (hero.relicId === 'r-grand-provision' && ((s.flags[flagKey('provision', hi)] as number) ?? 0) < 2) b.D += 1
-  if (heroHasMemory(hero, 'm-quartered-rations') && !s.flags[flagKey('m-rations', hi)]) b.D += 1
+  if (c.heroes.some(h => h.alive && h.classId === 'quartermaster') && !s.flags['qmDiamondFight']) b.D += 1
   if (s.modifierId === 'dry-cart' && !s.flags['dryCartDone']) b.D -= 1
   if (s.modifierId === 'starved-caravan' && (((s.flags['caravanCount'] as number) ?? 0) + 1) % 2 === 1) b.dCap = 2
   // hearts
   if (c.heroes.some(h => h.alive && h.classId === 'surgeon') && !s.flags['enemy.surgeonHeart']) b.H += 1
-  if (heroHasMemory(hero, 'm-surgical-notes') && !s.flags[flagKey('m-notes', hi)]) b.H += 1
   if (s.modifierId === 'rot-ward' && ((s.flags['rotPenalty'] as number) ?? 2) > 0) b.H -= 1
   if (s.modifierId === 'pale-bell-matron' && ((s.flags['exactKills'] as number) ?? 0) < 2) b.hHalf = true
   // damage
   if (s.flags[flagKey('keenEdge', hi)]) b.dmgMult *= 2
   if (s.flags[flagKey('crownbreaker', hi)]) b.dmgMult *= 3
-  if (s.flags['prepSpareEdge'] && !s.flags['spareEdgeDone']) b.dmgPlus += 2
-  if (s.flags[flagKey('duelCharmReady', hi)]) b.dmgPlus += 2
+  if (s.flags[flagKey('duelCharmReady', hi)]) b.dmgPlus += 3
   b.execReady = c.heroes[hi]?.classId === 'executioner' && !s.flags['enemy.execFinish']   // owner-only canon
   return b
 }
@@ -1294,11 +1650,11 @@ export function applyArmWager(c: CampaignState, playerId: string): { error?: str
   const pi = c.heroes.findIndex(h => h.playerId === playerId)
   if (pi !== s.currentPlayerIndex) return { error: 'Not your turn.' }
   if (c.heroes[pi]!.classId !== 'gambler') return { error: 'Only the Gambler wagers.' }
-  if (c.gamblerWagerUsed) return { error: 'The wager is spent this chapter.' }
+  if (s.flags['gamblerWagerUsed']) return { error: 'The wager is spent this encounter.' }
   if (s.wagerArmedBy !== null) return { error: 'Wager already armed.' }
   beginEvents(s)
   s.wagerArmedBy = pi
-  c.gamblerWagerUsed = true
+  s.flags['gamblerWagerUsed'] = true
   clog(c, `🎲 ${c.heroes[pi]!.playerName} wagers: the enemy dies this turn — or pays for it.`)
   ev(s, 'wager', `🎲 ${c.heroes[pi]!.playerName} WAGERS — kill or pay`, 'gold', true)
   return {}

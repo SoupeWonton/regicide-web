@@ -1,5 +1,12 @@
 # Spells
 
+> 🔁 **Ascending-deck economy (2026-06-15, built).** Spells now come only from **the
+> Sanctum** (renamed Abbey) — take **1 of 2**, or pay the **rite** (spend the top 2 of
+> your deck) for a **rare** — plus the odd event. The Shrine delivers the **Curse**
+> service (cleanse a card's curse; the castable curse spell awaits this revamp). The
+> pool is **Kingdom-gated** (`unlockedSpells`): a run starts with **4** and **death
+> unlocks more** (`SPELL_UNLOCK_ORDER`). Item stops are **capped at 3/chapter**.
+
 Spells are team-owned tactical resources.
 
 ## Canon Rules

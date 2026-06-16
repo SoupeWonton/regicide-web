@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 
 // A physical item card. Kind is inferred from the item id prefix
-// (r- relic, s- spell, p- preparation, m- memory, g- gambit/special).
+// (r- relic, s- spell, g- gambit/special).
 const props = defineProps<{
   id: string
   name: string
@@ -16,8 +16,6 @@ defineEmits<{ click: [] }>()
 const KINDS: Record<string, { label: string; icon: string; color: string }> = {
   r: { label: 'Relic', icon: '🏺', color: '#c98a2e' },
   s: { label: 'Spell', icon: '📖', color: '#8a6fd0' },
-  p: { label: 'Preparation', icon: '🎒', color: '#5f9e54' },
-  m: { label: 'Memory', icon: '🧠', color: '#5a8bd6' },
   g: { label: 'Gambit', icon: '🎲', color: '#d08a2e' },
 }
 const kind = computed(() => KINDS[props.id[0] ?? ''] ?? KINDS['r']!)

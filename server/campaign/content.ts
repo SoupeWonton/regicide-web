@@ -1,4 +1,4 @@
-﻿import type { ClassDef, ClassId, EncounterDef, ItemDef } from './types'
+﻿import type { ClassDef, ClassId, EncounterDef, ItemDef, Token, TokenDef } from './types'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Classes (v0 roster — core abilities only; specializations are post-Ch1 canon
@@ -12,8 +12,8 @@
 export const CLASSES: Record<ClassId, ClassDef> = {
   sentinel: {
     id: 'sentinel', tier: 1, name: 'Sentinel', theme: 'Shield / Stability', suit: 'S', ct: 0.75, siegeCt: 0.5,
-    abilityText: 'Once per enemy, your first Spade gains +2 shield value.',
-    siegeText: 'Hold the Gate — once per castle, a counterattack against the Sentinel is fully negated.',
+    abilityText: 'When you play only Spades in a turn, they gain +3 shield. Mix any other suit and the bonus is lost — commit or diversify.',
+    siegeText: 'Hold the Gate — once per boss fight, a counterattack against the Sentinel is fully negated.',
   },
   quartermaster: {
     id: 'quartermaster', tier: 1, name: 'Quartermaster', theme: 'Draw / Access', suit: 'D', ct: 0.75, siegeCt: 1.0,
@@ -32,8 +32,8 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   },
   commander: {
     id: 'commander', tier: 2, name: 'Commander', theme: 'Initiative / Sequencing', suit: null, ct: 0.75, siegeCt: 0.3,
-    abilityText: 'After your kill, you may pass the follow-up turn to any ally — and you draw 1 card (Press the Advantage).',
-    siegeText: 'Rally the Line — the first castle handoff to an ally also re-arms them with 2 cards.',
+    abilityText: 'Press the Advantage — after your kill, draw 2 cards (solo) or draw 1 and pass your follow-up turn to any ally (multiplayer).',
+    siegeText: 'Rally the Line — the first boss handoff to an ally also re-arms them with 2 cards.',
   },
   warden: {
     id: 'warden', tier: 2, name: 'Warden', theme: 'Death Mitigation', suit: null, ct: 0.75, siegeCt: 1.0,
@@ -42,8 +42,8 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   },
   gambler: {
     id: 'gambler', tier: 3, name: 'Gambler', theme: 'Uncertainty / Tempo', suit: null, ct: 0.75, siegeCt: 0.3,
-    abilityText: 'Once per chapter, wager before a play: if the enemy dies this turn, draw 2 cards and choose who acts next; if not, discard 1 random card.',
-    siegeText: 'All In — once per castle, the Gambler’s first strike is doubled or halved on a coin flip.',
+    abilityText: 'Once per encounter, wager before a play: if the enemy dies this turn, draw 2 cards and choose who acts next; if not, discard 1 random card.',
+    siegeText: 'All In — once per boss fight, the Gambler’s first strike is doubled or halved on a coin flip.',
   },
   exile: {
     id: 'exile', tier: 3, name: 'Exile', theme: 'Deck Evolution', suit: null, ct: 0.75, siegeCt: 0.5,
@@ -51,9 +51,9 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     siegeText: 'Tithe of the Severed — at the castle gates, exile the top 2 Tavern cards forever; their value wounds the first royal.',
   },
   oracle: {
-    id: 'oracle', tier: 3, name: 'Oracle', theme: 'Hidden Information', suit: null, ct: 0.75, siegeCt: 0.75,
-    abilityText: 'At the start of each encounter, look at the top 3 Tavern cards and reorder them. Foresight: your first play after a peek deals +1 damage.',
-    siegeText: 'Unveil the Court — the hidden court modifier is read in advance and nullified.',
+    id: 'oracle', tier: 3, name: 'Oracle', theme: 'Displacement / Foresight', suit: null, ct: 0.75, siegeCt: 0.75,
+    abilityText: 'At the start of each encounter, look at the top 3 Tavern cards and reorder them. The card you place at the top is Marked — when you play it, deal +2 bonus damage.',
+    siegeText: 'Throne Sight — at a boss fight, the Marked card deals +3 instead of +2.',
   },
 }
 
@@ -65,12 +65,14 @@ export const TIER3_CLASSES: ClassId[] = ['gambler', 'exile', 'oracle']
 // weird (gambler, oracle) classes are start-available. Exile's deck-exile
 // identity overlaps class curation and is being rethought, but for playtest
 // coverage ALL classes are unlocked for now (2026-06-11, Gab).
-export const STARTING_CLASSES: ClassId[] = [...TIER1_CLASSES, 'commander', 'warden', 'gambler', 'oracle', 'exile']
+// Warden disabled: entire kit references the cut death-fork — non-functional until
+// candle canvas is built (see docs/design/roadmap.md Tier 2b and docs/design/classes/class-design.md Warden section).
+export const STARTING_CLASSES: ClassId[] = [...TIER1_CLASSES, 'commander', 'gambler', 'oracle', 'exile']
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Encounter modifiers — implemented subset of the Chapter 1 encounter pack.
 // Mechanics are simplified where the tabletop wording needs digital adaptation;
-// names/pressure/category follow campaign/encounters-chapter-1.md.
+// names/pressure/category follow docs/design/campaign/encounters-chapter-1.md.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const ENCOUNTERS: EncounterDef[] = [
@@ -119,59 +121,33 @@ export const BOSS_MODIFIERS: { id: string; name: string; text: string }[] = [
 ]
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Items — implemented subset of items/synthetic-item-pools.md.
+// Items — implemented subset of docs/retired/synthetic-item-pools.md.
 // Effects whose rules are dead under the v0 fresh-Tavern encounter reset
 // (discard-pile recovery preps) or need value-adjust UI are deferred.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const ITEMS: ItemDef[] = [
-  // Memories (Chapter 1 completion drafts, 0.25 CT each)
-  { id: 'm-steady-formation', kind: 'memory', tier: 'standard', name: 'Steady Formation', ct: 0.25, category: 'Shield',
-    text: 'Your first Spade each encounter gains +1 shield value.' },
-  { id: 'm-quartered-rations', kind: 'memory', tier: 'standard', name: 'Quartered Rations', ct: 0.25, category: 'Access',
-    text: 'Your first Diamond trigger each encounter draws +1 card.' },
-  { id: 'm-surgical-notes', kind: 'memory', tier: 'standard', name: 'Surgical Notes', ct: 0.25, category: 'Recovery',
-    text: 'Your first Heart trigger each encounter recovers +1 card.' },
-  { id: 'm-clean-finish', kind: 'memory', tier: 'standard', name: 'Clean Finish', ct: 0.25, category: 'Initiative',
-    text: 'Once per encounter, if your damage would leave the enemy at exactly 1 HP, deal +1 finishing damage.' },
-  { id: 'm-calm-under-fire', kind: 'memory', tier: 'standard', name: 'Calm Under Fire', ct: 0.25, category: 'Shield',
-    text: 'Your first discard check each encounter is reduced by 1.' },
-  { id: 'm-court-recon', kind: 'memory', tier: 'standard', name: 'Court Recon', ct: 0.25, category: 'Consistency',
-    text: 'At encounter start, you see the top 2 Tavern cards.' },
-  { id: 'm-first-blood-ledger', kind: 'memory', tier: 'standard', name: 'First Blood Ledger', ct: 0.25, category: 'Initiative',
-    text: 'Your first exact kill each encounter draws you 1 card.' },
-  { id: 'm-guard-rotation', kind: 'memory', tier: 'standard', name: 'Guard Rotation', ct: 0.25, category: 'Initiative',
-    text: 'Once per encounter, after your kill you may choose the next acting hero.' },
-
-  // Relics — standard (hero-linked design intent, usable by holder)
-  { id: 'r-iron-stitch', kind: 'relic', tier: 'standard', name: 'Iron Stitch', ct: 0.25, slot: 'armor', category: 'Shield',
-    text: 'Your first Spade each encounter gains +1 shield.' },
-  { id: 'r-field-satchel', kind: 'relic', tier: 'standard', name: 'Field Satchel', ct: 0.25, slot: 'trinket', category: 'Access',
-    text: 'Your first Diamond trigger each encounter draws +1 card.' },
+  // Relics — RULE-BENDS, not axis-engines (the flat-axis role moved to tokens, so
+  // the old Iron Stitch / Field Satchel / Grand Provision / Bastion Sigil engines
+  // are RETIRED 2026-06-14). Relics now bend a rule once or passively.
   { id: 'r-bone-thread', kind: 'relic', tier: 'standard', name: 'Bone Thread', ct: 0.25, siegeCt: 0.2, slot: 'arms', category: 'Recovery',
-    text: 'Activate once per encounter: shuffle 2 discard cards back into the Tavern.' },
+    text: 'Activate once per encounter: shuffle 4 discard cards back into the Tavern.' },
   { id: 'r-reliquary', kind: 'relic', tier: 'standard', name: 'Reliquary', ct: 0.25, siegeCt: 0.3, slot: 'trinket', category: 'Access',
-    text: 'During castle assaults, the holder’s party hand cap is raised by 1.' },
+    text: 'Your hand cap is raised by 1, every encounter.' },
   { id: 'r-duel-charm', kind: 'relic', tier: 'standard', name: 'Duel Charm', ct: 0.25, slot: 'arms', category: 'Initiative',
-    text: 'After your first exact kill each encounter, your next attack deals +2 damage.' },
-  { id: 'r-signal-whistle', kind: 'relic', tier: 'standard', name: 'Signal Whistle', ct: 0.25, slot: 'trinket', category: 'Initiative',
-    text: 'Activate once per encounter on your turn: choose who acts after you.' },
+    text: 'After every exact kill, your next attack deals +3 damage.' },
   { id: 'r-last-lantern', kind: 'relic', tier: 'standard', name: 'Last Lantern', ct: 0.25, siegeCt: 0.3, slot: 'trinket', category: 'Recovery',
-    text: 'The first time you would die each encounter, the discard requirement is reduced by 2.' },
+    text: 'The first time you would die each encounter, the discard requirement is reduced by 4.' },
   { id: 'r-scry-band', kind: 'relic', tier: 'standard', name: 'Scry Band', ct: 0.25, slot: 'trinket', category: 'Consistency',
-    text: 'At encounter start, see the top 2 Tavern cards and optionally reorder them.' },
+    text: 'At encounter start, see the top 3 Tavern cards and optionally reorder them.' },
 
-  // Relics — rare (Lair / elite rewards)
-  { id: 'r-grand-provision', kind: 'relic', tier: 'rare', name: 'Grand Provision', ct: 0.75, slot: 'trinket', category: 'Access',
-    text: 'Your first two Diamond triggers each encounter draw +1 card each.' },
+  // Relics — rare (Lair / Throne / Caravan dark-deal: the run-defining chase)
   { id: 'r-sainted-scalpel', kind: 'relic', tier: 'rare', name: 'Sainted Scalpel', ct: 0.75, siegeCt: 0.5, slot: 'arms', category: 'Recovery',
-    text: 'Activate once per encounter: shuffle up to 4 discard cards into the Tavern, then draw 1 card.' },
-  { id: 'r-war-drum', kind: 'relic', tier: 'rare', name: 'War Drum', ct: 0.75, siegeCt: 1.0, slot: 'arms', category: 'Access',
-    text: 'During castle assaults, every fallen royal rallies the party: everyone draws 1 card.' },
-  { id: 'r-bastion-sigil', kind: 'relic', tier: 'rare', name: 'Bastion Sigil', ct: 0.75, slot: 'armor', category: 'Shield',
-    text: 'Your first two Spades each encounter gain +1 shield each, and your first fully-shielded counterattack draws you 1 card.' },
+    text: 'Activate once per encounter: shuffle up to 6 discard cards into the Tavern, then draw 2 cards.' },
   { id: 'r-iron-reprieve', kind: 'relic', tier: 'rare', name: 'Iron Reprieve', ct: 0.75, siegeCt: 0.5, slot: 'armor', category: 'Recovery',
     text: 'Once per chapter (automatic): prevent your death and set that discard check to 1.' },
+  { id: 'r-combat-cache', kind: 'relic', tier: 'rare', name: 'Combat Cache', ct: 0.75, slot: 'trinket', category: 'Access',
+    text: 'Your combos may total up to 12 instead of 10 (bigger matched plays).' },
 
   // Spells — team owned, one-shot, cast on your turn
   { id: 's-keen-edge', kind: 'spell', tier: 'standard', name: 'Keen Edge', ct: 0.25, category: 'Initiative',
@@ -187,34 +163,11 @@ export const ITEMS: ItemDef[] = [
   { id: 's-calm-pulse', kind: 'spell', tier: 'standard', name: 'Calm Pulse', ct: 0.25, category: 'Recovery',
     text: 'Reduce your current discard check by 2 (cast during your discard).' },
   { id: 's-tactical-surge', kind: 'spell', tier: 'rare', name: 'Tactical Surge', ct: 0.75, siegeCt: 0.3, category: 'Access',
-    text: 'Every hero draws 1 card.' },
+    text: 'Foresee the top 5 of the Tavern and keep 2 of them.' },
   { id: 's-crownbreaker', kind: 'spell', tier: 'rare', name: 'Crownbreaker', ct: 0.75, category: 'Initiative',
     text: 'Your next play this turn deals triple damage.' },
   { id: 's-full-recycle', kind: 'spell', tier: 'rare', name: 'Full Recycle', ct: 0.75, siegeCt: 0.5, category: 'Recovery',
     text: 'Shuffle up to 6 discard cards into the Tavern, then draw 2 cards.' },
-
-  // Preparations — camp activations, apply at next encounter start (cap 2)
-  { id: 'p-shield-drill', kind: 'preparation', tier: 'standard', name: 'Shield Drill', ct: 0.25, category: 'Shield',
-    text: 'The first enemy starts with +2 accumulated shield.' },
-  { id: 'p-hand-brief', kind: 'preparation', tier: 'standard', name: 'Hand Brief', ct: 0.25, category: 'Access',
-    text: 'The starting hero begins with +2 extra cards.' },
-  { id: 'p-route-intel', kind: 'preparation', tier: 'standard', name: 'Route Intel', ct: 0.25, category: 'Consistency',
-    text: 'At encounter start, the starting hero sees the top 3 Tavern cards and may reorder them.' },
-  { id: 'p-brace-command', kind: 'preparation', tier: 'standard', name: 'Brace Command', ct: 0.25, category: 'Initiative',
-    text: 'The team chooses the starting hero for this encounter.' },
-  { id: 'p-light-fortify', kind: 'preparation', tier: 'standard', name: 'Light Fortify', ct: 0.25, category: 'Shield',
-    text: 'The first discard check this encounter is reduced by 1.' },
-  { id: 'p-spare-edge', kind: 'preparation', tier: 'standard', name: 'Spare Edge', ct: 0.25, category: 'Initiative',
-    text: 'The first attack this encounter deals +2 damage.' },
-  // NOTE: the pool's discard-recovery preps (Reserve Kits, Full Logistics) stay
-  // out of v0 — preps fire at the first post-camp encounter, where the camp
-  // rest has just emptied the discard, so they would never do anything.
-  { id: 'p-fortified-entry', kind: 'preparation', tier: 'rare', name: 'Fortified Entry', ct: 0.75, siegeCt: 0.4, category: 'Shield',
-    text: 'The first counterattack this encounter deals 0.' },
-  { id: 'p-surgical-reserve', kind: 'preparation', tier: 'rare', name: 'Surgical Reserve', ct: 0.75, siegeCt: 0.4, category: 'Recovery',
-    text: 'The first time a hero would die this encounter, that discard requirement is reduced by 3 (min 1).' },
-  { id: 'p-last-march', kind: 'preparation', tier: 'rare', name: 'Banner of the Last March', ct: 0.25, siegeCt: 1.5, category: 'Recovery',
-    text: 'Next encounter: if it is a castle assault, the first time the Tavern runs dry the party takes a full rest.' },
 ]
 
 // ── Lookup helpers ───────────────────────────────────────────────────────────
@@ -238,5 +191,93 @@ export function itemsOf(kind: ItemDef['kind'], tier?: ItemDef['tier']): ItemDef[
 export function encountersOf(tier: EncounterDef['tier']): EncounterDef[] {
   return ENCOUNTERS.filter(e => e.tier === tier)
 }
-export const MEMORY_POOL = ITEMS.filter(i => i.kind === 'memory').map(i => i.id)
-export const ACTIVE_PREP_CAP = 2
+// Solo relic economy: two carried relics; a third forces the player to release one.
+export const RELIC_SLOTS = 2
+
+// ── Item unlock pools (meta: start limited, death/milestone grows it) ─────────
+// Death = +breadth not power: the Kingdom starts with a small pool and unlocks
+// more entries (in order) on death/milestone. Both stay deliberately small.
+export const STARTING_RELICS = ['r-bone-thread', 'r-reliquary', 'r-duel-charm', 'r-last-lantern', 'r-scry-band']
+export const STARTING_SPELLS = ['s-quick-muster', 's-keen-edge', 's-guard-up', 's-bulwark-chant']
+// The order in which death/milestone unlocks add to the pool (the rares last).
+export const RELIC_UNLOCK_ORDER = ['r-sainted-scalpel', 'r-iron-reprieve', 'r-combat-cache']
+export const SPELL_UNLOCK_ORDER = ['s-refit', 's-calm-pulse', 's-tactical-surge', 's-crownbreaker', 's-full-recycle']
+
+export const ALL_RELIC_IDS = [...STARTING_RELICS, ...RELIC_UNLOCK_ORDER]
+export const ALL_SPELL_IDS = [...STARTING_SPELLS, ...SPELL_UNLOCK_ORDER]
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ascending Deck — Token catalog (Step 5). Numbers are first-pass / tunable.
+// Design canon: docs/design/ascending-deck.md → "Tokens". A token never changes
+// a card's rank/identity; it changes interaction on play (SPEND) or on discard-to-
+// soak (HOLD). Forgeable F-market + the C/S tokens classes start with are LIVE;
+// Echo/Wildcard/curses-via-spell are deferred (not in this table yet).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const TOKEN_DEFS: Record<string, TokenDef> = {
+  // A. value — SPEND
+  hone:        { id: 'hone', name: 'Hone', short: '+1', kind: 'value', spend: 1, power: 1, source: 'F', forgeable: true, text: '+1 value when played (damage & suit power).' },
+  temper:      { id: 'temper', name: 'Temper', short: '+2', kind: 'value', spend: 2, power: 2, source: 'F', forgeable: true, text: '+2 value when played.' },
+  undercut:    { id: 'undercut', name: 'Undercut', short: '−1', kind: 'value', spend: -1, power: 1, source: 'S', forgeable: false, text: '−1 value when played — undershoot onto an exact kill.' },
+  // B. value — HOLD
+  ballast:        { id: 'ballast', name: 'Ballast', short: '⛨+1', kind: 'value', hold: 1, power: 1, source: 'F', forgeable: true, text: 'Discards as +1 value (soaks a bigger hit).' },
+  'bulwark-weave':{ id: 'bulwark-weave', name: 'Bulwark-weave', short: '⛨+2', kind: 'value', hold: 2, power: 2, source: 'F', forgeable: true, text: 'Discards as +2 value.' },
+  // C. value — SPLIT
+  glasswork:   { id: 'glasswork', name: 'Glasswork', short: '+2/−1', kind: 'value', spend: 2, hold: -1, power: 2, source: 'F', forgeable: true, text: '+2 played, −1 to soak (glass cannon).' },
+  deadweight:  { id: 'deadweight', name: 'Deadweight', short: '−1/+2', kind: 'value', spend: -1, hold: 2, power: 2, source: 'F', forgeable: true, text: '−1 played, +2 to soak (turtle).' },
+  // D. suit
+  graft:       { id: 'graft', name: 'Graft', short: '+◆', kind: 'suit', suitOp: 'add', power: 3, source: 'F', needsSuit: true, forgeable: true, text: 'Adds a second suit — fires two levers at once.' },
+  transmute:   { id: 'transmute', name: 'Transmute', short: '→◆', kind: 'suit', suitOp: 'replace', power: 3, source: 'F', needsSuit: true, forgeable: true, text: 'Changes the card’s suit entirely.' },
+  // E. lever magnitude
+  plate:       { id: 'plate', name: 'Plate', short: '♠+1', kind: 'lever', lever: 'shield', power: 2, source: 'F', forgeable: true, text: '+1 shield when this card’s ♠ power fires.' },
+  provision:   { id: 'provision', name: 'Provision', short: '♦+1', kind: 'lever', lever: 'draw', power: 2, source: 'F', forgeable: true, text: '+1 to the draw pool when this card’s ♦ power fires.' },
+  mend:        { id: 'mend', name: 'Mend', short: '♥+1', kind: 'lever', lever: 'recover', power: 2, source: 'F', forgeable: true, text: '+1 recovery when this card’s ♥ power fires.' },
+  edge:        { id: 'edge', name: 'Edge', short: '♣+2', kind: 'lever', lever: 'edge', power: 2, source: 'F', forgeable: true, text: '+2 damage when this card’s ♣ power fires.' },
+  // F. sequencing / triggers (LIVE this build)
+  scry:        { id: 'scry', name: 'Scry', short: '👁', kind: 'keyword', keyword: 'scry', power: 2, source: 'C', forgeable: true, text: 'On play, foresee the Tavern: tee up your next draw.' },
+  mark:        { id: 'mark', name: 'Mark', short: '✦+2', kind: 'keyword', keyword: 'mark', power: 2, source: 'C', forgeable: true, text: '+2 damage on play (the foreseen strike).' },
+  banner:      { id: 'banner', name: 'Banner', short: '⚑', kind: 'keyword', keyword: 'banner', power: 2, source: 'C', forgeable: false, text: 'On a kill with this card, draw 1.' },
+  bloodprice:  { id: 'bloodprice', name: 'Bloodprice', short: '🩸', kind: 'keyword', keyword: 'bloodprice', power: 3, source: 'C', forgeable: false, text: 'On an exact kill with this card, +1 forge budget.' },
+}
+
+export function getTokenDef(id: string): TokenDef | undefined { return TOKEN_DEFS[id] }
+
+/** Tokens a forge node may offer (F-market, plus suit tokens resolve a suit). */
+export const FORGEABLE_TOKEN_IDS = Object.values(TOKEN_DEFS).filter(d => d.forgeable).map(d => d.id)
+
+/** C-tier ("not too strong") tokens the fragment track may apply on the road.
+ * 2 fragments → 1 application. Weak by design — value bumps + light consistency;
+ * the Forge keeps the stronger F-tier tokens (Temper / Graft / lever / suit). */
+export const C_TIER_TOKEN_IDS = ['hone', 'ballast', 'scry', 'mark']
+
+// ── Class level-1 signatures (pure-token; locked 2026-06-14) ─────────────────
+// Each class stamps its signature tokens onto specific cards of the shared 20-card
+// start (A–5 ×4). First 4 suited classes are the active design; 5–9 are drafted/
+// parked. cardId = `${suit}${rank}`. Suit tokens carry a resolved `suit`.
+export const CLASS_SIGNATURES: Record<ClassId, Token[]> = {
+  // suited — own-suit lever stamps
+  sentinel:     [{ defId: 'plate' },      // → applied to 3♠ 4♠ 5♠ (see SIGNATURE_CARDS)
+                 { defId: 'plate' }, { defId: 'plate' }],
+  quartermaster:[{ defId: 'provision' }, { defId: 'provision' }, { defId: 'provision' }],
+  surgeon:      [{ defId: 'mend' }, { defId: 'mend' }, { defId: 'mend' }],
+  executioner:  [{ defId: 'edge' }, { defId: 'edge' }, { defId: 'undercut' }],
+  // suitless — token-family stamps (parked: drafted, not balance-tuned)
+  commander:    [{ defId: 'banner' }, { defId: 'banner' }, { defId: 'banner' }],
+  warden:       [{ defId: 'bulwark-weave' }, { defId: 'bulwark-weave' }, { defId: 'bulwark-weave' }],
+  gambler:      [{ defId: 'glasswork' }, { defId: 'glasswork' }, { defId: 'mark' }],
+  exile:        [{ defId: 'transmute', suit: 'S' }, { defId: 'transmute', suit: 'C' }],
+  oracle:       [{ defId: 'scry' }, { defId: 'scry' }, { defId: 'mark' }],
+}
+
+/** Which cards each class stamps (parallel to CLASS_SIGNATURES order). */
+export const SIGNATURE_CARDS: Record<ClassId, string[]> = {
+  sentinel:      ['S3', 'S4', 'S5'],
+  quartermaster: ['D3', 'D4', 'D5'],
+  surgeon:       ['H3', 'H4', 'H5'],
+  executioner:   ['C4', 'C5', 'C2'],
+  commander:     ['D3', 'S4', 'C5'],
+  warden:        ['S2', 'H2', 'C3'],
+  gambler:       ['D5', 'C5', 'H4'],
+  exile:         ['S5', 'C5'],
+  oracle:        ['D2', 'D3', 'S4'],
+}

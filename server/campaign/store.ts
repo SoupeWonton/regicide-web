@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import type { CampaignState, KingdomState } from './types'
-import { STARTING_CLASSES } from './content'
+import { STARTING_CLASSES, STARTING_RELICS, STARTING_SPELLS } from './content'
 
 // File-backed persistence (v0 canon: saves must survive reload; Kingdom unlocks
 // are permanent; campaign saves are independent from each other).
@@ -18,10 +18,11 @@ function ensureDirs() {
 
 export function loadKingdom(): KingdomState {
   ensureDirs()
+  let k: KingdomState
   try {
-    return JSON.parse(fs.readFileSync(KINGDOM_FILE, 'utf-8')) as KingdomState
+    k = JSON.parse(fs.readFileSync(KINGDOM_FILE, 'utf-8')) as KingdomState
   } catch {
-    return {
+    k = {
       unlockedChapters: [1],
       unlockedClasses: [...STARTING_CLASSES],
       specializationsUnlocked: false,
@@ -29,6 +30,10 @@ export function loadKingdom(): KingdomState {
       heroesLost: 0,
     }
   }
+  // item-economy: default the starting pools for fresh/legacy kingdoms.
+  if (!k.unlockedRelics) k.unlockedRelics = [...STARTING_RELICS]
+  if (!k.unlockedSpells) k.unlockedSpells = [...STARTING_SPELLS]
+  return k
 }
 
 export function saveKingdom(k: KingdomState) {

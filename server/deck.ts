@@ -22,6 +22,24 @@ export function enemyStats(rank: 'J' | 'Q' | 'K'): { hp: number; attack: number 
   return { hp: 40, attack: 20 }
 }
 
+/** Returns true for the player number ranks (2-10) used in Continent-1 recruit fights. */
+export function isNumberRank(rank: string): rank is '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' {
+  return PLAYER_RANKS.includes(rank as Rank) && rank !== 'A'
+}
+
+/**
+ * Stats for number-card enemies used in Continent-1 recruit fights.
+ * Kept entirely separate from enemyStats (which is used by game.ts) so the
+ * base quick game is never touched.
+ * Stat line: HP = rank value * 3, ATK = Math.ceil(rank value * 0.8).
+ */
+export function numberEnemyStats(rank: '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10'): { hp: number; attack: number } {
+  const v = parseInt(rank)
+  // Continent-1 ramp: HP scales with rank, but ATTACK is gentle early — a 20-card
+  // A–5 deck must survive a fight where one suit lever is denied by immunity.
+  return { hp: v * 3, attack: Math.max(2, Math.round(v * 0.55)) }
+}
+
 export function shuffle<T>(arr: T[]): T[] {
   const a = [...arr]
   for (let i = a.length - 1; i > 0; i--) {

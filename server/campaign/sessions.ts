@@ -1,16 +1,18 @@
 import type { CampaignState, ClientCampaignState, KingdomState } from './types'
 import {
   createCampaign, applyClassPick, applyRoadChoose, applyChoice, applyDeathVote,
-  applyActivatePreparation, applyExileAtCamp, applyBreakCamp, beginReplacement,
-  applyMemoryPick, applyContinueChapter, buildClientCampaign, checkEncounterEnd,
+  applyExileAtCamp, applyBreakCamp, beginReplacement, applyFragmentStart,
+  applyContinueChapter, buildClientCampaign, checkEncounterEnd,
 } from './campaign'
 import {
   applyEncounterPlay, applyEncounterDiscard, applyEncounterYield,
   applyEncounterChooseNext, applyCastSpell, applyActivateRelic, applyArmWager,
-  applySetupReorder,
+  applySetupReorder, applyKeepDrawn,
 } from './encounter'
 import { loadKingdom, saveKingdom, saveCampaign, loadCampaign, listCampaigns, deleteCampaign } from './store'
 import type { SaveSummary } from './store'
+import { observeBefore, observeAfter, recordRunEnd } from './telemetry'
+import { traceAction } from './trace'
 
 // Campaign session manager: binds room codes to live campaign states and
 // dispatches actions. Persistence: every successful action writes the save.
@@ -25,11 +27,13 @@ export function getSession(code: string): CampaignState | undefined { return ses
 export function startCampaignSession(
   code: string,
   players: { id: string; name: string }[],
-  chapter: 1 | 2,
+  chapter: number,
   seed: string | undefined,
+  opts?: { runName?: string; record?: boolean },
 ): { error?: string } {
-  const { campaign, error } = createCampaign(players, chapter, seed, kingdom)
+  const { campaign, error } = createCampaign(players, chapter, seed, kingdom, opts?.runName)
   if (error || !campaign) return { error }
+  campaign.recordRun = opts?.record !== false
   sessions.set(code, campaign)
   saveCampaign(campaign)
   return {}
@@ -72,14 +76,14 @@ export type CampaignAction =
   | { type: 'yield_turn' }
   | { type: 'choose_next'; targetIndex: number; keepTurn?: boolean }
   | { type: 'cast_spell'; spellId: string }
-  | { type: 'activate_relic'; targetIndex?: number }
+  | { type: 'activate_relic'; targetIndex?: number; relicId?: string }
   | { type: 'arm_wager' }
+  | { type: 'keep_drawn'; keepIndices: number[] }   // ascending-deck: overdraw selection
+  | { type: 'apply_fragment' }                       // fragment track: spend 2 → apply a C-tier token
   | { type: 'death_vote'; vote: string }
-  | { type: 'activate_prep'; prepId: string }
   | { type: 'exile_camp' }
   | { type: 'begin_replacement' }
   | { type: 'break_camp' }
-  | { type: 'memory_pick'; memoryId: string }
   | { type: 'continue_chapter' }
   | { type: 'abandon_campaign' }
   | { type: 'debug_force'; encounterId?: string; rewardId?: string }
@@ -93,6 +97,7 @@ export function dispatchCampaignAction(
   const c = sessions.get(code)
   if (!c) return { error: 'No campaign in this room.' }
 
+  const snap = observeBefore(c, playerId, action)
   let result: { error?: string }
   switch (action.type) {
     case 'pick_class': result = applyClassPick(c, playerId, action.classId as never); break
@@ -104,18 +109,19 @@ export function dispatchCampaignAction(
     case 'yield_turn': result = applyEncounterYield(c, playerId); break
     case 'choose_next': result = applyEncounterChooseNext(c, playerId, action.targetIndex, !!action.keepTurn); break
     case 'cast_spell': result = applyCastSpell(c, playerId, action.spellId); break
-    case 'activate_relic': result = applyActivateRelic(c, playerId, action.targetIndex); break
+    case 'activate_relic': result = applyActivateRelic(c, playerId, action.targetIndex, action.relicId); break
     case 'arm_wager': result = applyArmWager(c, playerId); break
+    case 'keep_drawn': result = applyKeepDrawn(c, playerId, action.keepIndices); break
+    case 'apply_fragment': result = applyFragmentStart(c, playerId, hostId); break
     case 'death_vote': result = applyDeathVote(c, playerId, action.vote); break
-    case 'activate_prep': result = applyActivatePreparation(c, playerId, action.prepId, hostId); break
     case 'exile_camp': result = applyExileAtCamp(c, playerId); break
     case 'begin_replacement': result = beginReplacement(c, kingdom); break
     case 'break_camp': result = applyBreakCamp(c, playerId, hostId); break
-    case 'memory_pick': result = applyMemoryPick(c, playerId, action.memoryId, kingdom); break
     case 'continue_chapter': result = applyContinueChapter(c, playerId, hostId); break
     case 'abandon_campaign': {
       // manual abandon keeps Kingdom unlocks (canon); save is removed
       if (playerId !== hostId) { result = { error: 'Only the host can abandon the lineage.' }; break }
+      recordRunEnd(c, 'abandoned')
       deleteCampaign(c.id)
       sessions.delete(code)
       return {}
@@ -131,7 +137,10 @@ export function dispatchCampaignAction(
   }
 
   if (!result.error) {
-    if (c.encounter && c.encounter.outcome !== 'active') checkEncounterEnd(c)
+    observeAfter(c, snap)   // must see the encounter outcome before it is consumed
+    if (c.recordRun !== false) traceAction(c, 'human', c.id, action)
+    if (c.encounter && c.encounter.outcome !== 'active') checkEncounterEnd(c, kingdom)
+    recordRunEnd(c)         // appends the human-runs CSV row on won/lost
     // refresh kingdom snapshot in case chapter completion updated it
     kingdom = loadKingdom()
     saveCampaign(c)

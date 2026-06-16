@@ -94,6 +94,10 @@ function join() {
 
         <div v-if="error" class="alert alert-error text-sm py-2">{{ error }}</div>
 
+        <router-link to="/sandbox" class="text-xs text-base-content/30 hover:text-base-content/60 text-center">
+          🔬 run sandbox (replay viewer)
+        </router-link>
+
       </div>
     </div>
   </div>

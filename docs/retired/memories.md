@@ -1,5 +1,10 @@
 # Memories
 
+> ⚠️ **REMOVED from the implementation (solo economy redesign, 2026-06).** Memories
+> and the chapter-end memory draft are gone from the code (types, content, engine, UI).
+> This document is design history only. Relics — now **two slots per hero** — carry the
+> persistent-identity role memories used to hold. See `CLAUDE.md` → "Solo economy redesign."
+
 Memories are hero-lineage progression earned through chapter success.
 
 ## Canon Rules

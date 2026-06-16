@@ -1,5 +1,10 @@
 # Preparations
 
+> ⚠️ **REMOVED from the implementation (solo economy redesign, 2026-06).** Camp-activated
+> preparations (the `p-*` items) are gone from the code. Markets and skirmish spoils now
+> grant **spells** instead. This document is design history only; the camp will be reworked
+> around a four-axis pip allocation (♦/♥/♠/♣). See `CLAUDE.md` → "Solo economy redesign."
+
 Preparations are team-owned camp consumables in v0.
 
 ## Canon Rules

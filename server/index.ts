@@ -157,11 +157,11 @@ io.on('connection', socket => {
     socket.emit('campaign_saves', { saves: getSaves(), kingdom: getKingdom() })
   })
 
-  socket.on('start_campaign', ({ code, chapter, seed }: { code: string; chapter: number; seed?: string }) => {
+  socket.on('start_campaign', ({ code, chapter, seed, runName, record }: { code: string; chapter: number; seed?: string; runName?: string; record?: boolean }) => {
     const info = roomInfo(code)
     if (!info) { socket.emit('error', 'Room not found.'); return }
     if (info.hostId !== cid) { socket.emit('error', 'Only the host can start a campaign.'); return }
-    const { error } = startCampaignSession(code, info.players.map(p => ({ id: p.id, name: p.name })), (chapter === 2 ? 2 : 1), seed)
+    const { error } = startCampaignSession(code, info.players.map(p => ({ id: p.id, name: p.name })), (chapter === 2 ? 2 : 1), seed, { runName, record })
     if (error) { socket.emit('error', error); return }
     broadcastCampaign(code)
   })
