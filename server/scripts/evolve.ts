@@ -128,6 +128,12 @@ function evaluate(pop: Persona[], seeds: string[]): Scored[] {
 }
 
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / (xs.length || 1)
+function pearson(xs: number[], ys: number[]): number {
+  const n = xs.length, mx = mean(xs), my = mean(ys)
+  let sxy = 0, sxx = 0, syy = 0
+  for (let i = 0; i < n; i++) { const dx = xs[i]! - mx, dy = ys[i]! - my; sxy += dx * dy; sxx += dx * dx; syy += dy * dy }
+  return sxx === 0 || syy === 0 ? 0 : sxy / Math.sqrt(sxx * syy)
+}
 
 // engine persistence is redirected to TMP_DATA (set above), so the live game's
 // data/ is never touched. We just remove the temp dir when done.
@@ -138,20 +144,36 @@ const eliteCount = Math.max(2, Math.ceil(ELITE_FRAC * POP))
 const t0 = Date.now()
 const history: { gen: number; popMeanWin: number; eliteMeanWin: number; bestWin: number; popMeanFit: number; eliteMeanFit: number; bestGenome: string }[] = []
 let summaryElites: Scored[] = []
+let lastScored: Scored[] = []
 
 console.log(`▶ Evolving personas: ${POP} genomes × ${SEEDS_PER_GENOME} seeds = ${POP * SEEDS_PER_GENOME} runs/gen, ${GENERATIONS} generations (top ${eliteCount} carried forward)\n`)
 
 try {
-  // Generation 1 population: the 6 hand-tuned personas + random genomes for spread.
-  let pop: Persona[] = Object.values(PERSONAS).map((p, i) => ({ ...clone(p), id: `g1-named-${p.id}` }))
-  let k = 0
-  while (pop.length < POP) pop.push(randomGenome(`g1-rand-${k++}`))
+  // Founder population. Continuation (EVO_SEED_FROM=<prior json>): exploit a prior
+  // run's best/elite genomes + a little random spread. Fresh: 6 hand-tuned personas
+  // + random genomes.
+  let pop: Persona[]
+  if (process.env.EVO_SEED_FROM) {
+    const prior = JSON.parse(fs.readFileSync(process.env.EVO_SEED_FROM, 'utf-8'))
+    const seeds0: Persona[] = ((prior.eliteGenomes?.length ? prior.eliteGenomes : [prior.bestGenome]) as Persona[]).filter(Boolean)
+    console.log(`↻ Continuing from ${process.env.EVO_SEED_FROM} (${seeds0.length} seed genome(s))`)
+    pop = seeds0.map((g, i) => ({ ...clone(g), id: `c-seed-${i}` }))            // carry priors verbatim
+    let c = 0
+    while (pop.length < POP * 0.8) pop.push(mutate(rng.pick(seeds0), `c-mut-${c++}`))  // exploit
+    let r0 = 0
+    while (pop.length < POP) pop.push(randomGenome(`c-rand-${r0++}`))           // explore
+  } else {
+    pop = Object.values(PERSONAS).map((p) => ({ ...clone(p), id: `g1-named-${p.id}` }))
+    let k = 0
+    while (pop.length < POP) pop.push(randomGenome(`g1-rand-${k++}`))
+  }
 
   for (let gen = 1; gen <= GENERATIONS; gen++) {
     const seeds = Array.from({ length: SEEDS_PER_GENOME }, (_, si) => `evo-g${gen}-s${si}`)
     const scored = evaluate(pop, seeds).sort((a, b) => b.fitness - a.fitness)
     const elites = scored.slice(0, eliteCount)
     summaryElites = elites
+    lastScored = scored
 
     const row = {
       gen,
@@ -194,7 +216,25 @@ const best = summaryElites[0]
 console.log(`\nBest evolved genome (${best?.genome.id}, ${(best!.winRate * 100).toFixed(1)}% win):`)
 console.log(JSON.stringify(best?.genome, null, 2))
 
+// ── What makes winners win? (trait analysis on the final generation) ──────────
+const getGene = (g: any, key: string) => key.startsWith('cat.') ? g.catPrefs[key.slice(4)] : g[key]
+const allKeys = [...NUM_KEYS, ...CAT_KEYS.map(c => `cat.${c}`)]
+const winRates = lastScored.map(s => s.winRate)
+const corr = allKeys
+  .map(key => ({ key, r: pearson(lastScored.map(s => getGene(s.genome, key)), winRates) }))
+  .sort((a, b) => Math.abs(b.r) - Math.abs(a.r))
+const topQ = [...lastScored].sort((a, b) => b.winRate - a.winRate).slice(0, Math.max(3, Math.round(lastScored.length * 0.25)))
+console.log(`\n════════ WHAT DRIVES WINS (final gen, n=${lastScored.length}; top quartile vs population) ════════`)
+console.log('gene                 corr   top25%   pop')
+for (const { key, r } of corr.slice(0, 12)) {
+  const e = mean(topQ.map(s => getGene(s.genome, key))), p = mean(lastScored.map(s => getGene(s.genome, key)))
+  console.log(`  ${key.padEnd(18)} ${(r >= 0 ? '+' : '') + r.toFixed(2)}   ${e.toFixed(2).padStart(5)}   ${p.toFixed(2).padStart(5)}`)
+}
+const firstPick: Record<string, number> = {}
+for (const s of topQ) firstPick[s.genome.classPref[0]] = (firstPick[s.genome.classPref[0]] ?? 0) + 1
+console.log('Top-25% first class pick:', Object.entries(firstPick).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}:${v}`).join(', '))
+
 const stamp = new Date(t0).toISOString().replace(/[:.]/g, '-').slice(0, 19)
 const OUT = path.join(HERE, '..', '..', 'sim-results', `evolve-${stamp}.json`)
-fs.writeFileSync(OUT, JSON.stringify({ config: { POP, SEEDS_PER_GENOME, GENERATIONS, eliteCount }, history, bestGenome: best?.genome, bestWinRate: best?.winRate }, null, 2))
+fs.writeFileSync(OUT, JSON.stringify({ config: { POP, SEEDS_PER_GENOME, GENERATIONS, eliteCount }, history, bestGenome: best?.genome, bestWinRate: best?.winRate, eliteGenomes: summaryElites.map(e => e.genome), traitCorr: allKeys.map(key => ({ key, r: pearson(lastScored.map(s => getGene(s.genome, key)), winRates) })) }, null, 2))
 console.log(`\n${POP * SEEDS_PER_GENOME * GENERATIONS} campaigns in ${((Date.now() - t0) / 1000).toFixed(1)}s · saved ${OUT}`)

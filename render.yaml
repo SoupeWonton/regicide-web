@@ -2,7 +2,10 @@ services:
   - type: web
     name: llgames-regicide
     runtime: node
-    buildCommand: npm run install:all && npm run build
+    # NODE_ENV=production makes npm omit devDependencies, but the build tools
+    # (vite, vue-tsc, tsx, typescript) live in devDependencies — force-include
+    # them or the build fails with "vite: not found" (exit 127).
+    buildCommand: npm install --include=dev && npm install --prefix server --include=dev && npm install --prefix client --include=dev && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
