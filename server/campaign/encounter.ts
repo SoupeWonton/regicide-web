@@ -1493,52 +1493,14 @@ function heroDies(c: CampaignState, s: EncounterState, pi: number, unpayable: nu
   ev(s, 'death', `💀 ${hero.playerName} FALLS`, 'blood', true)
   clog(c, `💀 ${hero.playerName} the ${hero.classId} falls — ${unpayable} damage could not be paid.`)
 
-  // Province mode: any death is a full run reset — no votes, no replacements,
-  // no second wind. Dead is dead (canon 2026-06-11). The Kingdom records
-  // where the run ended (rewards-on-death hook).
-  if (EXPERIMENTS.provinceMode) {
-    s.outcome = 'wiped'
-    s.turnPhase = 'over'
-    c.phase = 'campaign_lost'
-    clog(c, '☠️ The run ends here. The Kingdom remembers where.')
-    return
-  }
-
-  const alive = aliveIndices(c)
-  if (alive.length === 0) {
-    // solo death insurance (balance-testing): outside boss fights, a solo
-    // hero's death drags the lineage to an emergency camp where a forced
-    // replacement takes up the banner — memories and relic die with the hero
-    if (c.heroes.length === 1 && s.tier !== 'boss') {
-      s.outcome = 'retreated'
-      s.turnPhase = 'over'
-      clog(c, '🩸 The hero falls — and is dragged from the field by their own stubborn lineage.')
-      clog(c, '   A successor must take up the banner at camp.')
-      return
-    }
-    s.outcome = 'wiped'
-    s.turnPhase = 'over'
-    c.phase = 'campaign_lost'
-    clog(c, '☠️ The lineage ends here. The Kingdom remembers.')
-    return
-  }
-
-  if (s.tier === 'boss') {
-    // boss canon: Retreat disabled after death — defeat the boss or wipe
-    clog(c, '⚔️ No retreat at the castle gates. The fight continues.')
-    if (s.currentPlayerIndex === pi) advanceTurn(c, s)
-    return
-  }
-
-  // death fork: Retreat vs Last Stand (+ Warden Defiant Stand, once per run)
-  const wardenAlive = c.heroes.some(h => h.alive && h.classId === 'warden')
-  c.phase = 'death_vote'
-  c.deathVote = {
-    deadHeroIndex: pi,
-    votes: {},
-    defiantAvailable: wardenAlive && !c.wardenDefiantUsed,
-  }
-  clog(c, '🗳 The party must decide: Retreat or Last Stand?' + (c.deathVote.defiantAvailable ? ' (The Warden offers a third path.)' : ''))
+  // Dead is dead: any hero death ends the run. No death vote, no Last Stand,
+  // no Warden revive, no camp replacement — the party is offered Try Again or
+  // Main Menu at the game-over screen (campaign_lost). (This was province mode's
+  // rule; it now applies to every mode.)
+  s.outcome = 'wiped'
+  s.turnPhase = 'over'
+  c.phase = 'campaign_lost'
+  clog(c, '☠️ The run ends here. The Kingdom remembers where.')
 }
 
 // vote resolution is handled in campaign.ts (it owns campaign-level phases)

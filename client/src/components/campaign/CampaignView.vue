@@ -189,11 +189,6 @@ onBeforeUnmount(() => {
   drawTimers.forEach(clearTimeout)
 })
 
-const voteLabels: Record<string, string> = {
-  retreat: '🏳 Retreat — fall back to an emergency camp',
-  last_stand: '⚔️ Last Stand — fight on without them',
-  defiant_stand: '🛡 Defiant Stand — the Warden brings them back (once per run)',
-}
 
 function act(action: Record<string, unknown>) {
   errorMsg.value = ''
@@ -290,14 +285,14 @@ function heroTooltip(h: ClientHero): string {
         <p class="text-sm text-base-content/60 rise-in-3">
           {{ phase === 'campaign_won'
             ? 'Both chapters conquered. Gambler, Exile and Oracle join the Kingdom roster.'
-            : 'Every hero is dead — but the Kingdom keeps its unlocks. The next lineage will know better.' }}
+            : 'Your lineage has fallen — but the Kingdom keeps its unlocks. The next run will know better.' }}
         </p>
         <div class="flex flex-wrap gap-2 justify-center mt-2 rise-in-4">
           <button v-if="state.isHost" class="btn btn-primary" @click="socket.emit('restart_campaign', { code })">
-            ⚔ Run it again
+            {{ phase === 'campaign_won' ? '⚔ Run it again' : '⚔ Try Again' }}
           </button>
           <button class="btn" :class="state.isHost ? 'btn-ghost' : 'btn-primary'" @click="socket.emit('end_campaign_session', { code })">
-            Back to the lobby
+            Main Menu
           </button>
         </div>
         <p v-if="!state.isHost" class="text-[11px] text-base-content/40">The host can start a new run for the party.</p>
@@ -379,21 +374,6 @@ function heroTooltip(h: ClientHero): string {
         </div>
       </div>
     </Transition>
-
-    <!-- Death vote overlay -->
-    <OverlayModal v-if="state.deathVote" tone="error">
-      <h3 class="text-xl font-bold text-center">💀 {{ state.deathVote.deadHeroName }} has fallen</h3>
-      <p class="text-sm text-center text-base-content/60">The party must decide. Everyone votes — including the dead.</p>
-      <button
-        v-for="opt in state.deathVote.options" :key="opt"
-        class="btn w-full justify-start text-left h-auto py-3"
-        :class="state.deathVote.myVote === opt ? 'btn-primary' : 'btn-outline'"
-        @click="act({ type: 'death_vote', vote: opt })"
-      >{{ voteLabels[opt] }}</button>
-      <p class="text-xs text-center text-base-content/40">
-        {{ Object.keys(state.deathVote.votes).length }}/{{ state.heroes.length }} votes in
-      </p>
-    </OverlayModal>
 
     <!-- Pending choice overlay (landmark rewards, replacement, exile rite).
          Renders whenever a choice is pending, regardless of phase — a reward

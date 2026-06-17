@@ -185,8 +185,8 @@ console.log('Test 2: deterministic seed')
   ok('maps identical for identical seeds')
 }
 
-// ── Test 3: death → vote → retreat → camp replacement ────────────────────────
-console.log('Test 3: death fork and replacement')
+// ── Test 3: dead is dead — any hero death ends the run ───────────────────────
+console.log('Test 3: death ends the run (no vote, no replacement)')
 {
   const c = createCampaign(players, 1, 'death-seed', kingdom).campaign!
   applyClassPick(c, P1, 'sentinel')
@@ -204,23 +204,14 @@ console.log('Test 3: death fork and replacement')
   const pid = c.heroes[pi]!.playerId
   const r = applyEncounterYield(c, pid)
   assert(!r.error, `yield into doom: ${r.error}`)
-  assert(c.phase === 'death_vote', `death vote triggered (got ${c.phase})`)
   assert(!c.heroes[pi]!.alive, 'hero is dead')
-  for (const h of c.heroes) if (c.deathVote) applyDeathVote(c, h.playerId, 'retreat')
-  assert(c.phase === 'camp', `retreat → emergency camp (got ${c.phase})`)
-  const rep = beginReplacement(c, kingdom)
-  assert(!rep.error, `replacement offered: ${rep.error}`)
-  const pc = c.pendingChoice!
-  assert(pc.forPlayerId === pid, 'dead player decides replacement')
-  const rr = applyChoice(c, pid, pc.options[0]!.id, P1)
-  assert(!rr.error, `replacement picked: ${rr.error}`)
-  assert(c.heroes[pi]!.alive, 'hero replaced and alive')
-  assert(c.heroes[pi]!.classId !== 'sentinel' || pi !== 0, 'replacement class differs from the dead class')
-  // re-enter the fight from emergency camp
-  const back = applyBreakCamp(c, P1, P1)
-  assert(!back.error, `re-enter fight: ${back.error}`)
-  assert(c.phase === 'encounter', 'back in the encounter from camp')
-  ok('death → vote → retreat → replace → re-engage works')
+  assert(c.phase === 'campaign_lost', `any death ends the run (got ${c.phase})`)
+  assert(c.deathVote == null, 'no respawn/death vote is offered')
+  assert(c.encounter!.outcome === 'wiped', 'encounter marked wiped')
+  // a dead vote, if anyone tried, is rejected (the mechanic is gone)
+  const stale = applyDeathVote(c, pid, 'retreat')
+  assert(!!stale.error, 'death vote is no longer accepted')
+  ok('a hero death ends the run → Try Again / Main Menu, no respawn')
 }
 
 // ── Test 4: save / load round-trip ───────────────────────────────────────────
@@ -333,15 +324,13 @@ console.log('Test 8: player-count scaling')
   assert(s.turnPhase === 'play', `solo jester keeps the turn (phase=${s.turnPhase})`)
   assert(s.hands[0]!.length === 8, `solo jester refreshed hand to 8 (got ${s.hands[0]!.length})`)
 
-  // solo death outside boss → emergency camp, not campaign over
+  // dead is dead: a solo death ends the run (no emergency camp, no successor)
   s.hands[0] = [{ suit: 'C', rank: '2', id: 'doom2' }]
   s.currentEnemy!.attack = 99
   s.currentEnemy!.shield = 0
   step(c, P1, () => applyEncounterYield(c, P1), 'solo doom yield')
-  assert(c.phase === 'camp', `solo death → emergency camp (got ${c.phase})`)
-  assert(!c.heroes[0]!.alive, 'solo hero is dead, successor required')
-  const rep = beginReplacement(c, kingdom)
-  assert(!rep.error, `solo replacement offered: ${rep.error ?? 'ok'}`)
+  assert(c.phase === 'campaign_lost', `solo death ends the run (got ${c.phase})`)
+  assert(!c.heroes[0]!.alive, 'solo hero is dead — run over')
 
   // 2-player: 1 jester + bigger reward choices
   const d = createCampaign(players, 1, 'duo-seed', kingdom).campaign!

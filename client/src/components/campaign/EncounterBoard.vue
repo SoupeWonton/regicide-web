@@ -18,6 +18,18 @@ const peekOrder = ref<number[]>([])
 const showPile = ref<'tavern' | 'discard' | null>(null)
 const whistleMode = ref(false)
 
+// ── Drag-to-play: pointer-based (works for mouse + touch). Tapping a card still
+// selects it; dragging it onto the enemy plays it (the selected combo if one is
+// built, else just that card). The enemy is the single drop target.
+const enemyEl = ref<HTMLElement | null>(null)
+const fanEl = ref<HTMLElement | null>(null)
+const drag = ref<{ index: number; card: Card; x: number; y: number; over: boolean } | null>(null)
+
+// Hand display order — a local permutation of myHand by card id. The player can
+// drag cards to reorder, or sort by suit/rank. Selection and play stay keyed by
+// the card's real myHand index, so the server is never aware of the cosmetic order.
+const handOrder = ref<string[]>([])
+
 const enc = computed(() => props.state.encounter!)
 const me = computed(() => props.state.heroes[props.state.myHeroIndex])
 const isMyTurn = computed(() => props.state.myHeroIndex === enc.value.currentPlayerIndex && enc.value.outcome === 'active')
@@ -32,6 +44,39 @@ const inDrawSelect = computed(() =>
 const drawPoolSelected = ref<number[]>([])
 
 const hand = computed(() => enc.value.myHand)
+
+// Keep the display order in sync with the real hand: surviving cards hold their
+// place, freshly drawn cards land on the right (then the player can re-sort).
+watch(() => hand.value.map(c => c.id).join('|'), () => {
+  const ids = hand.value.map(c => c.id)
+  const next = handOrder.value.filter(id => ids.includes(id))
+  for (const id of ids) if (!next.includes(id)) next.push(id)
+  handOrder.value = next
+}, { immediate: true })
+
+// Cards in display order, each tagged with its real myHand index `i`.
+const displayHand = computed<{ card: Card; i: number }[]>(() => {
+  const byId = new Map(hand.value.map((c, i) => [c.id, { card: c, i }]))
+  const out: { card: Card; i: number }[] = []
+  for (const id of handOrder.value) { const e = byId.get(id); if (e) out.push(e) }
+  if (out.length < hand.value.length)
+    for (const [id, e] of byId) if (!handOrder.value.includes(id)) out.push(e)
+  return out
+})
+
+function sortHand(mode: 'suit' | 'rank') {
+  const suitRank: Record<string, number> = { S: 0, H: 1, C: 2, D: 3 }
+  const sorted = [...hand.value].sort((a, b) => {
+    const ja = a.rank === 'Jo', jb = b.rank === 'Jo'
+    if (ja !== jb) return ja ? 1 : -1                       // jesters always last
+    if (mode === 'suit')
+      return (suitRank[a.suit]! - suitRank[b.suit]!) || (cardValue(a.rank) - cardValue(b.rank))
+    return (cardValue(a.rank) - cardValue(b.rank)) || (suitRank[a.suit]! - suitRank[b.suit]!)
+  })
+  handOrder.value = sorted.map(c => c.id)
+  sfx.cardSnap()
+}
+
 // ascending-deck: tokens stamped on a card (for badges on the card face)
 function cardTokensOf(card: Card) { return tokensOf(enc.value.cardTokens, card) }
 const pileCards = computed(() =>
@@ -145,7 +190,7 @@ watch(() => props.state.encounter?.eventSeq ?? 0, (now, was) => {
   if (!popTimer) nextPop()
 })
 
-onBeforeUnmount(() => { if (popTimer) clearTimeout(popTimer) })
+onBeforeUnmount(() => { if (popTimer) clearTimeout(popTimer); teardownGesture() })
 
 // ── HP counter that counts down instead of snapping ──────────────────────────
 const hpShown = ref(0)
@@ -180,8 +225,7 @@ function fanStyle(i: number, n: number) {
 }
 
 // ── Rules helpers (mirror server validation for instant feedback) ────────────
-const comboError = computed(() => {
-  const cards = selected.value.map(i => hand.value[i]!).filter(Boolean)
+function comboErrorFor(cards: Card[]): string | null {
   if (cards.length <= 1) return null
   if (cards.some(c => c.rank === 'Jo')) return 'Jesters play alone'
   const aces = cards.filter(c => c.rank === 'A')
@@ -193,7 +237,8 @@ const comboError = computed(() => {
   const max = enc.value.myBoosts?.comboMax ?? 10   // Combat Cache raises this to 12
   if (total > max) return `Total ${total} exceeds ${max}`
   return null
-})
+}
+const comboError = computed(() => comboErrorFor(selected.value.map(i => hand.value[i]!).filter(Boolean)))
 
 // discard coverage total — includes HOLD-token soak (Ballast +1) so the soak shows
 const selectedTotal = computed(() =>
@@ -283,6 +328,108 @@ function toggleSelect(i: number) {
   if (idx >= 0) selected.value.splice(idx, 1)
   else selected.value.push(i)
   sfx.cardSnap()
+}
+
+// ── Drag-to-play gesture ──────────────────────────────────────────────────────
+// A press that stays put is a tap (handled by @click → toggleSelect). A press
+// that moves past the threshold becomes a drag; once dragging we preventDefault
+// so the browser doesn't scroll (touch) or fire a trailing click (the tap path).
+const DRAG_THRESHOLD = 8
+let gesture: { startX: number; startY: number; index: number; pointerId: number; moved: boolean } | null = null
+
+function teardownGesture() {
+  window.removeEventListener('pointermove', onCardPointerMove)
+  window.removeEventListener('pointerup', onCardPointerUp)
+  window.removeEventListener('pointercancel', onCardPointerUp)
+  gesture = null
+  drag.value = null
+}
+
+function onCardPointerDown(e: PointerEvent, i: number) {
+  if (!inPlay.value && !inDiscard.value) return
+  if (e.pointerType === 'mouse' && e.button !== 0) return
+  gesture = { startX: e.clientX, startY: e.clientY, index: i, pointerId: e.pointerId, moved: false }
+  window.addEventListener('pointermove', onCardPointerMove, { passive: false })
+  window.addEventListener('pointerup', onCardPointerUp)
+  window.addEventListener('pointercancel', onCardPointerUp)
+}
+
+function overEnemy(x: number, y: number): boolean {
+  const el = enemyEl.value
+  if (!el || !enc.value.currentEnemy) return false
+  const r = el.getBoundingClientRect()
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+}
+
+// Is the pointer near the hand strip? (vertical band — generous, so reordering
+// stays responsive, but the enemy far above never counts as "in the hand".)
+function withinHandBand(y: number): boolean {
+  const el = fanEl.value
+  if (!el) return false
+  const r = el.getBoundingClientRect()
+  return y >= r.top - 60 && y <= r.bottom + 80
+}
+
+// Live reorder: drop the dragged card into the slot its pointer X is over,
+// computed against the other cards' real positions (FLIP animates the shuffle).
+function reorderToPointer(draggedId: string, x: number) {
+  const el = fanEl.value
+  if (!el) return
+  const els = [...el.querySelectorAll<HTMLElement>('[data-card-id]')].filter(c => c.dataset.cardId !== draggedId)
+  let target = els.length
+  for (let k = 0; k < els.length; k++) {
+    const r = els[k]!.getBoundingClientRect()
+    if (x < r.left + r.width / 2) { target = k; break }
+  }
+  const ids = els.map(c => c.dataset.cardId!)
+  ids.splice(target, 0, draggedId)
+  if (ids.join('|') !== handOrder.value.join('|')) handOrder.value = ids
+}
+
+function onCardPointerMove(e: PointerEvent) {
+  if (!gesture || e.pointerId !== gesture.pointerId) return
+  if (!gesture.moved) {
+    if (Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY) < DRAG_THRESHOLD) return
+    const card = hand.value[gesture.index]
+    if (!card) { teardownGesture(); return }
+    gesture.moved = true
+    drag.value = { index: gesture.index, card, x: e.clientX, y: e.clientY, over: false }
+  }
+  e.preventDefault()
+  const d = drag.value!
+  d.x = e.clientX
+  d.y = e.clientY
+  d.over = overEnemy(e.clientX, e.clientY)
+  // not aiming at the enemy and hovering the hand → reorder instead of play
+  if (!d.over && withinHandBand(e.clientY)) reorderToPointer(d.card.id, e.clientX)
+}
+
+function onCardPointerUp(e: PointerEvent) {
+  if (!gesture || e.pointerId !== gesture.pointerId) return
+  const moved = gesture.moved
+  const idx = gesture.index
+  const over = drag.value?.over ?? false
+  teardownGesture()
+  if (!moved) toggleSelect(idx)       // a still press = tap to select
+  else if (over) dropOnEnemy(idx)     // dragged onto the enemy = play / block
+  // else: dragged within the hand = reorder (already applied live on move)
+}
+
+// Drop resolves by phase: in play it strikes (selected combo + the dropped card,
+// or just the card); in discard it stacks the card onto the block and commits
+// once the soak covers the incoming hit.
+function dropOnEnemy(index: number) {
+  if (inPlay.value) {
+    const indices = selected.value.length ? Array.from(new Set([...selected.value, index])) : [index]
+    const err = comboErrorFor(indices.map(i => hand.value[i]!).filter(Boolean))
+    if (err) { errorMsg.value = err; return }
+    sfx.cardPlay()
+    act({ type: 'play_cards', cardIndices: indices })
+  } else if (inDiscard.value) {
+    if (!selected.value.includes(index)) selected.value.push(index)
+    if (selectedTotal.value >= enc.value.discardNeeded) confirmDiscard()
+    else sfx.cardSnap()
+  }
 }
 
 function playSelected() {
@@ -541,9 +688,16 @@ const netAttack = computed(() => {
           </Transition>
         </div>
 
-        <!-- Enemy royal card -->
+        <!-- Enemy royal card — also the drop target for drag-to-play -->
         <Transition name="enemy-flip" mode="out-in">
-        <div v-if="enc.currentEnemy" :key="enc.currentEnemy.card.id" class="relative flex flex-col items-center shrink-0">
+        <div v-if="enc.currentEnemy" ref="enemyEl" :key="enc.currentEnemy.card.id"
+          class="relative flex flex-col items-center shrink-0 rounded-2xl transition-all duration-150"
+          :class="drag?.over ? (inDiscard ? 'scale-105 ring-4 ring-info/70 ring-offset-2 ring-offset-transparent' : 'scale-105 ring-4 ring-error/70 ring-offset-2 ring-offset-transparent') : ''">
+          <!-- drop hint while a card hovers over the enemy -->
+          <div v-if="drag?.over" class="absolute -top-6 left-1/2 -translate-x-1/2 z-40 whitespace-nowrap text-xs font-display font-bold px-2 py-0.5 rounded-full shadow pointer-events-none"
+            :class="inDiscard ? 'bg-info text-info-content' : 'bg-error text-error-content'">
+            {{ inDiscard ? '🛡 Block' : '⚔️ Strike' }}
+          </div>
           <!-- floating combat numbers -->
           <div class="absolute -right-7 top-2 z-20 pointer-events-none select-none" aria-hidden="true">
             <div v-for="f in floats" :key="f.id"
@@ -727,45 +881,47 @@ const netAttack = computed(() => {
     <div v-if="errorMsg" class="alert alert-error text-sm py-2" @click="errorMsg = ''">{{ errorMsg }}</div>
 
     <!-- ═══ HAND FAN ═══ -->
-    <div class="mt-auto pt-3">
+    <div ref="fanEl" class="mt-auto pt-3">
       <TransitionGroup name="fan" tag="div" class="flex justify-center items-end pb-6 lg:pb-8" :class="(!inPlay && !inDiscard) ? 'opacity-50' : ''">
         <div
-          v-for="(card, i) in hand" :key="card.id"
+          v-for="(entry, di) in displayHand" :key="entry.card.id"
+          :data-card-id="entry.card.id"
           class="fan-slot first:ml-0 -ml-4 relative"
-          :style="fanStyle(i, hand.length)"
+          :style="fanStyle(di, displayHand.length)"
         >
           <button
-            class="fan-card card-face w-16 h-24 lg:w-20 lg:h-[7.25rem] flex flex-col items-center justify-center font-mono relative block"
+            class="fan-card card-face w-16 h-24 lg:w-20 lg:h-[7.25rem] flex flex-col items-center justify-center font-mono relative block touch-none"
             :class="[
-              selected.includes(i) ? (inDiscard ? 'fan-card-selected fan-card-discard' : 'fan-card-selected') : '',
+              selected.includes(entry.i) ? (inDiscard ? 'fan-card-selected fan-card-discard' : 'fan-card-selected') : '',
               (!inPlay && !inDiscard) ? 'pointer-events-none' : '',
+              drag?.index === entry.i ? 'opacity-30' : '',
             ]"
-            @click="toggleSelect(i)"
+            @pointerdown="onCardPointerDown($event, entry.i)"
           >
-            <span class="card-sway flex flex-col items-center" :style="{ animationDelay: `${(i * 0.45) % 3}s` }">
-              <span class="text-xl font-bold" :class="suitClass(card.suit)">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
-              <span class="text-base" :class="suitClass(card.suit)">{{ card.rank !== 'Jo' ? suitSymbol(card.suit) : '' }}</span>
+            <span class="card-sway flex flex-col items-center" :style="{ animationDelay: `${(di * 0.45) % 3}s` }">
+              <span class="text-xl font-bold" :class="suitClass(entry.card.suit)">{{ entry.card.rank === 'Jo' ? '🃏' : entry.card.rank }}</span>
+              <span class="text-base" :class="suitClass(entry.card.suit)">{{ entry.card.rank !== 'Jo' ? suitSymbol(entry.card.suit) : '' }}</span>
             </span>
             <span
-              v-if="inPlay && card.rank !== 'Jo' && isImmuneSuit(card.suit)"
+              v-if="inPlay && entry.card.rank !== 'Jo' && isImmuneSuit(entry.card.suit)"
               class="absolute -top-1 -right-1 text-[9px] bg-error text-error-content rounded-full px-1 h-4 flex items-center justify-center font-bold"
               title="Suit power blocked by enemy immunity"
             >✕</span>
             <span
-              v-else-if="inPlay && card.rank !== 'Jo' && suitBoost(card.suit) !== 0"
+              v-else-if="inPlay && entry.card.rank !== 'Jo' && suitBoost(entry.card.suit) !== 0"
               class="boost-badge absolute -top-1.5 -left-1.5 text-[9px] rounded-full px-1 h-4 flex items-center justify-center font-bold shadow"
-              :class="suitBoost(card.suit) > 0 ? 'bg-success text-success-content' : 'bg-error text-error-content'"
-              :title="suitBoost(card.suit) > 0 ? 'Boosted by your class/relic' : 'Penalized by the encounter modifier'"
-            >{{ suitBoost(card.suit) > 0 ? '+' + suitBoost(card.suit) : suitBoost(card.suit) }}</span>
+              :class="suitBoost(entry.card.suit) > 0 ? 'bg-success text-success-content' : 'bg-error text-error-content'"
+              :title="suitBoost(entry.card.suit) > 0 ? 'Boosted by your class/relic' : 'Penalized by the encounter modifier'"
+            >{{ suitBoost(entry.card.suit) > 0 ? '+' + suitBoost(entry.card.suit) : suitBoost(entry.card.suit) }}</span>
             <!-- ascending-deck: token badges — a clear glyph per token, stacked
                  down the top-left edge (visible in the fan); the card's rank/suit
                  stays the prominent identity. Suit tokens show the grafted suit. -->
             <span
-              v-if="cardTokensOf(card).length"
+              v-if="cardTokensOf(entry.card).length"
               class="absolute -left-2 top-1/2 -translate-y-1/2 flex flex-col gap-0.5 z-[55]"
             >
               <span
-                v-for="(tk, ti) in cardTokensOf(card)" :key="ti"
+                v-for="(tk, ti) in cardTokensOf(entry.card)" :key="ti"
                 class="w-[18px] h-[18px] rounded-full border flex items-center justify-center text-[11px] leading-none font-bold shadow-sm"
                 :class="tokenToneClass(tk.tone)"
                 :title="tk.name + ' — ' + tk.text"
@@ -775,6 +931,16 @@ const netAttack = computed(() => {
         </div>
         <p v-if="hand.length === 0" key="empty-hand" class="text-xs text-base-content/40 py-6">No cards — yield and pray.</p>
       </TransitionGroup>
+
+      <!-- Sort controls (Balatro-style) + drag hint -->
+      <div v-if="hand.length > 1" class="flex items-center justify-center gap-2 -mt-3 mb-1">
+        <span class="text-[10px] uppercase tracking-[0.2em] text-base-content/35">Sort</span>
+        <button class="btn btn-xs btn-outline" @click="sortHand('rank')" title="Sort the hand by value">⇅ Rank</button>
+        <button class="btn btn-xs btn-outline" @click="sortHand('suit')" title="Group the hand by suit">⇅ Suit</button>
+      </div>
+      <p v-if="(inPlay || inDiscard) && hand.length && !drag" class="text-center text-[10px] text-base-content/35 mb-1 select-none">
+        tap to select · drag onto the enemy to {{ inDiscard ? 'block' : 'strike' }} · drag in hand to reorder
+      </p>
 
       <!-- Play/Block float on the table while selecting; only Yield lives here -->
       <div v-if="inPlay" class="flex justify-center -mt-3 relative z-50">
@@ -874,5 +1040,20 @@ const netAttack = computed(() => {
         </div>
       </div>
     </aside>
+
+    <!-- Drag ghost: a clone of the held card that follows the pointer. Teleported
+         to <body> so transformed ancestors don't capture its fixed positioning. -->
+    <Teleport to="body">
+      <div v-if="drag"
+        class="card-face w-16 h-24 lg:w-20 lg:h-[7.25rem] flex flex-col items-center justify-center font-mono shadow-2xl transition-transform duration-100"
+        :class="drag.over ? 'ring-2 ring-error scale-110' : ''"
+        :style="{ position: 'fixed', left: drag.x + 'px', top: drag.y + 'px', zIndex: 9999,
+                  transform: `translate(-50%, -62%) rotate(${drag.over ? 0 : -5}deg)`, pointerEvents: 'none' }"
+        aria-hidden="true"
+      >
+        <span class="text-xl font-bold" :class="suitClass(drag.card.suit)">{{ drag.card.rank === 'Jo' ? '🃏' : drag.card.rank }}</span>
+        <span class="text-base" :class="suitClass(drag.card.suit)">{{ drag.card.rank !== 'Jo' ? suitSymbol(drag.card.suit) : '' }}</span>
+      </div>
+    </Teleport>
   </div>
 </template>
