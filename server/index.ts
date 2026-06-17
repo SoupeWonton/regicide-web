@@ -29,10 +29,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const DIST = path.join(HERE, '..', 'client', 'dist')
 
 // ── Run-data ops page (telemetry is not private) ─────────────────────────────
-// /data            → HTML page: file list, total size vs 1 GB, download-all, delete-all
-// /data/all.zip    → stream a zip of the whole data dir
-// POST /data/delete-all?confirm=DELETE → wipe the data dir (grab data first!)
-// /data/<path>     → download a single file
+// /data                          → HTML page grouped by top-level folder, each with
+//                                  its own download/delete; plus download-all/delete-all
+// /data/all.zip[?folder=traces]  → zip the whole dir, or just one folder
+// POST /data/delete-all?confirm=DELETE[&folder=traces] → wipe the dir, or one folder
+// /data/<path>                   → download a single file
 // All serve from REGICIDE_DATA_DIR. Registered before the SPA catch-all. Read
 // routes are path-traversal-guarded. Delete is POST-only + a fixed confirm token
 // (not a secret — just stops accidental/drive-by GET triggers).
@@ -51,42 +52,67 @@ function listDataFiles(dir: string, base = ''): { path: string; size: number }[]
 }
 const fmtBytes = (n: number) =>
   n >= 1e9 ? (n / 1e9).toFixed(2) + ' GB' : n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : n >= 1e3 ? (n / 1e3).toFixed(1) + ' KB' : n + ' B'
+// a folder filter must be a single simple segment (no traversal)
+const VALID_FOLDER = /^[a-zA-Z0-9_-]+$/
+const folderOf = (rel: string) => { const i = rel.indexOf('/'); return i < 0 ? '' : rel.slice(0, i) }
 
 app.get('/data', (_req, res) => {
-  const files = listDataFiles(DATA_DIR).sort((a, b) => a.path.localeCompare(b.path))
+  const files = listDataFiles(DATA_DIR)
   const total = files.reduce((s, f) => s + f.size, 0)
   const pct = Math.min(100, 100 * total / 1e9)
-  const rows = files.map(f => `<tr><td><a href="/data/${encodeURI(f.path)}">${f.path}</a></td><td class="r">${fmtBytes(f.size)}</td></tr>`).join('')
+  // group by top-level folder; root-level files (e.g. kingdom.json) bucket under ''
+  const groups = new Map<string, { count: number; size: number; files: { path: string; size: number }[] }>()
+  for (const f of files) {
+    const g = folderOf(f.path)
+    const e = groups.get(g) ?? { count: 0, size: 0, files: [] }
+    e.count++; e.size += f.size; e.files.push(f); groups.set(g, e)
+  }
+  const folderRows = [...groups.entries()].filter(([g]) => g).sort((a, b) => b[1].size - a[1].size).map(([g, e]) => {
+    const fl = e.files.sort((a, b) => a.path.localeCompare(b.path))
+      .map(f => `<div><a href="/data/${encodeURI(f.path)}">${f.path.slice(g.length + 1)}</a> <span class="r">${fmtBytes(f.size)}</span></div>`).join('')
+    return `<tr><td><b>${g}/</b></td><td class="r">${e.count}</td><td class="r">${fmtBytes(e.size)}</td>`
+      + `<td class="act"><a class="dl" href="/data/all.zip?folder=${encodeURIComponent(g)}">⬇ zip</a>`
+      + `<button class="del" onclick="del('${g}',${e.count},'${fmtBytes(e.size)}')">🗑</button></td></tr>`
+      + `<tr><td colspan="4" class="fl"><details><summary>show ${e.count} file(s)</summary>${fl}</details></td></tr>`
+  }).join('')
+  const rootFiles = (groups.get('')?.files ?? []).sort((a, b) => a.path.localeCompare(b.path))
+    .map(f => `<tr><td colspan="3"><a href="/data/${encodeURI(f.path)}">${f.path}</a></td><td class="r">${fmtBytes(f.size)}</td></tr>`).join('')
   res.type('html').send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Regicide run data</title><style>
 body{font:14px/1.5 system-ui,sans-serif;max-width:880px;margin:2rem auto;padding:0 1rem;color:#eaeaea;background:#15131f}
-a{color:#c9a84a}h1{margin:0 0 .25rem}.r{text-align:right;white-space:nowrap;color:#aaa}
+a{color:#c9a84a}h1{margin:0 0 .25rem}h2{margin:1.4rem 0 .3rem;font-size:1rem;color:#888}.r{text-align:right;white-space:nowrap;color:#aaa}
 .bar{height:10px;background:#2a2740;border-radius:5px;overflow:hidden;margin:.4rem 0 1rem}.bar>i{display:block;height:100%;background:${pct > 85 ? '#e05a3a' : '#c9a84a'}}
-table{width:100%;border-collapse:collapse;margin-top:.5rem}td,th{padding:.3rem .5rem;border-bottom:1px solid #2a2740}th{text-align:left;color:#888}
-.btns{margin:1rem 0;display:flex;gap:.75rem;flex-wrap:wrap}.dl,button{padding:.55rem 1rem;border-radius:6px;border:0;font:inherit;cursor:pointer;text-decoration:none}
-.dl{background:#2e7d32;color:#fff}.del{background:#9b2c2c;color:#fff}</style></head><body>
+table{width:100%;border-collapse:collapse}td,th{padding:.35rem .5rem;border-bottom:1px solid #2a2740}th{text-align:left;color:#888}
+.act{text-align:right;white-space:nowrap}.fl{padding:0 .5rem .4rem 1.5rem}.fl details{color:#888}.fl div{font-size:13px}
+.btns{margin:1rem 0;display:flex;gap:.75rem;flex-wrap:wrap}.dl,button{padding:.45rem .8rem;border-radius:6px;border:0;font:inherit;cursor:pointer;text-decoration:none;font-size:13px}
+.dl{background:#2e7d32;color:#fff}.del{background:#9b2c2c;color:#fff;margin-left:.4rem}.big{padding:.55rem 1rem}</style></head><body>
 <h1>Regicide run data</h1>
 <p>${files.length} file(s) · <b>${fmtBytes(total)}</b> of 1 GB used (${pct.toFixed(1)}%)</p>
 <div class="bar"><i style="width:${pct}%"></i></div>
 <div class="btns">
-  <a class="dl" href="/data/all.zip">⬇ Download all (.zip)</a>
-  <button class="del" onclick="wipe()">🗑 Delete all files</button>
+  <a class="dl big" href="/data/all.zip">⬇ Download all (.zip)</a>
+  <button class="del big" style="margin-left:0" onclick="del('',${files.length},'${fmtBytes(total)}')">🗑 Delete all</button>
 </div>
-<table><thead><tr><th>file</th><th class="r">size</th></tr></thead><tbody>
-${rows || '<tr><td colspan="2">No data yet — finish a recorded game on the live site.</td></tr>'}</tbody></table>
+<h2>by folder — download or clear just one</h2>
+<table><thead><tr><th>folder</th><th class="r">files</th><th class="r">size</th><th class="act">actions</th></tr></thead>
+<tbody>${folderRows || '<tr><td colspan="4">No folders yet.</td></tr>'}${rootFiles ? `<tr><td colspan="4"><b>loose files</b></td></tr>${rootFiles}` : ''}</tbody></table>
 <script>
-async function wipe(){
-  if(!confirm('Delete ALL ${files.length} files (${fmtBytes(total)})?\\nDownload first — this cannot be undone.'))return;
-  const r=await fetch('/data/delete-all?confirm=DELETE',{method:'POST'});
-  const j=await r.json().catch(()=>({}));
-  alert('Deleted '+(j.deleted??'?')+' files.');location.reload();
+async function del(folder,n,sz){
+  const what = folder ? folder+'/ ('+n+' files, '+sz+')' : 'ALL '+n+' files ('+sz+')';
+  if(!confirm('Delete '+what+'?\\nDownload first — this cannot be undone.'))return;
+  const u='/data/delete-all?confirm=DELETE'+(folder?'&folder='+encodeURIComponent(folder):'');
+  const r=await fetch(u,{method:'POST'});const j=await r.json().catch(()=>({}));
+  alert('Deleted '+(j.deleted??'?')+' files'+(j.freed?' ('+(j.freed/1e6).toFixed(1)+' MB)':'')+'.');location.reload();
 }
 </script></body></html>`)
 })
 
-app.get('/data/all.zip', (_req, res) => {
-  const files = listDataFiles(DATA_DIR)
-  res.attachment('regicide-data.zip')
+app.get('/data/all.zip', (req, res) => {
+  const folder = typeof req.query.folder === 'string' ? req.query.folder : ''
+  if (folder && !VALID_FOLDER.test(folder)) { res.status(400).send('bad folder'); return }
+  let files = listDataFiles(DATA_DIR)
+  if (folder) files = files.filter(f => f.path.startsWith(folder + '/'))
+  res.attachment(folder ? `regicide-${folder}.zip` : 'regicide-data.zip')
   const archive = archiver('zip', { zlib: { level: 9 } })
   archive.on('error', err => { console.error('[data] zip error:', err.message); try { res.status(500).end() } catch { /* already streaming */ } })
   archive.pipe(res)
@@ -96,17 +122,21 @@ app.get('/data/all.zip', (_req, res) => {
 
 app.post('/data/delete-all', (req, res) => {
   if (req.query.confirm !== 'DELETE') { res.status(400).json({ error: 'pass ?confirm=DELETE' }); return }
-  const files = listDataFiles(DATA_DIR)
+  const folder = typeof req.query.folder === 'string' ? req.query.folder : ''
+  if (folder && !VALID_FOLDER.test(folder)) { res.status(400).json({ error: 'bad folder' }); return }
+  let files = listDataFiles(DATA_DIR)
+  if (folder) files = files.filter(f => f.path.startsWith(folder + '/'))
   let deleted = 0, freed = 0
   for (const f of files) { try { fs.rmSync(path.join(DATA_DIR, f.path)); deleted++; freed += f.size } catch { /* skip */ } }
-  // best-effort removal of the now-empty subdirs
+  // remove now-empty dirs: just the one folder, or every subdir for a full wipe
   try {
-    for (const d of fs.readdirSync(DATA_DIR)) {
+    if (folder) { fs.rmSync(path.join(DATA_DIR, folder), { recursive: true, force: true }) }
+    else for (const d of fs.readdirSync(DATA_DIR)) {
       const abs = path.join(DATA_DIR, d)
       try { if (fs.statSync(abs).isDirectory()) fs.rmSync(abs, { recursive: true, force: true }) } catch { /* skip */ }
     }
-  } catch { /* dir gone */ }
-  console.log(`[data] delete-all removed ${deleted} files (${fmtBytes(freed)})`)
+  } catch { /* gone */ }
+  console.log(`[data] delete ${folder || 'ALL'}: ${deleted} files (${fmtBytes(freed)})`)
   res.json({ deleted, freed })
 })
 
