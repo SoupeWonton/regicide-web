@@ -5,10 +5,11 @@ import { socket } from '../socket'
 
 const router  = useRouter()
 const name    = ref('')
-const code    = ref('')
 const error   = ref('')
 const loading = ref(false)
 
+// Solo: entering a name opens a fresh room and drops you straight into the
+// campaign launcher. No code-sharing / join flow.
 socket.on('room_update', (room) => {
   loading.value = false
   router.push(`/room/${room.code}`)
@@ -19,19 +20,11 @@ socket.on('error', (msg: string) => {
   error.value = msg
 })
 
-function create() {
+function begin() {
   if (!name.value.trim()) { error.value = 'Enter your name first.'; return }
   error.value = ''
   loading.value = true
   socket.emit('create_room', { name: name.value.trim() })
-}
-
-function join() {
-  if (!name.value.trim()) { error.value = 'Enter your name first.'; return }
-  if (!code.value.trim()) { error.value = 'Enter a room code.'; return }
-  error.value = ''
-  loading.value = true
-  socket.emit('join_room', { code: code.value.trim().toUpperCase(), name: name.value.trim() })
 }
 </script>
 
@@ -51,9 +44,9 @@ function join() {
 
         <div class="text-center">
           <p class="font-flavor text-primary/60 text-sm tracking-widest rise-in-1">the crown must fall</p>
-          <h1 class="gold-title text-4xl mt-1 rise-in-2">REGICIDE</h1>
+          <h1 class="gold-title text-4xl mt-1 rise-in-2">KINGFALL</h1>
           <div class="splash-rule h-px mt-3 mx-6 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
-          <p class="text-base-content/50 text-xs mt-2 rise-in-3">A cooperative campaign of treason &amp; cards</p>
+          <p class="text-base-content/50 text-xs mt-2 rise-in-3">A campaign of treason &amp; cards</p>
         </div>
 
         <div class="form-control gap-1">
@@ -63,34 +56,14 @@ function join() {
             class="input input-bordered w-full"
             placeholder="e.g. Gabe"
             maxlength="20"
+            @keyup.enter="begin"
           />
         </div>
 
-        <!-- two equal doors: host a table, or walk into one -->
-        <div class="grid grid-cols-2 gap-3">
-          <div class="rounded-xl border border-primary/20 bg-base-200/40 p-3 flex flex-col gap-2 text-center">
-            <p class="text-[10px] uppercase tracking-[0.25em] text-base-content/40">Host a table</p>
-            <p class="text-xs text-base-content/50 flex-1 leading-snug">Open a room and share the 4-letter code.</p>
-            <button class="btn btn-primary w-full" :disabled="loading" @click="create">
-              <span v-if="loading" class="loading loading-spinner loading-sm" />
-              ⚜ Create
-            </button>
-          </div>
-          <div class="rounded-xl border border-primary/20 bg-base-200/40 p-3 flex flex-col gap-2 text-center">
-            <p class="text-[10px] uppercase tracking-[0.25em] text-base-content/40">Join a table</p>
-            <input
-              v-model="code"
-              class="input input-bordered input-sm w-full uppercase tracking-[0.3em] font-mono text-center flex-1"
-              placeholder="XXXX"
-              maxlength="4"
-              @keyup.enter="join"
-            />
-            <button class="btn btn-secondary w-full" :disabled="loading" @click="join">
-              <span v-if="loading" class="loading loading-spinner loading-sm" />
-              🚪 Join
-            </button>
-          </div>
-        </div>
+        <button class="btn btn-primary w-full" :disabled="loading" @click="begin">
+          <span v-if="loading" class="loading loading-spinner loading-sm" />
+          ⚜ Begin
+        </button>
 
         <div v-if="error" class="alert alert-error text-sm py-2">{{ error }}</div>
 
