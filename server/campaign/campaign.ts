@@ -332,6 +332,7 @@ function offerCaravan(c: CampaignState) {
     return { id: `caravan:mythic:${rank}:${id}`, label: `${getItem(id).name} ★ — curse all your ${rank}s`,
       detail: `${getItem(id).text}  ·  stamps −1 on every ${rank} you own` }
   })
+  options.push({ id: 'caravan:skip', label: 'Wave the Caravan on', detail: 'Take no mythic and no curse.' })
   c.phase = 'landmark'
   c.pendingChoice = { kind: 'landmark_reward', forPlayerId: null, prompt: '🐫 The Caravan — a mythic, for a curse.', options }
 }
@@ -837,6 +838,11 @@ export function applyChoice(c: CampaignState, playerId: string, optionId: string
 // resolve a landmark_reward option (after a vote or a direct pick)
 function resolveRewardOption(c: CampaignState, optionId: string, pc: PendingChoice): { error?: string } {
   // ascending-deck item-economy special options (Caravan / Sanctum / Shrine)
+  if (optionId === 'caravan:skip') {
+    c.pendingChoice = null
+    clog(c, '🐫 You wave the Caravan on — no mythic, no curse.')
+    c.phase = 'road'; autoAdvanceAfterGate(c); return {}
+  }
   if (optionId.startsWith('caravan:mythic:')) return applyCaravanMythic(c, optionId)
   if (optionId === 'lair:token') return applyLairToken(c)
   if (optionId.startsWith('sanctum:')) return applySanctumRite(c, optionId)

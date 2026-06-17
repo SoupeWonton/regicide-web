@@ -209,7 +209,7 @@ const showHandStrip = computed(() =>
 function heroTooltip(h: ClientHero): string {
   const lines = [`${h.className} — ${h.abilityText}`]
   for (const rl of h.relics) lines.push(`🏺 ${rl.name}: ${rl.text}`)
-  if (!h.alive) lines.push('💀 Fallen — can be replaced at camp.')
+  if (!h.alive) lines.push('💀 Fallen.')
   return lines.join('\n')
 }
 </script>
@@ -246,7 +246,7 @@ function heroTooltip(h: ClientHero): string {
         <div class="text-6xl crown-rise">🏰</div>
         <h2 class="text-3xl font-display font-bold gold-title rise-in-2">Chapter One Complete</h2>
         <p class="text-sm text-base-content/60">
-          Kingdom unlocks: <b>Chapter 2</b>, <b>specializations</b>, <b>Commander</b> and <b>Warden</b> (via replacement).
+          Kingdom unlocks: <b>Chapter 2</b>, <b>specializations</b>, <b>Commander</b> and <b>Warden</b>.
         </p>
         <p class="text-xs text-base-content/40">The Broken Court is harder and richer. Your relics carry forward.</p>
         <button v-if="state.isHost" class="btn btn-primary btn-lg mt-2" @click="act({ type: 'continue_chapter' })">

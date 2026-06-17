@@ -43,6 +43,20 @@ const inDrawSelect = computed(() =>
   enc.value.turnPhase === 'draw_select' && enc.value.drawPool !== undefined && isMyTurn.value)
 const drawPoolSelected = ref<number[]>([])
 
+// Overdraw pool shown grouped by suit (S,H,C,D) then rank low→high, jesters
+// always last — same ordering as the hand's "Sort by suit". Each entry keeps
+// its real `drawPool` index `i` so selection and keep_drawn stay correct.
+const sortedDrawPool = computed<{ card: Card; i: number }[]>(() => {
+  const suitRank: Record<string, number> = { S: 0, H: 1, C: 2, D: 3 }
+  return (enc.value.drawPool ?? [])
+    .map((card, i) => ({ card, i }))
+    .sort((a, b) => {
+      const ja = a.card.rank === 'Jo', jb = b.card.rank === 'Jo'
+      if (ja !== jb) return ja ? 1 : -1                     // jesters always last
+      return (suitRank[a.card.suit]! - suitRank[b.card.suit]!) || (cardValue(a.card.rank) - cardValue(b.card.rank))
+    })
+})
+
 const hand = computed(() => enc.value.myHand)
 
 // Keep the display order in sync with the real hand: surviving cards hold their
@@ -79,6 +93,18 @@ function sortHand(mode: 'suit' | 'rank') {
 
 // ascending-deck: tokens stamped on a card (for badges on the card face)
 function cardTokensOf(card: Card) { return tokensOf(enc.value.cardTokens, card) }
+
+// Card-face token rendering, split so the common effects read at a glance:
+//  · value tokens fold into the rank as a +X / −X
+//  · suit tokens fold into the suit row (the base/transmuted suit + grafted
+//    suits beside it, grafts shown in blue)
+//  · everything else (levers, keywords, discard-soak) stays a corner badge.
+function mainSuitOf(card: Card) { return effectiveSuits(card, cardTokensOf(card))[0] ?? card.suit }
+function extraSuitsOf(card: Card) { return effectiveSuits(card, cardTokensOf(card)).slice(1) }
+function valueDeltaOf(card: Card) { return tokenSpend(cardTokensOf(card)) }
+function badgeTokensOf(card: Card) {
+  return cardTokensOf(card).filter(t => t.kind === 'lever' || t.kind === 'keyword' || (t.hold ?? 0) !== 0)
+}
 const pileCards = computed(() =>
   showPile.value === 'tavern' ? enc.value.tavernCards : showPile.value === 'discard' ? enc.value.discardCards : [])
 
@@ -309,6 +335,22 @@ function isImmuneSuit(suit: string) {
   return enemy.card.suit === suit
 }
 
+// Token-aware versions for the fan badges. A card fires every suit in
+// effectiveSuits (graft adds one, transmute replaces it), so immunity and the
+// class/modifier boost must look at those, not just the printed suit:
+//  · fully blocked only when EVERY effective suit is the immune suit (a graft
+//    card whose other suit still fires is NOT fully blocked)
+//  · the boost badge nets the boosts of the suits that actually fire.
+function cardFullyBlocked(card: Card): boolean {
+  const suits = effectiveSuits(card, cardTokensOf(card))
+  return suits.length > 0 && suits.every(su => isImmuneSuit(su))
+}
+function cardBoost(card: Card): number {
+  return effectiveSuits(card, cardTokensOf(card))
+    .filter(su => !isImmuneSuit(su))
+    .reduce((n, su) => n + suitBoost(su), 0)
+}
+
 function suitClass(suit: string) {
   return suit === 'H' || suit === 'D' ? 'suit-red' : 'suit-black'
 }
@@ -503,7 +545,7 @@ socket.on('error', (msg: string) => { errorMsg.value = msg })
 function heroTooltip(h: (typeof props.state.heroes)[number]): string {
   const lines = [`${h.className} — ${h.abilityText}`]
   for (const rl of h.relics) lines.push(`🏺 ${rl.name}: ${rl.text}`)
-  if (!h.alive) lines.push('💀 Fallen — can be replaced at camp.')
+  if (!h.alive) lines.push('💀 Fallen.')
   return lines.join('\n')
 }
 
@@ -554,13 +596,17 @@ const netAttack = computed(() => {
         </p>
         <div class="flex gap-2 justify-center flex-wrap">
           <button
-            v-for="(card, i) in enc.drawPool" :key="card.id"
-            class="card-face w-14 h-20 font-mono flex flex-col items-center justify-center relative transition-transform hover:-translate-y-1"
-            :class="drawPoolSelected.includes(i) ? 'ring-2 ring-primary' : ''"
-            @click="toggleDrawPool(i)"
+            v-for="entry in sortedDrawPool" :key="entry.card.id"
+            class="card-face w-14 h-20 font-mono flex flex-col items-center justify-center relative transition-all duration-150"
+            :class="drawPoolSelected.includes(entry.i)
+              ? '-translate-y-1.5 scale-105 ring-2 ring-primary bg-primary/20 shadow-lg shadow-primary/40 z-10'
+              : 'ring-1 ring-base-content/10 hover:-translate-y-1'"
+            @click="toggleDrawPool(entry.i)"
           >
-            <span class="text-xl font-bold" :class="suitClass(card.suit)">{{ card.rank }}</span>
-            <span class="text-base" :class="suitClass(card.suit)">{{ suitSymbol(card.suit) }}</span>
+            <span class="text-xl font-bold" :class="suitClass(entry.card.suit)">{{ entry.card.rank === 'Jo' ? '🃏' : entry.card.rank }}</span>
+            <span class="text-base" :class="suitClass(entry.card.suit)">{{ entry.card.rank !== 'Jo' ? suitSymbol(entry.card.suit) : '' }}</span>
+            <span v-if="drawPoolSelected.includes(entry.i)"
+              class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-primary text-primary-content text-[10px] font-bold flex items-center justify-center shadow">✓</span>
           </button>
         </div>
         <button class="btn btn-primary btn-sm" @click="confirmKeepDrawn">
@@ -572,12 +618,20 @@ const netAttack = computed(() => {
           <div class="flex gap-1 justify-center flex-wrap">
             <span
               v-for="card in hand" :key="card.id"
-              class="card-face w-9 h-12 font-mono flex flex-col items-center justify-center text-xs opacity-90"
-              :title="cardTokensOf(card).map(t => t.name).join(', ')"
+              class="card-face w-9 h-12 font-mono flex flex-col items-center justify-center text-xs leading-none opacity-90"
+              :title="cardTokensOf(card).map(t => `${t.name} — ${t.text}`).join('\n')"
             >
-              <span class="font-bold" :class="suitClass(card.suit)">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
-              <span :class="suitClass(card.suit)">{{ card.rank !== 'Jo' ? suitSymbol(card.suit) : '' }}</span>
-              <span v-if="cardTokensOf(card).length" class="text-[8px] leading-none text-success">{{ cardTokensOf(card).map(t => t.sym).join('') }}</span>
+              <span class="flex items-start">
+                <span class="font-bold" :class="suitClass(mainSuitOf(card))">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
+                <span v-if="card.rank !== 'Jo' && valueDeltaOf(card) !== 0"
+                  class="text-[8px] font-extrabold leading-none"
+                  :class="valueDeltaOf(card) > 0 ? 'text-success' : 'text-error'"
+                >{{ valueDeltaOf(card) > 0 ? '+' + valueDeltaOf(card) : valueDeltaOf(card) }}</span>
+              </span>
+              <span v-if="card.rank !== 'Jo'" class="flex items-center gap-px">
+                <span :class="suitClass(mainSuitOf(card))">{{ suitSymbol(mainSuitOf(card)) }}</span>
+                <span v-for="su in extraSuitsOf(card)" :key="su" class="text-info font-bold">{{ suitSymbol(su) }}</span>
+              </span>
             </span>
           </div>
         </div>
@@ -898,30 +952,44 @@ const netAttack = computed(() => {
             ]"
             @pointerdown="onCardPointerDown($event, entry.i)"
           >
-            <span class="card-sway flex flex-col items-center" :style="{ animationDelay: `${(di * 0.45) % 3}s` }">
-              <span class="text-xl font-bold" :class="suitClass(entry.card.suit)">{{ entry.card.rank === 'Jo' ? '🃏' : entry.card.rank }}</span>
-              <span class="text-base" :class="suitClass(entry.card.suit)">{{ entry.card.rank !== 'Jo' ? suitSymbol(entry.card.suit) : '' }}</span>
+            <span class="card-sway flex flex-col items-center leading-none" :style="{ animationDelay: `${(di * 0.45) % 3}s` }">
+              <!-- rank, with any value-token bonus folded in as a +X / −X -->
+              <span class="flex items-start">
+                <span class="text-xl font-bold" :class="suitClass(mainSuitOf(entry.card))">{{ entry.card.rank === 'Jo' ? '🃏' : entry.card.rank }}</span>
+                <span v-if="entry.card.rank !== 'Jo' && valueDeltaOf(entry.card) !== 0"
+                  class="text-[11px] font-extrabold leading-none mt-0.5 -mr-1"
+                  :class="valueDeltaOf(entry.card) > 0 ? 'text-success' : 'text-error'"
+                  :title="`${valueDeltaOf(entry.card) > 0 ? '+' : ''}${valueDeltaOf(entry.card)} value when played`"
+                >{{ valueDeltaOf(entry.card) > 0 ? '+' + valueDeltaOf(entry.card) : valueDeltaOf(entry.card) }}</span>
+              </span>
+              <!-- suit row: base/transmuted suit, plus any grafted suits beside it in blue -->
+              <span v-if="entry.card.rank !== 'Jo'" class="flex items-center gap-px text-base">
+                <span :class="suitClass(mainSuitOf(entry.card))">{{ suitSymbol(mainSuitOf(entry.card)) }}</span>
+                <span v-for="su in extraSuitsOf(entry.card)" :key="su"
+                  class="text-info font-bold" :title="`grafted ${suitSymbol(su)} — fires this lever too`"
+                >{{ suitSymbol(su) }}</span>
+              </span>
             </span>
             <span
-              v-if="inPlay && entry.card.rank !== 'Jo' && isImmuneSuit(entry.card.suit)"
+              v-if="inPlay && entry.card.rank !== 'Jo' && cardFullyBlocked(entry.card)"
               class="absolute -top-1 -right-1 text-[9px] bg-error text-error-content rounded-full px-1 h-4 flex items-center justify-center font-bold"
               title="Suit power blocked by enemy immunity"
             >✕</span>
             <span
-              v-else-if="inPlay && entry.card.rank !== 'Jo' && suitBoost(entry.card.suit) !== 0"
+              v-else-if="inPlay && entry.card.rank !== 'Jo' && cardBoost(entry.card) !== 0"
               class="boost-badge absolute -top-1.5 -left-1.5 text-[9px] rounded-full px-1 h-4 flex items-center justify-center font-bold shadow"
-              :class="suitBoost(entry.card.suit) > 0 ? 'bg-success text-success-content' : 'bg-error text-error-content'"
-              :title="suitBoost(entry.card.suit) > 0 ? 'Boosted by your class/relic' : 'Penalized by the encounter modifier'"
-            >{{ suitBoost(entry.card.suit) > 0 ? '+' + suitBoost(entry.card.suit) : suitBoost(entry.card.suit) }}</span>
-            <!-- ascending-deck: token badges — a clear glyph per token, stacked
-                 down the top-left edge (visible in the fan); the card's rank/suit
-                 stays the prominent identity. Suit tokens show the grafted suit. -->
+              :class="cardBoost(entry.card) > 0 ? 'bg-success text-success-content' : 'bg-error text-error-content'"
+              :title="cardBoost(entry.card) > 0 ? 'Boosted by your class/relic' : 'Penalized by the encounter modifier'"
+            >{{ cardBoost(entry.card) > 0 ? '+' + cardBoost(entry.card) : cardBoost(entry.card) }}</span>
+            <!-- ascending-deck: only the tokens that DON'T fold into the rank/suit
+                 (levers, keywords, discard-soak) remain as corner badges — value
+                 bonuses show as +X on the rank, grafted suits show in blue. -->
             <span
-              v-if="cardTokensOf(entry.card).length"
+              v-if="badgeTokensOf(entry.card).length"
               class="absolute -left-2 top-1/2 -translate-y-1/2 flex flex-col gap-0.5 z-[55]"
             >
               <span
-                v-for="(tk, ti) in cardTokensOf(entry.card)" :key="ti"
+                v-for="(tk, ti) in badgeTokensOf(entry.card)" :key="ti"
                 class="w-[18px] h-[18px] rounded-full border flex items-center justify-center text-[11px] leading-none font-bold shadow-sm"
                 :class="tokenToneClass(tk.tone)"
                 :title="tk.name + ' — ' + tk.text"

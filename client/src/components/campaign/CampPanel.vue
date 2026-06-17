@@ -7,7 +7,6 @@ import ItemCard from './ItemCard.vue'
 
 const props = defineProps<{ state: ClientCampaignState; code: string }>()
 
-const deadHeroes = computed(() => props.state.heroes.filter(h => !h.alive))
 const nextIsBoss = computed(() => {
   const map = props.state.map
   if (!map) return false
@@ -28,17 +27,6 @@ function act(action: Record<string, unknown>) {
       <p class="text-sm text-base-content/50 mt-2 font-flavor tracking-wide">
         {{ nextIsBoss ? 'The castle looms ahead. This is the last calm before the storm.' : 'Plan, prepare, recover.' }}
       </p>
-    </div>
-
-    <!-- Fallen heroes -->
-    <div v-if="deadHeroes.length" class="card bg-base-100 border border-error/40">
-      <div class="card-body p-4 gap-2">
-        <p class="font-semibold text-sm">💀 Fallen: {{ deadHeroes.map(h => h.playerName).join(', ') }}</p>
-        <p class="text-xs text-base-content/50">A new hero can answer the lineage here — camp replacements arrive well-equipped.</p>
-        <button v-if="state.isHost" class="btn btn-sm btn-error btn-outline" @click="act({ type: 'begin_replacement' })">
-          Call for a replacement
-        </button>
-      </div>
     </div>
 
     <!-- Team inventory -->
@@ -67,10 +55,9 @@ function act(action: Record<string, unknown>) {
     <button
       v-if="state.isHost"
       class="btn btn-primary w-full"
-      :disabled="deadHeroes.length > 0"
       @click="act({ type: 'break_camp' })"
     >
-      {{ deadHeroes.length ? 'Replace the fallen before moving on' : nextIsBoss ? '⚔️ March on the castle' : 'Break camp' }}
+      {{ nextIsBoss ? '⚔️ March on the castle' : 'Break camp' }}
     </button>
     <p v-else class="text-center text-xs text-base-content/40">Waiting for the host to break camp…</p>
   </div>

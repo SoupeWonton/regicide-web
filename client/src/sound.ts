@@ -6,12 +6,12 @@ let ctx: AudioContext | null = null
 let master: GainNode | null = null
 
 export const sound = {
-  muted: localStorage.getItem('regicide-muted') === '1',
+  muted: localStorage.getItem('kingfall-muted') === '1',
 }
 
 export function toggleMute(): boolean {
   sound.muted = !sound.muted
-  localStorage.setItem('regicide-muted', sound.muted ? '1' : '0')
+  localStorage.setItem('kingfall-muted', sound.muted ? '1' : '0')
   return sound.muted
 }
 
