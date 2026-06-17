@@ -9,7 +9,7 @@ const SERVER = import.meta.env.VITE_SERVER_URL
 // network blips) and page reloads. The server keys players by this id,
 // not by the volatile socket id, and auto-rejoins us to our rooms.
 function getClientId(): string {
-  const KEY = 'regicide-client-id'
+  const KEY = 'kingfall-client-id'
   let id = localStorage.getItem(KEY)
   if (!id) {
     id = crypto.randomUUID?.() ?? `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`

@@ -7,7 +7,6 @@ import ItemCard from './ItemCard.vue'
 
 const props = defineProps<{ state: ClientCampaignState; code: string }>()
 
-const deadHeroes = computed(() => props.state.heroes.filter(h => !h.alive))
 const nextIsBoss = computed(() => {
   const map = props.state.map
   if (!map) return false
@@ -30,44 +29,6 @@ function act(action: Record<string, unknown>) {
       </p>
     </div>
 
-    <!-- Fallen heroes -->
-    <div v-if="deadHeroes.length" class="card bg-base-100 border border-error/40">
-      <div class="card-body p-4 gap-2">
-        <p class="font-semibold text-sm">💀 Fallen: {{ deadHeroes.map(h => h.playerName).join(', ') }}</p>
-        <p class="text-xs text-base-content/50">A new hero can answer the lineage here — camp replacements arrive well-equipped.</p>
-        <button v-if="state.isHost" class="btn btn-sm btn-error btn-outline" @click="act({ type: 'begin_replacement' })">
-          Call for a replacement
-        </button>
-      </div>
-    </div>
-
-    <!-- Preparations -->
-    <div class="card bg-base-100">
-      <div class="card-body p-4 gap-2">
-        <div class="flex items-center justify-between">
-          <p class="font-semibold text-sm">🎒 Preparations</p>
-          <span class="text-xs text-base-content/40">{{ state.activePreparations.length }}/2 active</span>
-        </div>
-
-        <div v-if="state.activePreparations.length" class="space-y-1">
-          <div v-for="p in state.activePreparations" :key="p.id" class="text-xs px-2 py-1 rounded bg-success/10 text-success">
-            ✓ {{ p.name }} — {{ p.text }}
-          </div>
-        </div>
-
-        <div v-if="state.preparations.length" class="space-y-2">
-          <ItemCard
-            v-for="p in state.preparations" :key="p.id"
-            :id="p.id" :name="p.name" :text="p.text" :tier="p.tier"
-            :disabled="!state.isHost || state.activePreparations.length >= 2"
-            @click="act({ type: 'activate_prep', prepId: p.id })"
-          />
-        </div>
-        <p v-else-if="!state.activePreparations.length" class="text-xs text-base-content/40">No preparations owned. Markets and victories provide them.</p>
-        <p v-if="!state.isHost" class="text-xs text-base-content/30">The host activates preparations.</p>
-      </div>
-    </div>
-
     <!-- Team inventory -->
     <div v-if="state.spells.length" class="card bg-base-100">
       <div class="card-body p-4 gap-2">
@@ -75,15 +36,6 @@ function act(action: Record<string, unknown>) {
         <div class="flex gap-2 flex-wrap">
           <ItemCard v-for="sp in state.spells" :key="sp.id" :id="sp.id" :name="sp.name" :text="sp.text" :tier="sp.tier" sm />
         </div>
-      </div>
-    </div>
-
-    <!-- Exile camp action -->
-    <div v-if="state.exileAvailable" class="card bg-base-100 border border-warning/40">
-      <div class="card-body p-4 gap-2">
-        <p class="font-semibold text-sm">🔥 The Exile's rite</p>
-        <p class="text-xs text-base-content/50">Remove one card from the deck for the rest of the chapter. Every second exile adds Burden.</p>
-        <button class="btn btn-sm btn-warning btn-outline" @click="act({ type: 'exile_camp' })">Begin the rite</button>
       </div>
     </div>
 
@@ -95,8 +47,7 @@ function act(action: Record<string, unknown>) {
             <span class="text-xs font-normal text-base-content/50">{{ h.className }}</span>
           </p>
           <p class="text-[11px] text-base-content/50">{{ h.abilityText }}</p>
-          <p v-if="h.relic" class="text-[11px] text-accent">🏺 {{ h.relic.name }} — {{ h.relic.text }}</p>
-          <p v-for="m in h.memories" :key="m.id" class="text-[11px] text-info">🧠 {{ m.name }} — {{ m.text }}</p>
+          <p v-for="rl in h.relics" :key="rl.id" class="text-[11px] text-accent">🏺 {{ rl.name }} — {{ rl.text }}</p>
         </div>
       </div>
     </div>
@@ -104,10 +55,9 @@ function act(action: Record<string, unknown>) {
     <button
       v-if="state.isHost"
       class="btn btn-primary w-full"
-      :disabled="deadHeroes.length > 0"
       @click="act({ type: 'break_camp' })"
     >
-      {{ deadHeroes.length ? 'Replace the fallen before moving on' : nextIsBoss ? '⚔️ March on the castle' : 'Break camp' }}
+      {{ nextIsBoss ? '⚔️ March on the castle' : 'Break camp' }}
     </button>
     <p v-else class="text-center text-xs text-base-content/40">Waiting for the host to break camp…</p>
   </div>

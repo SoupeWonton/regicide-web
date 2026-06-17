@@ -15,7 +15,7 @@ export default {
     logs: false,
     themes: [
       {
-        regicide: {
+        kingfall: {
           'color-scheme': 'dark',
           primary: '#c9a227',          // tarnished gold — royalty, earned
           'primary-content': '#1a1405',

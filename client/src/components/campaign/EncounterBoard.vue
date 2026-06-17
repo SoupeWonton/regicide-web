@@ -2,13 +2,13 @@
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { socket } from '../../socket'
 import type { ClientCampaignState, Card, EncounterEvent } from '../../types'
-import { cardValue, suitSymbol, CLASS_ICONS } from './cards'
+import { cardValue, suitSymbol, CLASS_ICONS, tokensOf, tokenToneClass, tokenSpend, tokenHold, effectiveSuits } from './cards'
 import OverlayModal from './OverlayModal.vue'
 import HeroPortrait from './HeroPortrait.vue'
 import ItemCard from './ItemCard.vue'
 import { sfx } from '../../sound'
 
-const ACTIVATABLE_RELICS = ['r-bone-thread', 'r-sainted-scalpel', 'r-signal-whistle']
+const ACTIVATABLE_RELICS = ['r-bone-thread', 'r-sainted-scalpel']
 
 const props = defineProps<{ state: ClientCampaignState; code: string }>()
 
@@ -18,6 +18,18 @@ const peekOrder = ref<number[]>([])
 const showPile = ref<'tavern' | 'discard' | null>(null)
 const whistleMode = ref(false)
 
+// ── Drag-to-play: pointer-based (works for mouse + touch). Tapping a card still
+// selects it; dragging it onto the enemy plays it (the selected combo if one is
+// built, else just that card). The enemy is the single drop target.
+const enemyEl = ref<HTMLElement | null>(null)
+const fanEl = ref<HTMLElement | null>(null)
+const drag = ref<{ index: number; card: Card; x: number; y: number; over: boolean } | null>(null)
+
+// Hand display order — a local permutation of myHand by card id. The player can
+// drag cards to reorder, or sort by suit/rank. Selection and play stay keyed by
+// the card's real myHand index, so the server is never aware of the cosmetic order.
+const handOrder = ref<string[]>([])
+
 const enc = computed(() => props.state.encounter!)
 const me = computed(() => props.state.heroes[props.state.myHeroIndex])
 const isMyTurn = computed(() => props.state.myHeroIndex === enc.value.currentPlayerIndex && enc.value.outcome === 'active')
@@ -26,7 +38,73 @@ const inDiscard = computed(() => enc.value.turnPhase === 'discard' && isMyTurn.v
 const inChoose = computed(() => enc.value.turnPhase === 'choose_next' && isMyTurn.value)
 const myPeek = computed(() => enc.value.turnPhase === 'setup' && enc.value.setupPeek?.mine)
 
+// ascending-deck: overdraw-and-select phase
+const inDrawSelect = computed(() =>
+  enc.value.turnPhase === 'draw_select' && enc.value.drawPool !== undefined && isMyTurn.value)
+const drawPoolSelected = ref<number[]>([])
+
+// Overdraw pool shown grouped by suit (S,H,C,D) then rank low→high, jesters
+// always last — same ordering as the hand's "Sort by suit". Each entry keeps
+// its real `drawPool` index `i` so selection and keep_drawn stay correct.
+const sortedDrawPool = computed<{ card: Card; i: number }[]>(() => {
+  const suitRank: Record<string, number> = { S: 0, H: 1, C: 2, D: 3 }
+  return (enc.value.drawPool ?? [])
+    .map((card, i) => ({ card, i }))
+    .sort((a, b) => {
+      const ja = a.card.rank === 'Jo', jb = b.card.rank === 'Jo'
+      if (ja !== jb) return ja ? 1 : -1                     // jesters always last
+      return (suitRank[a.card.suit]! - suitRank[b.card.suit]!) || (cardValue(a.card.rank) - cardValue(b.card.rank))
+    })
+})
+
 const hand = computed(() => enc.value.myHand)
+
+// Keep the display order in sync with the real hand: surviving cards hold their
+// place, freshly drawn cards land on the right (then the player can re-sort).
+watch(() => hand.value.map(c => c.id).join('|'), () => {
+  const ids = hand.value.map(c => c.id)
+  const next = handOrder.value.filter(id => ids.includes(id))
+  for (const id of ids) if (!next.includes(id)) next.push(id)
+  handOrder.value = next
+}, { immediate: true })
+
+// Cards in display order, each tagged with its real myHand index `i`.
+const displayHand = computed<{ card: Card; i: number }[]>(() => {
+  const byId = new Map(hand.value.map((c, i) => [c.id, { card: c, i }]))
+  const out: { card: Card; i: number }[] = []
+  for (const id of handOrder.value) { const e = byId.get(id); if (e) out.push(e) }
+  if (out.length < hand.value.length)
+    for (const [id, e] of byId) if (!handOrder.value.includes(id)) out.push(e)
+  return out
+})
+
+function sortHand(mode: 'suit' | 'rank') {
+  const suitRank: Record<string, number> = { S: 0, H: 1, C: 2, D: 3 }
+  const sorted = [...hand.value].sort((a, b) => {
+    const ja = a.rank === 'Jo', jb = b.rank === 'Jo'
+    if (ja !== jb) return ja ? 1 : -1                       // jesters always last
+    if (mode === 'suit')
+      return (suitRank[a.suit]! - suitRank[b.suit]!) || (cardValue(a.rank) - cardValue(b.rank))
+    return (cardValue(a.rank) - cardValue(b.rank)) || (suitRank[a.suit]! - suitRank[b.suit]!)
+  })
+  handOrder.value = sorted.map(c => c.id)
+  sfx.cardSnap()
+}
+
+// ascending-deck: tokens stamped on a card (for badges on the card face)
+function cardTokensOf(card: Card) { return tokensOf(enc.value.cardTokens, card) }
+
+// Card-face token rendering, split so the common effects read at a glance:
+//  · value tokens fold into the rank as a +X / −X
+//  · suit tokens fold into the suit row (the base/transmuted suit + grafted
+//    suits beside it, grafts shown in blue)
+//  · everything else (levers, keywords, discard-soak) stays a corner badge.
+function mainSuitOf(card: Card) { return effectiveSuits(card, cardTokensOf(card))[0] ?? card.suit }
+function extraSuitsOf(card: Card) { return effectiveSuits(card, cardTokensOf(card)).slice(1) }
+function valueDeltaOf(card: Card) { return tokenSpend(cardTokensOf(card)) }
+function badgeTokensOf(card: Card) {
+  return cardTokensOf(card).filter(t => t.kind === 'lever' || t.kind === 'keyword' || (t.hold ?? 0) !== 0)
+}
 const pileCards = computed(() =>
   showPile.value === 'tavern' ? enc.value.tavernCards : showPile.value === 'discard' ? enc.value.discardCards : [])
 
@@ -138,7 +216,7 @@ watch(() => props.state.encounter?.eventSeq ?? 0, (now, was) => {
   if (!popTimer) nextPop()
 })
 
-onBeforeUnmount(() => { if (popTimer) clearTimeout(popTimer) })
+onBeforeUnmount(() => { if (popTimer) clearTimeout(popTimer); teardownGesture() })
 
 // ── HP counter that counts down instead of snapping ──────────────────────────
 const hpShown = ref(0)
@@ -173,8 +251,7 @@ function fanStyle(i: number, n: number) {
 }
 
 // ── Rules helpers (mirror server validation for instant feedback) ────────────
-const comboError = computed(() => {
-  const cards = selected.value.map(i => hand.value[i]!).filter(Boolean)
+function comboErrorFor(cards: Card[]): string | null {
   if (cards.length <= 1) return null
   if (cards.some(c => c.rank === 'Jo')) return 'Jesters play alone'
   const aces = cards.filter(c => c.rank === 'A')
@@ -183,12 +260,18 @@ const comboError = computed(() => {
   if (aces.length > 1) return 'Only one Ace per combo'
   if (new Set(cards.map(c => c.rank)).size > 1) return 'Must be same rank (or use Ace)'
   const total = cards.reduce((s, c) => s + cardValue(c.rank), 0)
-  if (total > 10) return `Total ${total} exceeds 10`
+  const max = enc.value.myBoosts?.comboMax ?? 10   // Combat Cache raises this to 12
+  if (total > max) return `Total ${total} exceeds ${max}`
   return null
-})
+}
+const comboError = computed(() => comboErrorFor(selected.value.map(i => hand.value[i]!).filter(Boolean)))
 
+// discard coverage total — includes HOLD-token soak (Ballast +1) so the soak shows
 const selectedTotal = computed(() =>
-  selected.value.reduce((s, i) => s + cardValue(hand.value[i]?.rank ?? 'A'), 0))
+  selected.value.reduce((s, i) => {
+    const card = hand.value[i]
+    return card ? s + cardValue(card.rank) + tokenHold(cardTokensOf(card)) : s
+  }, 0))
 
 // per-suit live boost for MY cards (server computes from once-per-enemy flags)
 function suitBoost(suit: string): number {
@@ -205,26 +288,42 @@ const preview = computed(() => {
   const cards = selected.value.map(i => hand.value[i]!).filter(Boolean)
   if (!b || !enemy || !cards.length || cards[0]!.rank === 'Jo') return null
 
-  const base = cards.reduce((s, card) => s + cardValue(card.rank), 0)
-  const immune = enemy.immunityNullified ? null : enemy.card.suit
-  const suits = new Set(cards.map(card => card.suit).filter(su => su !== immune))
-  const blocked = [...new Set(cards.map(card => card.suit))].filter(su => su === immune)
+  // token-aware base: printed value + value-token deltas (Hone/Temper/…)
+  const tok = (card: Card) => cardTokensOf(card)
+  const base = Math.max(0, cards.reduce((s, card) => s + cardValue(card.rank) + tokenSpend(tok(card)), 0))
 
+  const immune = enemy.immunityNullified ? null : enemy.card.suit
+  // effective suits across all cards, including graft (added) / transmute (replaced)
+  const suits = new Set<string>()
+  let immuneBlocked = false
+  for (const card of cards) for (const su of effectiveSuits(card, tok(card))) {
+    if (su === immune) immuneBlocked = true; else suits.add(su)
+  }
+  const blocked = immuneBlocked ? [immune!] : []
+
+  // per-card lever/keyword tokens that actually fire their suit
+  const fires = (card: Card, su: string) => su !== immune && effectiveSuits(card, tok(card)).includes(su)
+  const lever = (l: string, su: string) => cards.reduce((n, card) => n + (fires(card, su) ? tok(card).filter(t => t.lever === l).length : 0), 0)
+  const edgeB = lever('edge', 'C'), plateB = lever('shield', 'S'), drawB = lever('draw', 'D'), mendB = lever('recover', 'H')
+  const markDmg = cards.reduce((n, card) => n + tok(card).filter(t => t.keyword === 'mark').length * 2, 0)
+
+  // mirror server order: (base+dmgPlus) ×2[♣] +edge +mark ×dmgMult, then exec
   let dmg = base + b.dmgPlus
-  if (suits.has('C')) dmg *= 2
+  if (suits.has('C')) { dmg *= 2; dmg += edgeB * 2 }
+  dmg += markDmg
   dmg *= b.dmgMult
   let hpAfter = enemy.hp - dmg
   let exec = false
   if (hpAfter > 0 && hpAfter <= 2 && b.execReady) { hpAfter -= 2; exec = true }
 
-  const rawDraw = b.dCap !== null ? Math.min(base + b.D, b.dCap) : base + b.D
-  const rawHeal = b.hHalf ? Math.ceil((base + b.H) / 2) : base + b.H
+  const rawDraw = b.dCap !== null ? Math.min(base + b.D + drawB, b.dCap) : base + b.D + drawB
+  const rawHeal = b.hHalf ? Math.ceil((base + b.H + mendB) / 2) : base + b.H + mendB
   return {
     base, dmg, exec,
     kills: hpAfter <= 0,
     exact: hpAfter === 0,
     blocked,
-    shield: suits.has('S') ? base + b.S : null,
+    shield: suits.has('S') ? base + b.S + plateB : null,
     draws: suits.has('D') ? Math.min(rawDraw, enc.value.tavernCount) : null,
     heal: suits.has('H') ? Math.min(rawHeal, enc.value.discardCount) : null,
   }
@@ -236,9 +335,27 @@ function isImmuneSuit(suit: string) {
   return enemy.card.suit === suit
 }
 
+// Token-aware versions for the fan badges. A card fires every suit in
+// effectiveSuits (graft adds one, transmute replaces it), so immunity and the
+// class/modifier boost must look at those, not just the printed suit:
+//  · fully blocked only when EVERY effective suit is the immune suit (a graft
+//    card whose other suit still fires is NOT fully blocked)
+//  · the boost badge nets the boosts of the suits that actually fire.
+function cardFullyBlocked(card: Card): boolean {
+  const suits = effectiveSuits(card, cardTokensOf(card))
+  return suits.length > 0 && suits.every(su => isImmuneSuit(su))
+}
+function cardBoost(card: Card): number {
+  return effectiveSuits(card, cardTokensOf(card))
+    .filter(su => !isImmuneSuit(su))
+    .reduce((n, su) => n + suitBoost(su), 0)
+}
+
 function suitClass(suit: string) {
   return suit === 'H' || suit === 'D' ? 'suit-red' : 'suit-black'
 }
+
+const confirmAbandon = ref(false)
 
 // ── Actions ──────────────────────────────────────────────────────────────────
 function act(action: Record<string, unknown>) {
@@ -253,6 +370,108 @@ function toggleSelect(i: number) {
   if (idx >= 0) selected.value.splice(idx, 1)
   else selected.value.push(i)
   sfx.cardSnap()
+}
+
+// ── Drag-to-play gesture ──────────────────────────────────────────────────────
+// A press that stays put is a tap (handled by @click → toggleSelect). A press
+// that moves past the threshold becomes a drag; once dragging we preventDefault
+// so the browser doesn't scroll (touch) or fire a trailing click (the tap path).
+const DRAG_THRESHOLD = 8
+let gesture: { startX: number; startY: number; index: number; pointerId: number; moved: boolean } | null = null
+
+function teardownGesture() {
+  window.removeEventListener('pointermove', onCardPointerMove)
+  window.removeEventListener('pointerup', onCardPointerUp)
+  window.removeEventListener('pointercancel', onCardPointerUp)
+  gesture = null
+  drag.value = null
+}
+
+function onCardPointerDown(e: PointerEvent, i: number) {
+  if (!inPlay.value && !inDiscard.value) return
+  if (e.pointerType === 'mouse' && e.button !== 0) return
+  gesture = { startX: e.clientX, startY: e.clientY, index: i, pointerId: e.pointerId, moved: false }
+  window.addEventListener('pointermove', onCardPointerMove, { passive: false })
+  window.addEventListener('pointerup', onCardPointerUp)
+  window.addEventListener('pointercancel', onCardPointerUp)
+}
+
+function overEnemy(x: number, y: number): boolean {
+  const el = enemyEl.value
+  if (!el || !enc.value.currentEnemy) return false
+  const r = el.getBoundingClientRect()
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+}
+
+// Is the pointer near the hand strip? (vertical band — generous, so reordering
+// stays responsive, but the enemy far above never counts as "in the hand".)
+function withinHandBand(y: number): boolean {
+  const el = fanEl.value
+  if (!el) return false
+  const r = el.getBoundingClientRect()
+  return y >= r.top - 60 && y <= r.bottom + 80
+}
+
+// Live reorder: drop the dragged card into the slot its pointer X is over,
+// computed against the other cards' real positions (FLIP animates the shuffle).
+function reorderToPointer(draggedId: string, x: number) {
+  const el = fanEl.value
+  if (!el) return
+  const els = [...el.querySelectorAll<HTMLElement>('[data-card-id]')].filter(c => c.dataset.cardId !== draggedId)
+  let target = els.length
+  for (let k = 0; k < els.length; k++) {
+    const r = els[k]!.getBoundingClientRect()
+    if (x < r.left + r.width / 2) { target = k; break }
+  }
+  const ids = els.map(c => c.dataset.cardId!)
+  ids.splice(target, 0, draggedId)
+  if (ids.join('|') !== handOrder.value.join('|')) handOrder.value = ids
+}
+
+function onCardPointerMove(e: PointerEvent) {
+  if (!gesture || e.pointerId !== gesture.pointerId) return
+  if (!gesture.moved) {
+    if (Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY) < DRAG_THRESHOLD) return
+    const card = hand.value[gesture.index]
+    if (!card) { teardownGesture(); return }
+    gesture.moved = true
+    drag.value = { index: gesture.index, card, x: e.clientX, y: e.clientY, over: false }
+  }
+  e.preventDefault()
+  const d = drag.value!
+  d.x = e.clientX
+  d.y = e.clientY
+  d.over = overEnemy(e.clientX, e.clientY)
+  // not aiming at the enemy and hovering the hand → reorder instead of play
+  if (!d.over && withinHandBand(e.clientY)) reorderToPointer(d.card.id, e.clientX)
+}
+
+function onCardPointerUp(e: PointerEvent) {
+  if (!gesture || e.pointerId !== gesture.pointerId) return
+  const moved = gesture.moved
+  const idx = gesture.index
+  const over = drag.value?.over ?? false
+  teardownGesture()
+  if (!moved) toggleSelect(idx)       // a still press = tap to select
+  else if (over) dropOnEnemy(idx)     // dragged onto the enemy = play / block
+  // else: dragged within the hand = reorder (already applied live on move)
+}
+
+// Drop resolves by phase: in play it strikes (selected combo + the dropped card,
+// or just the card); in discard it stacks the card onto the block and commits
+// once the soak covers the incoming hit.
+function dropOnEnemy(index: number) {
+  if (inPlay.value) {
+    const indices = selected.value.length ? Array.from(new Set([...selected.value, index])) : [index]
+    const err = comboErrorFor(indices.map(i => hand.value[i]!).filter(Boolean))
+    if (err) { errorMsg.value = err; return }
+    sfx.cardPlay()
+    act({ type: 'play_cards', cardIndices: indices })
+  } else if (inDiscard.value) {
+    if (!selected.value.includes(index)) selected.value.push(index)
+    if (selectedTotal.value >= enc.value.discardNeeded) confirmDiscard()
+    else sfx.cardSnap()
+  }
 }
 
 function playSelected() {
@@ -279,15 +498,18 @@ function castSpell(spellId: string) {
   act({ type: 'cast_spell', spellId })
 }
 
-function onRelicClick() {
-  if (!enc.value.myRelicActivatable || !inPlay.value) return
-  if (me.value?.relic?.id === 'r-signal-whistle') whistleMode.value = true
-  else activateRelic()
+const whistleRelicId = ref<string | null>(null)
+
+function onRelicClick(relicId: string) {
+  if (!inPlay.value || !enc.value.activatableRelics.includes(relicId)) return
+  if (relicId === 'r-signal-whistle') { whistleRelicId.value = relicId; whistleMode.value = true }
+  else activateRelic(undefined, relicId)
 }
 
-function activateRelic(targetIndex?: number) {
+function activateRelic(targetIndex?: number, relicId?: string) {
   whistleMode.value = false
-  act({ type: 'activate_relic', targetIndex })
+  act({ type: 'activate_relic', targetIndex, relicId: relicId ?? whistleRelicId.value ?? undefined })
+  whistleRelicId.value = null
 }
 
 function confirmPeek() {
@@ -295,6 +517,20 @@ function confirmPeek() {
   const order = peekOrder.value.length === n ? [...peekOrder.value] : Array.from({ length: n }, (_, i) => i)
   peekOrder.value = []
   act({ type: 'setup_reorder', order })
+}
+
+// ascending-deck: confirm which cards to keep from the overdraw pool
+function toggleDrawPool(i: number) {
+  const idx = drawPoolSelected.value.indexOf(i)
+  if (idx >= 0) { drawPoolSelected.value.splice(idx, 1); return }
+  // don't let the player pick more than they're allowed to keep
+  if (drawPoolSelected.value.length >= (enc.value.drawSelectKeep ?? 0)) return
+  drawPoolSelected.value.push(i)
+}
+
+function confirmKeepDrawn() {
+  act({ type: 'keep_drawn', keepIndices: [...drawPoolSelected.value] })
+  drawPoolSelected.value = []
 }
 
 function togglePeekCard(i: number) {
@@ -308,9 +544,8 @@ socket.on('error', (msg: string) => { errorMsg.value = msg })
 
 function heroTooltip(h: (typeof props.state.heroes)[number]): string {
   const lines = [`${h.className} — ${h.abilityText}`]
-  if (h.relic) lines.push(`🏺 ${h.relic.name}: ${h.relic.text}`)
-  for (const m of h.memories) lines.push(`🧠 ${m.name}: ${m.text}`)
-  if (!h.alive) lines.push('💀 Fallen — can be replaced at camp.')
+  for (const rl of h.relics) lines.push(`🏺 ${rl.name}: ${rl.text}`)
+  if (!h.alive) lines.push('💀 Fallen.')
   return lines.join('\n')
 }
 
@@ -348,12 +583,63 @@ const netAttack = computed(() => {
         <p v-if="enc.bossModifier" class="text-xs" :class="enc.bossModifier.id === 'hidden' ? 'text-warning/60 italic' : 'text-warning'">
           {{ enc.bossModifier.name }}: {{ enc.bossModifier.text }}
         </p>
-        <p v-for="p in enc.preps" :key="p.id" class="text-xs text-success/90" :title="p.text">
-          🎒 {{ p.name }} — active this fight
-        </p>
       </div>
     </div>
 
+
+    <!-- Ascending-deck: overdraw-and-select — choose which cards to keep -->
+    <OverlayModal v-if="enc.turnPhase === 'draw_select'" tone="primary">
+      <template v-if="inDrawSelect">
+        <p class="text-sm font-semibold text-center">
+          ♦ Overdraw pool — keep up to {{ enc.drawSelectKeep ?? 0 }}
+          card{{ (enc.drawSelectKeep ?? 0) !== 1 ? 's' : '' }}
+        </p>
+        <div class="flex gap-2 justify-center flex-wrap">
+          <button
+            v-for="entry in sortedDrawPool" :key="entry.card.id"
+            class="card-face w-14 h-20 font-mono flex flex-col items-center justify-center relative transition-all duration-150"
+            :class="drawPoolSelected.includes(entry.i)
+              ? '-translate-y-1.5 scale-105 ring-2 ring-primary bg-primary/20 shadow-lg shadow-primary/40 z-10'
+              : 'ring-1 ring-base-content/10 hover:-translate-y-1'"
+            @click="toggleDrawPool(entry.i)"
+          >
+            <span class="text-xl font-bold" :class="suitClass(entry.card.suit)">{{ entry.card.rank === 'Jo' ? '🃏' : entry.card.rank }}</span>
+            <span class="text-base" :class="suitClass(entry.card.suit)">{{ entry.card.rank !== 'Jo' ? suitSymbol(entry.card.suit) : '' }}</span>
+            <span v-if="drawPoolSelected.includes(entry.i)"
+              class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-primary text-primary-content text-[10px] font-bold flex items-center justify-center shadow">✓</span>
+          </button>
+        </div>
+        <button class="btn btn-primary btn-sm" @click="confirmKeepDrawn">
+          Keep {{ drawPoolSelected.length }} card{{ drawPoolSelected.length !== 1 ? 's' : '' }}
+        </button>
+        <!-- your current hand, so you can judge which pool cards are best to keep -->
+        <div v-if="hand.length" class="mt-1 pt-2 border-t border-base-content/10">
+          <p class="text-[10px] uppercase tracking-widest text-base-content/40 text-center mb-1">Your hand</p>
+          <div class="flex gap-1 justify-center flex-wrap">
+            <span
+              v-for="card in hand" :key="card.id"
+              class="card-face w-9 h-12 font-mono flex flex-col items-center justify-center text-xs leading-none opacity-90"
+              :title="cardTokensOf(card).map(t => `${t.name} — ${t.text}`).join('\n')"
+            >
+              <span class="flex items-start">
+                <span class="font-bold" :class="suitClass(mainSuitOf(card))">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
+                <span v-if="card.rank !== 'Jo' && valueDeltaOf(card) !== 0"
+                  class="text-[8px] font-extrabold leading-none"
+                  :class="valueDeltaOf(card) > 0 ? 'text-success' : 'text-error'"
+                >{{ valueDeltaOf(card) > 0 ? '+' + valueDeltaOf(card) : valueDeltaOf(card) }}</span>
+              </span>
+              <span v-if="card.rank !== 'Jo'" class="flex items-center gap-px">
+                <span :class="suitClass(mainSuitOf(card))">{{ suitSymbol(mainSuitOf(card)) }}</span>
+                <span v-for="su in extraSuitsOf(card)" :key="su" class="text-info font-bold">{{ suitSymbol(su) }}</span>
+              </span>
+            </span>
+          </div>
+        </div>
+      </template>
+      <p v-else class="text-sm text-center text-base-content/50 soft-pulse">
+        ♦ Someone is selecting from their draw pool…
+      </p>
+    </OverlayModal>
 
     <!-- Setup peek — floats over the stage, nothing else to do during setup -->
     <OverlayModal v-if="enc.turnPhase === 'setup'" tone="primary">
@@ -456,9 +742,16 @@ const netAttack = computed(() => {
           </Transition>
         </div>
 
-        <!-- Enemy royal card -->
+        <!-- Enemy royal card — also the drop target for drag-to-play -->
         <Transition name="enemy-flip" mode="out-in">
-        <div v-if="enc.currentEnemy" :key="enc.currentEnemy.card.id" class="relative flex flex-col items-center shrink-0">
+        <div v-if="enc.currentEnemy" ref="enemyEl" :key="enc.currentEnemy.card.id"
+          class="relative flex flex-col items-center shrink-0 rounded-2xl transition-all duration-150"
+          :class="drag?.over ? (inDiscard ? 'scale-105 ring-4 ring-info/70 ring-offset-2 ring-offset-transparent' : 'scale-105 ring-4 ring-error/70 ring-offset-2 ring-offset-transparent') : ''">
+          <!-- drop hint while a card hovers over the enemy -->
+          <div v-if="drag?.over" class="absolute -top-6 left-1/2 -translate-x-1/2 z-40 whitespace-nowrap text-xs font-display font-bold px-2 py-0.5 rounded-full shadow pointer-events-none"
+            :class="inDiscard ? 'bg-info text-info-content' : 'bg-error text-error-content'">
+            {{ inDiscard ? '🛡 Block' : '⚔️ Strike' }}
+          </div>
           <!-- floating combat numbers -->
           <div class="absolute -right-7 top-2 z-20 pointer-events-none select-none" aria-hidden="true">
             <div v-for="f in floats" :key="f.id"
@@ -642,40 +935,80 @@ const netAttack = computed(() => {
     <div v-if="errorMsg" class="alert alert-error text-sm py-2" @click="errorMsg = ''">{{ errorMsg }}</div>
 
     <!-- ═══ HAND FAN ═══ -->
-    <div class="mt-auto pt-3">
+    <div ref="fanEl" class="mt-auto pt-3">
       <TransitionGroup name="fan" tag="div" class="flex justify-center items-end pb-6 lg:pb-8" :class="(!inPlay && !inDiscard) ? 'opacity-50' : ''">
         <div
-          v-for="(card, i) in hand" :key="card.id"
+          v-for="(entry, di) in displayHand" :key="entry.card.id"
+          :data-card-id="entry.card.id"
           class="fan-slot first:ml-0 -ml-4 relative"
-          :style="fanStyle(i, hand.length)"
+          :style="fanStyle(di, displayHand.length)"
         >
           <button
-            class="fan-card card-face w-16 h-24 lg:w-20 lg:h-[7.25rem] flex flex-col items-center justify-center font-mono relative block"
+            class="fan-card card-face w-16 h-24 lg:w-20 lg:h-[7.25rem] flex flex-col items-center justify-center font-mono relative block touch-none"
             :class="[
-              selected.includes(i) ? (inDiscard ? 'fan-card-selected fan-card-discard' : 'fan-card-selected') : '',
+              selected.includes(entry.i) ? (inDiscard ? 'fan-card-selected fan-card-discard' : 'fan-card-selected') : '',
               (!inPlay && !inDiscard) ? 'pointer-events-none' : '',
+              drag?.index === entry.i ? 'opacity-30' : '',
             ]"
-            @click="toggleSelect(i)"
+            @pointerdown="onCardPointerDown($event, entry.i)"
           >
-            <span class="card-sway flex flex-col items-center" :style="{ animationDelay: `${(i * 0.45) % 3}s` }">
-              <span class="text-xl font-bold" :class="suitClass(card.suit)">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
-              <span class="text-base" :class="suitClass(card.suit)">{{ card.rank !== 'Jo' ? suitSymbol(card.suit) : '' }}</span>
+            <span class="card-sway flex flex-col items-center leading-none" :style="{ animationDelay: `${(di * 0.45) % 3}s` }">
+              <!-- rank, with any value-token bonus folded in as a +X / −X -->
+              <span class="flex items-start">
+                <span class="text-xl font-bold" :class="suitClass(mainSuitOf(entry.card))">{{ entry.card.rank === 'Jo' ? '🃏' : entry.card.rank }}</span>
+                <span v-if="entry.card.rank !== 'Jo' && valueDeltaOf(entry.card) !== 0"
+                  class="text-[11px] font-extrabold leading-none mt-0.5 -mr-1"
+                  :class="valueDeltaOf(entry.card) > 0 ? 'text-success' : 'text-error'"
+                  :title="`${valueDeltaOf(entry.card) > 0 ? '+' : ''}${valueDeltaOf(entry.card)} value when played`"
+                >{{ valueDeltaOf(entry.card) > 0 ? '+' + valueDeltaOf(entry.card) : valueDeltaOf(entry.card) }}</span>
+              </span>
+              <!-- suit row: base/transmuted suit, plus any grafted suits beside it in blue -->
+              <span v-if="entry.card.rank !== 'Jo'" class="flex items-center gap-px text-base">
+                <span :class="suitClass(mainSuitOf(entry.card))">{{ suitSymbol(mainSuitOf(entry.card)) }}</span>
+                <span v-for="su in extraSuitsOf(entry.card)" :key="su"
+                  class="text-info font-bold" :title="`grafted ${suitSymbol(su)} — fires this lever too`"
+                >{{ suitSymbol(su) }}</span>
+              </span>
             </span>
             <span
-              v-if="inPlay && card.rank !== 'Jo' && isImmuneSuit(card.suit)"
+              v-if="inPlay && entry.card.rank !== 'Jo' && cardFullyBlocked(entry.card)"
               class="absolute -top-1 -right-1 text-[9px] bg-error text-error-content rounded-full px-1 h-4 flex items-center justify-center font-bold"
               title="Suit power blocked by enemy immunity"
             >✕</span>
             <span
-              v-else-if="inPlay && card.rank !== 'Jo' && suitBoost(card.suit) !== 0"
+              v-else-if="inPlay && entry.card.rank !== 'Jo' && cardBoost(entry.card) !== 0"
               class="boost-badge absolute -top-1.5 -left-1.5 text-[9px] rounded-full px-1 h-4 flex items-center justify-center font-bold shadow"
-              :class="suitBoost(card.suit) > 0 ? 'bg-success text-success-content' : 'bg-error text-error-content'"
-              :title="suitBoost(card.suit) > 0 ? 'Boosted by your class/relic/memory' : 'Penalized by the encounter modifier'"
-            >{{ suitBoost(card.suit) > 0 ? '+' + suitBoost(card.suit) : suitBoost(card.suit) }}</span>
+              :class="cardBoost(entry.card) > 0 ? 'bg-success text-success-content' : 'bg-error text-error-content'"
+              :title="cardBoost(entry.card) > 0 ? 'Boosted by your class/relic' : 'Penalized by the encounter modifier'"
+            >{{ cardBoost(entry.card) > 0 ? '+' + cardBoost(entry.card) : cardBoost(entry.card) }}</span>
+            <!-- ascending-deck: only the tokens that DON'T fold into the rank/suit
+                 (levers, keywords, discard-soak) remain as corner badges — value
+                 bonuses show as +X on the rank, grafted suits show in blue. -->
+            <span
+              v-if="badgeTokensOf(entry.card).length"
+              class="absolute -left-2 top-1/2 -translate-y-1/2 flex flex-col gap-0.5 z-[55]"
+            >
+              <span
+                v-for="(tk, ti) in badgeTokensOf(entry.card)" :key="ti"
+                class="w-[18px] h-[18px] rounded-full border flex items-center justify-center text-[11px] leading-none font-bold shadow-sm"
+                :class="tokenToneClass(tk.tone)"
+                :title="tk.name + ' — ' + tk.text"
+              >{{ tk.sym }}</span>
+            </span>
           </button>
         </div>
         <p v-if="hand.length === 0" key="empty-hand" class="text-xs text-base-content/40 py-6">No cards — yield and pray.</p>
       </TransitionGroup>
+
+      <!-- Sort controls (Balatro-style) + drag hint -->
+      <div v-if="hand.length > 1" class="flex items-center justify-center gap-2 -mt-3 mb-1">
+        <span class="text-[10px] uppercase tracking-[0.2em] text-base-content/35">Sort</span>
+        <button class="btn btn-xs btn-outline" @click="sortHand('rank')" title="Sort the hand by value">⇅ Rank</button>
+        <button class="btn btn-xs btn-outline" @click="sortHand('suit')" title="Group the hand by suit">⇅ Suit</button>
+      </div>
+      <p v-if="(inPlay || inDiscard) && hand.length && !drag" class="text-center text-[10px] text-base-content/35 mb-1 select-none">
+        tap to select · drag onto the enemy to {{ inDiscard ? 'block' : 'strike' }} · drag in hand to reorder
+      </p>
 
       <!-- Play/Block float on the table while selecting; only Yield lives here -->
       <div v-if="inPlay" class="flex justify-center -mt-3 relative z-50">
@@ -683,7 +1016,7 @@ const netAttack = computed(() => {
       </div>
 
       <!-- Arsenal: the team's magic, physically on the table -->
-      <div v-if="state.spells.length || me?.relic || (enc.canWager && !enc.wagerArmed)" class="mt-2">
+      <div v-if="state.spells.length || me?.relics.length || (enc.canWager && !enc.wagerArmed)" class="mt-2">
         <p class="text-[9px] uppercase tracking-[0.25em] text-base-content/35 mb-1">Arsenal</p>
         <div class="flex gap-2 overflow-x-auto pb-1.5">
           <ItemCard
@@ -693,19 +1026,35 @@ const netAttack = computed(() => {
             @click="castSpell(sp.id)"
           />
           <ItemCard
-            v-if="me?.relic"
-            :id="me.relic.id" :name="me.relic.name" :text="me.relic.text" :tier="me.relic.tier" sm
-            :disabled="ACTIVATABLE_RELICS.includes(me.relic.id) && (!enc.myRelicActivatable || !inPlay)"
-            @click="onRelicClick()"
+            v-for="rl in me?.relics ?? []" :key="rl.id"
+            :id="rl.id" :name="rl.name" :text="rl.text" :tier="rl.tier" sm
+            :disabled="ACTIVATABLE_RELICS.includes(rl.id) && !(inPlay && enc.activatableRelics.includes(rl.id))"
+            @click="onRelicClick(rl.id)"
           />
           <ItemCard
             v-if="enc.canWager && !enc.wagerArmed"
             id="g-wager" name="The Wager"
-            text="Once per chapter: if the enemy dies this turn you choose who acts next; if not, discard 1 random card."
+            text="Once per encounter: if the enemy dies this turn, draw 2 (and in multiplayer, choose who acts next); if not, discard 1 random card."
             sm :disabled="!inPlay"
             @click="act({ type: 'arm_wager' })"
           />
         </div>
+      </div>
+
+      <!-- Abandon run escape hatch (host only) -->
+      <div v-if="state.isHost && enc.outcome === 'active'" class="mt-3 text-center">
+        <template v-if="!confirmAbandon">
+          <button class="btn btn-ghost btn-xs text-error/30 hover:text-error" @click="confirmAbandon = true">Abandon lineage</button>
+        </template>
+        <template v-else>
+          <div class="flex flex-col items-center gap-2 p-3 rounded-lg bg-error/10 border border-error/30">
+            <p class="text-xs text-error font-semibold">Abandon this run? All progress is lost.</p>
+            <div class="flex gap-2">
+              <button class="btn btn-error btn-xs" @click="act({ type: 'abandon_campaign' })">Yes, abandon</button>
+              <button class="btn btn-ghost btn-xs" @click="confirmAbandon = false">Cancel</button>
+            </div>
+          </div>
+        </template>
       </div>
 
       <!-- Whistle target — overlay, tap outside to cancel -->
@@ -741,9 +1090,6 @@ const netAttack = computed(() => {
           <p v-if="enc.bossModifier" class="text-xs leading-snug" :class="enc.bossModifier.id === 'hidden' ? 'text-warning/60 italic' : 'text-warning'">
             {{ enc.bossModifier.name }}: {{ enc.bossModifier.text }}
           </p>
-          <p v-for="p in enc.preps" :key="p.id" class="text-xs text-success/90 leading-snug" :title="p.text">
-            🎒 {{ p.name }}
-          </p>
           <p v-if="enc.wagerArmed" class="text-xs text-warning font-bold">🎲 Wager live — kill or pay</p>
         </div>
       </div>
@@ -757,11 +1103,25 @@ const netAttack = computed(() => {
               <span class="font-normal text-primary/60 font-display text-[10px]">{{ h.className }}</span>
             </p>
             <p class="text-[10px] text-base-content/50 leading-snug">{{ h.abilityText }}</p>
-            <p v-if="h.relic" class="text-[10px] text-accent leading-snug" :title="h.relic.text">🏺 {{ h.relic.name }}</p>
-            <p v-for="m in h.memories" :key="m.id" class="text-[10px] text-info leading-snug" :title="m.text">🧠 {{ m.name }}</p>
+            <p v-for="rl in h.relics" :key="rl.id" class="text-[10px] text-accent leading-snug" :title="rl.text">🏺 {{ rl.name }}</p>
           </div>
         </div>
       </div>
     </aside>
+
+    <!-- Drag ghost: a clone of the held card that follows the pointer. Teleported
+         to <body> so transformed ancestors don't capture its fixed positioning. -->
+    <Teleport to="body">
+      <div v-if="drag"
+        class="card-face w-16 h-24 lg:w-20 lg:h-[7.25rem] flex flex-col items-center justify-center font-mono shadow-2xl transition-transform duration-100"
+        :class="drag.over ? 'ring-2 ring-error scale-110' : ''"
+        :style="{ position: 'fixed', left: drag.x + 'px', top: drag.y + 'px', zIndex: 9999,
+                  transform: `translate(-50%, -62%) rotate(${drag.over ? 0 : -5}deg)`, pointerEvents: 'none' }"
+        aria-hidden="true"
+      >
+        <span class="text-xl font-bold" :class="suitClass(drag.card.suit)">{{ drag.card.rank === 'Jo' ? '🃏' : drag.card.rank }}</span>
+        <span class="text-base" :class="suitClass(drag.card.suit)">{{ drag.card.rank !== 'Jo' ? suitSymbol(drag.card.suit) : '' }}</span>
+      </div>
+    </Teleport>
   </div>
 </template>
