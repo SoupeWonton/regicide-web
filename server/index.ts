@@ -13,6 +13,7 @@ import {
 import type { CampaignAction } from './campaign/sessions'
 import path from 'path'
 import fs from 'fs'
+import archiver from 'archiver'
 import { fileURLToPath } from 'url'
 
 const app = express()
@@ -27,11 +28,14 @@ app.get('/health', (_, res) => res.json({ ok: true }))
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const DIST = path.join(HERE, '..', 'client', 'dist')
 
-// ── Open run-data download (telemetry is not private) ────────────────────────
-// Browse /data for a file index, and GET /data/<path> to download any file under
-// REGICIDE_DATA_DIR (human-runs/runs.csv, traces/*.jsonl, …). Registered before
-// the SPA catch-all so /data/* isn't served index.html. Read-only and
-// path-traversal-guarded — it can only ever read inside the data dir.
+// ── Run-data ops page (telemetry is not private) ─────────────────────────────
+// /data            → HTML page: file list, total size vs 1 GB, download-all, delete-all
+// /data/all.zip    → stream a zip of the whole data dir
+// POST /data/delete-all?confirm=DELETE → wipe the data dir (grab data first!)
+// /data/<path>     → download a single file
+// All serve from REGICIDE_DATA_DIR. Registered before the SPA catch-all. Read
+// routes are path-traversal-guarded. Delete is POST-only + a fixed confirm token
+// (not a secret — just stops accidental/drive-by GET triggers).
 const DATA_DIR = path.resolve(process.env.REGICIDE_DATA_DIR || path.join(HERE, '..', 'data'))
 function listDataFiles(dir: string, base = ''): { path: string; size: number }[] {
   const out: { path: string; size: number }[] = []
@@ -45,13 +49,67 @@ function listDataFiles(dir: string, base = ''): { path: string; size: number }[]
   }
   return out
 }
+const fmtBytes = (n: number) =>
+  n >= 1e9 ? (n / 1e9).toFixed(2) + ' GB' : n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : n >= 1e3 ? (n / 1e3).toFixed(1) + ' KB' : n + ' B'
+
 app.get('/data', (_req, res) => {
   const files = listDataFiles(DATA_DIR).sort((a, b) => a.path.localeCompare(b.path))
-  const rows = files.map(f => `<li><a href="/data/${f.path}">${f.path}</a> — ${f.size.toLocaleString()} bytes</li>`).join('')
-  res.type('html').send(`<!doctype html><meta charset="utf-8"><title>Regicide run data</title>`
-    + `<h1>Run data</h1><p>${files.length} file(s) under <code>${DATA_DIR}</code></p>`
-    + `<ul>${rows || '<li>No data yet — finish a recorded game on the live site.</li>'}</ul>`)
+  const total = files.reduce((s, f) => s + f.size, 0)
+  const pct = Math.min(100, 100 * total / 1e9)
+  const rows = files.map(f => `<tr><td><a href="/data/${encodeURI(f.path)}">${f.path}</a></td><td class="r">${fmtBytes(f.size)}</td></tr>`).join('')
+  res.type('html').send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Regicide run data</title><style>
+body{font:14px/1.5 system-ui,sans-serif;max-width:880px;margin:2rem auto;padding:0 1rem;color:#eaeaea;background:#15131f}
+a{color:#c9a84a}h1{margin:0 0 .25rem}.r{text-align:right;white-space:nowrap;color:#aaa}
+.bar{height:10px;background:#2a2740;border-radius:5px;overflow:hidden;margin:.4rem 0 1rem}.bar>i{display:block;height:100%;background:${pct > 85 ? '#e05a3a' : '#c9a84a'}}
+table{width:100%;border-collapse:collapse;margin-top:.5rem}td,th{padding:.3rem .5rem;border-bottom:1px solid #2a2740}th{text-align:left;color:#888}
+.btns{margin:1rem 0;display:flex;gap:.75rem;flex-wrap:wrap}.dl,button{padding:.55rem 1rem;border-radius:6px;border:0;font:inherit;cursor:pointer;text-decoration:none}
+.dl{background:#2e7d32;color:#fff}.del{background:#9b2c2c;color:#fff}</style></head><body>
+<h1>Regicide run data</h1>
+<p>${files.length} file(s) · <b>${fmtBytes(total)}</b> of 1 GB used (${pct.toFixed(1)}%)</p>
+<div class="bar"><i style="width:${pct}%"></i></div>
+<div class="btns">
+  <a class="dl" href="/data/all.zip">⬇ Download all (.zip)</a>
+  <button class="del" onclick="wipe()">🗑 Delete all files</button>
+</div>
+<table><thead><tr><th>file</th><th class="r">size</th></tr></thead><tbody>
+${rows || '<tr><td colspan="2">No data yet — finish a recorded game on the live site.</td></tr>'}</tbody></table>
+<script>
+async function wipe(){
+  if(!confirm('Delete ALL ${files.length} files (${fmtBytes(total)})?\\nDownload first — this cannot be undone.'))return;
+  const r=await fetch('/data/delete-all?confirm=DELETE',{method:'POST'});
+  const j=await r.json().catch(()=>({}));
+  alert('Deleted '+(j.deleted??'?')+' files.');location.reload();
+}
+</script></body></html>`)
 })
+
+app.get('/data/all.zip', (_req, res) => {
+  const files = listDataFiles(DATA_DIR)
+  res.attachment('regicide-data.zip')
+  const archive = archiver('zip', { zlib: { level: 9 } })
+  archive.on('error', err => { console.error('[data] zip error:', err.message); try { res.status(500).end() } catch { /* already streaming */ } })
+  archive.pipe(res)
+  for (const f of files) archive.file(path.join(DATA_DIR, f.path), { name: f.path })
+  archive.finalize()
+})
+
+app.post('/data/delete-all', (req, res) => {
+  if (req.query.confirm !== 'DELETE') { res.status(400).json({ error: 'pass ?confirm=DELETE' }); return }
+  const files = listDataFiles(DATA_DIR)
+  let deleted = 0, freed = 0
+  for (const f of files) { try { fs.rmSync(path.join(DATA_DIR, f.path)); deleted++; freed += f.size } catch { /* skip */ } }
+  // best-effort removal of the now-empty subdirs
+  try {
+    for (const d of fs.readdirSync(DATA_DIR)) {
+      const abs = path.join(DATA_DIR, d)
+      try { if (fs.statSync(abs).isDirectory()) fs.rmSync(abs, { recursive: true, force: true }) } catch { /* skip */ }
+    }
+  } catch { /* dir gone */ }
+  console.log(`[data] delete-all removed ${deleted} files (${fmtBytes(freed)})`)
+  res.json({ deleted, freed })
+})
+
 app.get(/^\/data\/(.+)/, (req, res) => {
   const rel = decodeURIComponent((req.params as Record<string, string>)[0]!)
   const abs = path.resolve(DATA_DIR, rel)
