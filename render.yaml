@@ -1,3 +1,12 @@
+# Managed Postgres for player-run persistence. Auto-provisioned by this blueprint
+# and wired into the web service below as DATABASE_URL — no dashboard steps.
+# NOTE: plan `free` is zero-cost but Render expires free Postgres after 30 days.
+# For ongoing analytics bump this to a paid plan (e.g. basic-256mb, ~$6/mo) so the
+# data is retained — one-line change, no code impact.
+databases:
+  - name: regicide-db
+    plan: free
+
 services:
   - type: web
     name: llgames-regicide
@@ -10,8 +19,9 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      # Postgres connection string for run persistence (Render's disk is ephemeral).
-      # Set the VALUE in the Render dashboard — a managed-DB connection string from
-      # Render Postgres / Supabase / Neon. Unset → server falls back to CSV files.
+      # Auto-injected from the regicide-db Postgres above (Render's web-service disk
+      # is ephemeral, so finished runs are written to this DB — see server/db.ts).
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: regicide-db
+          property: connectionString
