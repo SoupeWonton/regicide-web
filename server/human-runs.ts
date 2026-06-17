@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { dbEnabled, insertRun } from './db'
 
 // Human-run telemetry sink. Every finished human game — campaign/province or
 // quick game — appends one CSV row here so human play can be laid against the
@@ -13,6 +14,10 @@ import { fileURLToPath } from 'url'
 //
 // data/ is gitignored; telemetry must never break the game — every write is
 // wrapped, and a failed append is silently dropped.
+//
+// PROD persistence: Render's disk is ephemeral, so when DATABASE_URL is set we
+// ALSO write each run to Postgres (see db.ts). The DB insert is fire-and-forget;
+// the CSV append above always runs as the local/dev source of truth.
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const DIR = path.join(HERE, 'data', 'human-runs')
@@ -30,4 +35,6 @@ export function appendHumanRun(file: 'runs' | 'quick', row: Record<string, unkno
     if (!fs.existsSync(target)) fs.writeFileSync(target, cols.join(',') + '\n')
     fs.appendFileSync(target, cols.map(k => esc(row[k])).join(',') + '\n')
   } catch { /* telemetry never breaks the game */ }
+  // also persist to Postgres in prod (no-op without DATABASE_URL); fire-and-forget
+  if (dbEnabled()) insertRun(file, row).catch(() => { /* logged in db.ts; CSV stands */ })
 }

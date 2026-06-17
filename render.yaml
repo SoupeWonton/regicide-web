@@ -10,3 +10,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Postgres connection string for run persistence (Render's disk is ephemeral).
+      # Set the VALUE in the Render dashboard — a managed-DB connection string from
+      # Render Postgres / Supabase / Neon. Unset → server falls back to CSV files.
+      - key: DATABASE_URL
+        sync: false
