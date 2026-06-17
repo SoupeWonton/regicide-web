@@ -26,6 +26,40 @@ app.get('/health', (_, res) => res.json({ ok: true }))
 // existing rather than NODE_ENV — dev keeps using Vite on :5173 either way.
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const DIST = path.join(HERE, '..', 'client', 'dist')
+
+// ── Open run-data download (telemetry is not private) ────────────────────────
+// Browse /data for a file index, and GET /data/<path> to download any file under
+// REGICIDE_DATA_DIR (human-runs/runs.csv, traces/*.jsonl, …). Registered before
+// the SPA catch-all so /data/* isn't served index.html. Read-only and
+// path-traversal-guarded — it can only ever read inside the data dir.
+const DATA_DIR = path.resolve(process.env.REGICIDE_DATA_DIR || path.join(HERE, '..', 'data'))
+function listDataFiles(dir: string, base = ''): { path: string; size: number }[] {
+  const out: { path: string; size: number }[] = []
+  let entries: fs.Dirent[]
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return out }
+  for (const e of entries) {
+    const rel = base ? `${base}/${e.name}` : e.name
+    const abs = path.join(dir, e.name)
+    if (e.isDirectory()) out.push(...listDataFiles(abs, rel))
+    else { try { out.push({ path: rel, size: fs.statSync(abs).size }) } catch { /* skip unreadable */ } }
+  }
+  return out
+}
+app.get('/data', (_req, res) => {
+  const files = listDataFiles(DATA_DIR).sort((a, b) => a.path.localeCompare(b.path))
+  const rows = files.map(f => `<li><a href="/data/${f.path}">${f.path}</a> — ${f.size.toLocaleString()} bytes</li>`).join('')
+  res.type('html').send(`<!doctype html><meta charset="utf-8"><title>Regicide run data</title>`
+    + `<h1>Run data</h1><p>${files.length} file(s) under <code>${DATA_DIR}</code></p>`
+    + `<ul>${rows || '<li>No data yet — finish a recorded game on the live site.</li>'}</ul>`)
+})
+app.get(/^\/data\/(.+)/, (req, res) => {
+  const rel = decodeURIComponent((req.params as Record<string, string>)[0]!)
+  const abs = path.resolve(DATA_DIR, rel)
+  if (abs !== DATA_DIR && !abs.startsWith(DATA_DIR + path.sep)) { res.status(400).send('bad path'); return }
+  if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) { res.status(404).send('not found'); return }
+  res.download(abs)
+})
+
 if (fs.existsSync(DIST)) {
   app.use(express.static(DIST))
   app.get(/^\/(?!socket\.io|health).*/, (_, res) => res.sendFile(path.join(DIST, 'index.html')))
