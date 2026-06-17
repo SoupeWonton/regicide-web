@@ -29,6 +29,12 @@ export interface Persona {
   spellEagerness: number   // 0..1 gate for burning spells/relics/wagers
   lastStandBase: number    // 0..1 base desire to fight on after a death
   classPref: ClassId[]     // pick order (start + replacements)
+  // ── Learned rules (behavioral cloning from human traces) ───────────────────
+  // When set, override the weight-scorer with a hard rule mined + validated from
+  // a real run (see scripts/analyze-trace-policy.ts).
+  holdJokers?: boolean     // jester is a LAST RESORT: only play it when no
+                           // non-jester card is playable (Gab's run: 6/6 jester
+                           // plays were with an all-jester hand). Default: scored.
 }
 
 const CATS = (s: number, a: number, r: number, i: number, c: number): Record<CtCategory, number> =>
@@ -97,6 +103,21 @@ export const PERSONAS: Record<string, Persona> = {
     routeGreed: 1.0, routeFight: 0.8, routeSafety: 0.9,
     catPrefs: CATS(0.7, 0.8, 0.7, 1.4, 1.3), rarePref: 1.0, spellEagerness: 0.6, lastStandBase: 0.5,
     classPref: ['executioner', 'sentinel', 'quartermaster', 'surgeon', 'oracle', 'commander', 'gambler', 'warden', 'exile'],
+  },
+  // gg — Gab-flavored seed (trace camp-mqhh4xhn-iy7j: solo Sentinel, flawless win).
+  //   Tuned toward his tendencies (low aggression / high conserve / exact-kill
+  //   hunting / draw economy / eager spells / never yields). NOTE: surface-cloning
+  //   his exact play (holdJokers rule + Spade-first weights) was tested and REGRESSED
+  //   the bot (reach-ch2 19.9% → 6.5%) — a foresight-less bot can't use his rules —
+  //   so this is reverted to the strongest measured config (~19.9% reach-ch2). The
+  //   evolutionary tuner (evolve.ts) optimizes past this for max win rate.
+  gg: {
+    id: 'gg', aggression: 0.9, killBonus: 8, exactBonus: 10, shieldWeight: 1.0,
+    drawWeight: 1.3, recoverWeight: 1.0, conserve: 0.6, riskAversion: 0.9, yieldBias: -4,
+    banishAversion: 0.8, setupWeight: 2.0,
+    routeGreed: 1.1, routeFight: 1.0, routeSafety: 1.0,
+    catPrefs: CATS(0.9, 1.3, 1.0, 1.0, 1.1), rarePref: 1.0, spellEagerness: 0.7, lastStandBase: 0.5,
+    classPref: ['sentinel', 'executioner', 'quartermaster', 'surgeon', 'oracle', 'commander', 'gambler', 'warden', 'exile'],
   },
 }
 

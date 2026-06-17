@@ -879,7 +879,11 @@ export function runCampaign(
           if (hand[ix[0]!]!.rank === 'Jo') continue
           if (enemy) options.push(evalPlay(c, s, pi, ix, p))
         }
-        if (jesterIdx >= 0) options.push(evalJester(c, s, pi, p, jesterIdx))
+        // Learned rule (holdJokers): the jester is a last resort — only an option
+        // when no non-jester card is playable. Mirrors Gab's run (6/6 jester plays
+        // were with an all-jester hand). Otherwise it competes on score as before.
+        const jesterAllowed = !p.holdJokers || options.length === 0
+        if (jesterIdx >= 0 && jesterAllowed) options.push(evalJester(c, s, pi, p, jesterIdx))
         if (enemy) options.push(evalYield(c, s, pi, p))
         const choice = options.reduce((a, b) => (b.score > a.score ? b : a))
         if (choice.kind === 'yield') {
@@ -975,6 +979,10 @@ function parseArgs() {
   }
   return {
     seeds: parseInt(get('--seeds', '25')),
+    // shard offset for parallel runs: this process simulates seed indices
+    // [seedStart, seedStart+seeds). Disjoint offsets → disjoint seeds, so N
+    // workers cover one big batch with no duplicate runs.
+    seedStart: parseInt(get('--seed-start', '0')),
     counts: get('--counts', '1,2,3,4').split(',').map(Number),
     lineups: get('--lineups', 'slayer,bulwark,hoarder,sniper,steady,mixed').split(','),
     // class-isolation mode: comma-separated combos of +-joined classes, all seats
@@ -1004,7 +1012,7 @@ let DISCARD_MODEL: 'legacy' | 'pressure' = 'pressure'
 // CLI entry point — skipped when imported with SIM_NO_MAIN set.
 if (!process.env.SIM_NO_MAIN) {
 const _a = parseArgs()
-const { seeds, classCombos, persona: personaFlag, bossReshuffle, castleHearts, shortCastle, province } = _a
+const { seeds, seedStart, classCombos, persona: personaFlag, bossReshuffle, castleHearts, shortCastle, province } = _a
 let { counts, lineups } = _a
 ;({ grants: GRANTS, trace: TRACE, traceOnly: TRACE_ONLY, discardModel: DISCARD_MODEL } = _a)
 for (const gid of GRANTS) getItem(gid)   // fail fast on item-id typos
@@ -1021,7 +1029,9 @@ const active = Object.entries(EXPERIMENTS).filter(([, v]) => v).map(([k]) => k)
 if (active.length) console.log(`experiments: ${active.join(', ')}`)
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const DATA_DIR = path.join(HERE, '..', 'data')
+// honor REGICIDE_DATA_DIR so parallel shards write to isolated dirs (and never
+// touch the live game's data/) — see scripts/sim-par.ts
+const DATA_DIR = process.env.REGICIDE_DATA_DIR || path.join(HERE, '..', 'data')
 const KINGDOM_FILE = path.join(DATA_DIR, 'kingdom.json')
 const kingdomBackup = fs.existsSync(KINGDOM_FILE) ? fs.readFileSync(KINGDOM_FILE, 'utf-8') : null
 
@@ -1036,7 +1046,7 @@ const t0 = Date.now()
 let runCounter = 0
 
 function runBatch(lineupId: string, count: number, personas: Persona[], forcedClasses?: ClassId[]) {
-  for (let si = 0; si < seeds; si++) {
+  for (let si = seedStart; si < seedStart + seeds; si++) {
     const kingdom: KingdomState = {
       unlockedChapters: [1, 2],
       unlockedClasses: ['sentinel', 'quartermaster', 'surgeon', 'executioner', 'commander', 'warden', 'gambler', 'exile', 'oracle'],

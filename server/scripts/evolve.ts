@@ -19,6 +19,7 @@ process.env.SIM_NO_MAIN = '1'   // must precede the dynamic import of sim.ts bel
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
 import { createRng } from '../rng'
 import { STARTING_RELICS, STARTING_SPELLS } from '../campaign/content'
@@ -36,6 +37,10 @@ const { runCampaign } = await import('./sim.ts')   // SIM_NO_MAIN guard skips it
 const POP = Number(process.env.EVO_POP ?? 50)               // genomes per generation
 const SEEDS_PER_GENOME = Number(process.env.EVO_SEEDS ?? 20) // shared seeds each genome plays → POP*SEEDS = runs/gen
 const GENERATIONS = Number(process.env.EVO_GENS ?? 3)
+// Per-generation evaluation is embarrassingly parallel (genomes×seeds are
+// independent); breeding stays sequential in the main process. Each generation
+// is sharded across this many worker processes.
+const WORKERS = Number(process.env.EVO_WORKERS ?? Math.max(1, os.cpus().length - 2))
 const ELITE_FRAC = 0.05      // top 5% are copied/bred forward
 const MUT_RATE = 0.4         // per-field probability of a gaussian nudge
 const MUT_SCALE = 0.15       // nudge sd as a fraction of the field's range
@@ -115,16 +120,53 @@ function score(rec: any): number {
 
 interface Scored { genome: Persona; fitness: number; winRate: number }
 
-function evaluate(pop: Persona[], seeds: string[]): Scored[] {
-  return pop.map(genome => {
+// evaluate one slice of the population in-process (used by worker mode below)
+function evaluateSlice(genomes: Persona[], seeds: string[]): { id: string; fitness: number; winRate: number }[] {
+  return genomes.map(genome => {
     let fit = 0, wins = 0
     for (const seed of seeds) {
       const rec: any = runCampaign('evo', [genome], seed, freshKingdom(), [], `evo-${genome.id}-${seed}`)
       fit += score(rec)
       if (rec.result === 'won') wins++
     }
-    return { genome, fitness: fit / seeds.length, winRate: wins / seeds.length }
+    return { id: genome.id, fitness: fit / seeds.length, winRate: wins / seeds.length }
   })
+}
+
+function chunk<T>(arr: T[], n: number): T[][] {
+  const out: T[][] = Array.from({ length: n }, () => [])
+  arr.forEach((x, i) => out[i % n]!.push(x))
+  return out.filter(c => c.length)
+}
+
+// Parallel evaluation: shard the population across WORKERS child processes (each
+// re-runs this file in EVO_WORKER mode over its slice), then merge by genome id.
+async function evaluate(pop: Persona[], seeds: string[]): Promise<Scored[]> {
+  if (WORKERS <= 1 || pop.length <= 1) {
+    const res = evaluateSlice(pop, seeds)
+    const m = Object.fromEntries(res.map(r => [r.id, r]))
+    return pop.map(g => ({ genome: g, fitness: m[g.id]!.fitness, winRate: m[g.id]!.winRate }))
+  }
+  const jobs = chunk(pop, Math.min(WORKERS, pop.length)).map((genomes, i) => {
+    const jobPath = path.join(TMP_DATA, `job-${i}.json`)
+    const outPath = path.join(TMP_DATA, `out-${i}.json`)
+    fs.writeFileSync(jobPath, JSON.stringify({ genomes, seeds, outPath }))
+    return { jobPath, outPath }
+  })
+  await Promise.all(jobs.map(j => new Promise<void>((resolve, reject) => {
+    const child = spawn('npx', ['tsx', path.join(HERE, 'evolve.ts')], {
+      cwd: path.join(HERE, '..'),
+      env: { ...process.env, EVO_WORKER: j.jobPath },
+      shell: process.platform === 'win32',
+      stdio: ['ignore', 'ignore', 'pipe'],   // discard the worker's [CT] stdout (avoids a full-pipe deadlock); keep stderr for errors
+    })
+    let err = ''
+    child.stderr!.on('data', d => { err += d })
+    child.on('close', code => code === 0 ? resolve() : reject(new Error(`evolve worker exited ${code}: ${err.slice(-400)}`)))
+  })))
+  const byId: Record<string, { fitness: number; winRate: number }> = {}
+  for (const j of jobs) for (const r of JSON.parse(fs.readFileSync(j.outPath, 'utf-8'))) byId[r.id] = r
+  return pop.map(genome => ({ genome, fitness: byId[genome.id]!.fitness, winRate: byId[genome.id]!.winRate }))
 }
 
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / (xs.length || 1)
@@ -138,6 +180,17 @@ function pearson(xs: number[], ys: number[]): number {
 // engine persistence is redirected to TMP_DATA (set above), so the live game's
 // data/ is never touched. We just remove the temp dir when done.
 const HERE = path.dirname(fileURLToPath(import.meta.url))
+
+// ── Worker mode ───────────────────────────────────────────────────────────────
+// When spawned by evaluate() with EVO_WORKER=<job.json>, this process evaluates a
+// slice of the population over the shared seeds, writes the scores, and exits —
+// never reaching the genetic loop below.
+if (process.env.EVO_WORKER) {
+  const job = JSON.parse(fs.readFileSync(process.env.EVO_WORKER, 'utf-8')) as { genomes: Persona[]; seeds: string[]; outPath: string }
+  fs.writeFileSync(job.outPath, JSON.stringify(evaluateSlice(job.genomes, job.seeds)))
+  try { fs.rmSync(TMP_DATA, { recursive: true, force: true }) } catch {}   // this worker's own scratch dir
+  process.exit(0)
+}
 
 // ── Evolve ───────────────────────────────────────────────────────────────────
 const eliteCount = Math.max(2, Math.ceil(ELITE_FRAC * POP))
@@ -170,7 +223,7 @@ try {
 
   for (let gen = 1; gen <= GENERATIONS; gen++) {
     const seeds = Array.from({ length: SEEDS_PER_GENOME }, (_, si) => `evo-g${gen}-s${si}`)
-    const scored = evaluate(pop, seeds).sort((a, b) => b.fitness - a.fitness)
+    const scored = (await evaluate(pop, seeds)).sort((a, b) => b.fitness - a.fitness)
     const elites = scored.slice(0, eliteCount)
     summaryElites = elites
     lastScored = scored
