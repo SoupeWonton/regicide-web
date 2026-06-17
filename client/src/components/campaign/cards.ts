@@ -25,6 +25,11 @@ export function tokenSpend(tokens: ClientToken[]): number {
   return tokens.reduce((s, t) => s + (t.spend ?? 0), 0)
 }
 
+/** Discard-soak delta (Ballast +1, …) — added to a card's value when paying a counter. */
+export function tokenHold(tokens: ClientToken[]): number {
+  return tokens.reduce((s, t) => s + (t.hold ?? 0), 0)
+}
+
 /** Suits a card actually fires: base (or transmuted) suit + any grafted suits. */
 export function effectiveSuits(card: { suit: string }, tokens: ClientToken[]): string[] {
   let base = card.suit

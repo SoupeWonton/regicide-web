@@ -47,8 +47,11 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   },
   exile: {
     id: 'exile', tier: 3, name: 'Exile', theme: 'Deck Evolution', suit: null, ct: 0.75, siegeCt: 0.5,
-    abilityText: 'Once per camp, exile one card from the deck for the rest of the chapter. Every second exile adds Burden (harsher death forks).',
-    siegeText: 'Tithe of the Severed — at the castle gates, exile the top 2 Tavern cards forever; their value wounds the first royal.',
+    // Exile's card-removal abilities were retired (no mechanic may thin the deck —
+    // the deck only ever grows). The class is parked behind its signature tokens
+    // until it is repurposed; it currently has no active or siege ability.
+    abilityText: 'Parked — reworking. Starts with its signature tokens; no active ability for now.',
+    siegeText: '',
   },
   oracle: {
     id: 'oracle', tier: 3, name: 'Oracle', theme: 'Displacement / Foresight', suit: null, ct: 0.75, siegeCt: 0.75,
@@ -146,8 +149,33 @@ export const ITEMS: ItemDef[] = [
     text: 'Activate once per encounter: shuffle up to 6 discard cards into the Tavern, then draw 2 cards.' },
   { id: 'r-iron-reprieve', kind: 'relic', tier: 'rare', name: 'Iron Reprieve', ct: 0.75, siegeCt: 0.5, slot: 'armor', category: 'Recovery',
     text: 'Once per chapter (automatic): prevent your death and set that discard check to 1.' },
-  { id: 'r-combat-cache', kind: 'relic', tier: 'rare', name: 'Combat Cache', ct: 0.75, slot: 'trinket', category: 'Access',
+  { id: 'r-combat-cache', kind: 'relic', tier: 'mythic', name: 'Combat Cache', ct: 0.75, slot: 'trinket', category: 'Access',
     text: 'Your combos may total up to 12 instead of 10 (bigger matched plays).' },
+
+  // ── Mythic relics (Item-3 shiny decoys) — net-positive, flashy; max 3/continent ──
+  { id: 'r-glass-core', kind: 'relic', tier: 'mythic', name: 'Glass Core', ct: 1, slot: 'trinket', category: 'Initiative',
+    text: 'Your tokened cards deal +2 damage when played.' },
+  { id: 'r-warhorn', kind: 'relic', tier: 'mythic', name: 'Warhorn', ct: 1, slot: 'arms', category: 'Initiative',
+    text: 'Every play deals +2 damage.' },
+  { id: 'r-bloodhound', kind: 'relic', tier: 'mythic', name: 'Bloodhound', ct: 1, slot: 'trinket', category: 'Access',
+    text: 'Every exact kill draws a card.' },
+  { id: 'r-hoard', kind: 'relic', tier: 'mythic', name: 'Hoard', ct: 1, slot: 'armor', category: 'Access',
+    text: 'Your hand cap is raised by 2, every encounter.' },
+  // ── Premium bridge relic (Item 4) — the Catalyst (Continent 1) ──
+  { id: 'r-catalyst', kind: 'relic', tier: 'mythic', name: 'Catalyst', ct: 1.25, slot: 'arms', category: 'Initiative',
+    text: 'Once per turn, the value tokens on your first play count double.' },
+
+  // ── Hail-mary spells (Item 2) — held, swingy clutch swings (cap 2) ──
+  { id: 's-overdrive', kind: 'spell', tier: 'rare', name: 'Overdrive', ct: 0.75, category: 'Initiative',
+    text: 'Your next play this turn deals triple damage.' },
+  { id: 's-bulwark', kind: 'spell', tier: 'rare', name: 'Bulwark', ct: 0.75, category: 'Shield',
+    text: 'Negate the next counterattack entirely.' },
+  { id: 's-mass-muster', kind: 'spell', tier: 'rare', name: 'Mass Muster', ct: 0.75, category: 'Access',
+    text: 'Draw 4 cards.' },
+  { id: 's-full-recovery', kind: 'spell', tier: 'rare', name: 'Full Recovery', ct: 0.75, category: 'Recovery',
+    text: 'Shuffle your entire discard into the Tavern, then draw to a full hand.' },
+  { id: 's-execute', kind: 'spell', tier: 'rare', name: 'Execute', ct: 0.75, category: 'Initiative',
+    text: 'Instantly kill an enemy at 10 HP or less.' },
 
   // Spells — team owned, one-shot, cast on your turn
   { id: 's-keen-edge', kind: 'spell', tier: 'standard', name: 'Keen Edge', ct: 0.25, category: 'Initiative',
@@ -193,6 +221,13 @@ export function encountersOf(tier: EncounterDef['tier']): EncounterDef[] {
 }
 // Solo relic economy: two carried relics; a third forces the player to release one.
 export const RELIC_SLOTS = 2
+
+// ── Fragment-shop content (economy-and-identity.md) ──────────────────────────
+export const HAILMARY_SPELL_IDS = ['s-overdrive', 's-bulwark', 's-mass-muster', 's-full-recovery', 's-execute']
+export const MYTHIC_RELIC_IDS = ['r-glass-core', 'r-warhorn', 'r-bloodhound', 'r-hoard', 'r-combat-cache']
+export const BRIDGE_RELIC_ID = 'r-catalyst'   // Item 4 (Continent-1 premium)
+// Max mythic relics acquired per continent (Caravan + Lair + shop, combined).
+export const MYTHIC_PER_CONTINENT = 3
 
 // ── Item unlock pools (meta: start limited, death/milestone grows it) ─────────
 // Death = +breadth not power: the Kingdom starts with a small pool and unlocks

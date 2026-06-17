@@ -68,8 +68,8 @@ const CORE = [
   },
   {
     id: 'exile', name: 'Exile', theme: 'Deck Evolution', suit: '🔥',
-    question: 'What must be cut away?',
-    text: 'Starts leaner (18 cards) with Transmute on two cards — a sharper, thinner deck. (Parked — untuned.)',
+    question: 'What must be reshaped?',
+    text: 'Starts with Transmute stamped on two cards. (Parked — reworking; no active ability yet.)',
     pillars: [['Consistency', 2], ['Recovery', 1]] as const,
     accent: 'exile-accent',
   },

@@ -10,7 +10,7 @@ export type ClassId =
 export type CtCategory = 'Shield' | 'Access' | 'Recovery' | 'Initiative' | 'Consistency'
 
 export type ItemKind = 'relic' | 'spell'
-export type ItemTier = 'standard' | 'rare'
+export type ItemTier = 'standard' | 'rare' | 'mythic'   // mythic = the Item-3 shiny-decoy relics
 
 export type GearSlot = 'armor' | 'arms' | 'trinket'
 
@@ -94,6 +94,7 @@ export interface ClientToken {
   kind: TokenDef['kind']
   suit?: string
   spend: number                      // played-value delta (for the damage preview)
+  hold: number                       // discard-soak delta (Ballast +1, …) for the discard total
   suitOp?: 'add' | 'replace'         // suit tokens: graft (add) vs transmute (replace)
   lever?: TokenDef['lever']          // shield/draw/recover/edge magnitude tokens
   keyword?: TokenDef['keyword']      // scry/mark/banner/bloodprice
@@ -159,8 +160,9 @@ export type CampaignPhase =
   | 'campaign_lost'
 
 export interface PendingChoice {
-  kind: 'landmark_reward' | 'replacement' | 'exile_pick' | 'relic_full' | 'draft_pick'
+  kind: 'landmark_reward' | 'replacement' | 'relic_full' | 'draft_pick'
        | 'forge_token' | 'forge_card'      // ascending-deck Step 5: two-step forge
+       | 'shop'                            // post-Council fragment shop (4 tiers)
   forPlayerId: string | null   // null → team vote (or host when solo)
   prompt: string
   options: { id: string; label: string; detail?: string }[]
@@ -171,6 +173,8 @@ export interface PendingChoice {
   // true when this forge_token/forge_card flow is the fragment track (spends 2
   // token fragments + only offers C-tier tokens) rather than the Forge budget.
   fragmentApply?: boolean
+  // true when this forge flow is a FREE stamp (Lair rare-token reward — no budget)
+  freeForge?: boolean
 }
 
 export interface DeathVoteState {
@@ -316,6 +320,7 @@ export interface CampaignState {
 
   nextStarterIndex: number | null // Tower / Brace Command
   shrineBlessing: boolean         // +1 hand size next encounter
+  foresightNext?: boolean         // Sanctum Foresight rite: reveal the next encounter's enemy lineup
 
   pendingChoice: PendingChoice | null
   // last resolved team-reward vote — the client confirms the winner (and
@@ -345,8 +350,12 @@ export interface CampaignState {
   // Guards: always access via `c.ownedCards ?? []` etc.
   ownedCards?: string[]                          // card ids recruited this run
   tokenBudget?: number                           // Forge (F-tier) token budget
-  tokenFragments?: number                        // fragment track: 2 → 1 C-tier token (road apply)
+  tokenFragments?: number                        // fragment-shop currency
   cardTokens?: Record<string, Token[]>           // cardId → token list
+  // transient post-Council fragment-shop state (spell/premium purchase caps)
+  shop?: { spellsLeft: number; premiumLeft: number }
+  // mythic relics acquired this continent (Caravan + Lair + shop share a cap of 3)
+  mythicThisContinent?: number
   // item-economy: unlocked pools snapshotted from the Kingdom at run creation
   unlockedRelics?: string[]
   unlockedSpells?: string[]
@@ -434,6 +443,8 @@ export interface ClientEncounterState {
   drawSelectKeep?: number
   // ascending-deck: tokens stamped on cards, keyed by logical id (`${suit}${rank}`)
   cardTokens?: Record<string, ClientToken[]>
+  // Sanctum Foresight rite: the upcoming enemy lineup (labels), revealed this fight
+  foreseen?: string[]
 }
 
 export interface ClientCampaignState {
@@ -459,7 +470,6 @@ export interface ClientCampaignState {
   }) | null
   rewardDraw: { seq: number; options: { id: string; label: string; detail?: string }[]; winnerId: string; tie: boolean } | null
   deathVote: { deadHeroName: string; options: string[]; votes: Record<string, string>; myVote: string | null; isBoss: boolean } | null
-  exileAvailable: boolean
   kingdom: { unlockedChapters: number[]; unlockedClasses: ClassId[]; specializationsUnlocked: boolean }
   log: string[]
   // ascending-deck: tokens stamped on cards, keyed by logical id (`${suit}${rank}`).

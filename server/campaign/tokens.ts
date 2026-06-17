@@ -115,7 +115,7 @@ export function projectToken(t: Token): ClientToken | null {
   }
   return {
     defId: d.id, name: d.name, short, sym, kind: d.kind, suit: t.suit,
-    spend: d.spend ?? 0, suitOp: d.suitOp, lever: d.lever, keyword: d.keyword,
+    spend: d.spend ?? 0, hold: d.hold ?? 0, suitOp: d.suitOp, lever: d.lever, keyword: d.keyword,
     tone: tone(d), text: d.text,
   }
 }

@@ -386,7 +386,7 @@ function heroTooltip(h: ClientHero): string {
     <OverlayModal v-if="choice" tone="primary">
       <h3 class="text-lg font-bold text-center">{{ choice.prompt }}</h3>
       <template v-if="choice.mine">
-        <div :class="choice.kind === 'exile_pick' ? 'grid grid-cols-5 gap-1' : 'space-y-2'">
+        <div class="space-y-2">
           <template v-for="opt in choice.options" :key="opt.id">
             <!-- items are physical cards; everything else stays a button -->
             <ItemCard
@@ -398,8 +398,7 @@ function heroTooltip(h: ClientHero): string {
             <button
               v-else
               class="btn btn-outline justify-start text-left h-auto py-2 w-full"
-              :class="[choice.kind === 'exile_pick' ? 'btn-sm font-mono justify-center' : '',
-                choice.teamVote && choice.myVote === opt.id ? 'ring-2 ring-primary' : '']"
+              :class="[choice.teamVote && choice.myVote === opt.id ? 'ring-2 ring-primary' : '']"
               @click="act({ type: 'choice_pick', optionId: opt.id })"
             >
               <span class="font-semibold">{{ opt.label }}</span>
@@ -417,17 +416,12 @@ function heroTooltip(h: ClientHero): string {
       </p>
     </OverlayModal>
 
-    <!-- Fragment track (road) — apply a C-tier token anytime you hold 2+ -->
+    <!-- Fragment track (road) — banked for the post-Council graduation shop -->
     <div v-if="phase === 'road' && state.ascendingDeck && (state.tokenFragments ?? 0) > 0"
       class="flex items-center justify-center gap-2 px-3 max-w-lg mx-auto w-full">
-      <span class="text-xs text-base-content/60" :title="'Exact-kill an owned card to earn a fragment. 2 fragments apply one C-tier token.'">
-        ✦ Token fragments: <span class="font-mono">{{ state.tokenFragments }}</span>
+      <span class="text-xs text-base-content/60" :title="'Exact-kill an owned card to bank a fragment. Spend them at the graduation shop after the Council of Tens.'">
+        ✦ Fragments banked: <span class="font-mono">{{ state.tokenFragments }}</span>
       </span>
-      <button v-if="state.isHost && (state.tokenFragments ?? 0) >= 2"
-        class="btn btn-secondary btn-xs"
-        @click="act({ type: 'apply_fragment' })">
-        Apply token (–2)
-      </button>
     </div>
 
     <!-- Party strip (road) — hover a hero for class/relic details -->

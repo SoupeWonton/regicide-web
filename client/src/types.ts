@@ -123,6 +123,7 @@ export interface ClientToken {
   kind: 'value' | 'suit' | 'lever' | 'keyword'
   suit?: string
   spend: number
+  hold: number
   suitOp?: 'add' | 'replace'
   lever?: 'shield' | 'draw' | 'recover' | 'edge'
   keyword?: 'scry' | 'mark' | 'banner' | 'bloodprice'
@@ -178,7 +179,6 @@ export interface ClientCampaignState {
   pendingChoice: PendingChoiceView | null
   rewardDraw: { seq: number; options: { id: string; label: string; detail?: string }[]; winnerId: string; tie: boolean } | null
   deathVote: { deadHeroName: string; options: string[]; votes: Record<string, string>; myVote: string | null; isBoss: boolean } | null
-  exileAvailable: boolean
   kingdom: { unlockedChapters: number[]; unlockedClasses: string[]; specializationsUnlocked: boolean }
   log: string[]
   // ascending-deck: tokens stamped on cards, keyed by logical id (`${suit}${rank}`)

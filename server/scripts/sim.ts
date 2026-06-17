@@ -12,7 +12,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import {
   createCampaign, applyClassPick, applyRoadChoose, applyChoice, applyDeathVote,
-  applyExileAtCamp, applyBreakCamp, beginReplacement,
+  applyBreakCamp, beginReplacement,
   applyContinueChapter, checkEncounterEnd, applyFragmentStart,
 } from '../campaign/campaign'
 import {
@@ -419,6 +419,7 @@ interface RunRecord {
   deathsByPersona: string
   classes: string        // starting classes, in seat order
   deathsByClass: string  // classId:count|... (classId at time of death)
+  fragsC1: number        // token fragments banked entering Continent 2 (-1 = never reached)
 }
 
 // ── Bot driver ───────────────────────────────────────────────────────────────
@@ -481,7 +482,7 @@ function runCampaign(
     grants: GRANTS.join('|'),
     lossNodeKind: '', lossModifier: '',
     reachedBoss1: 0, beatCh1: 0, reachedBoss2: 0, deathsByPersona: '',
-    classes: '', deathsByClass: '',
+    classes: '', deathsByClass: '', fragsC1: -1,
   }
   const deathTally = new Map<string, number>()
   const classDeathTally = new Map<string, number>()
@@ -605,21 +606,16 @@ function runCampaign(
     if (c.phase === 'campaign_won') { rec.result = 'won'; break }
     if (c.phase === 'campaign_lost') { rec.result = 'lost'; break }
     rec.chapterReached = c.chapter
+    // capture fragments banked through Continent 1 (what you'd bring to the
+    // post-Council shop) the moment we reach Continent 2.
+    if (c.chapter >= 4 && rec.fragsC1 < 0) rec.fragsC1 = c.tokenFragments ?? 0
 
     switch (c.phase) {
       case 'road': {
-        // fragment track: if 2+ fragments are banked, apply a C-tier token now
-        // (anytime-on-road). Opens a forge_token/forge_card flow the bot resolves.
-        // On error (e.g. no card can take another token) fall through to routing.
-        if ((c.tokenFragments ?? 0) >= 2 && !c.pendingChoice) {
-          const fr = applyFragmentStart(c, HOST, HOST)
-          if (!fr.error) {
-            if (TRACE && (TRACE_ONLY.length === 0 || TRACE_ONLY.includes(seed)))
-              traceAction(c, 'bot', `bot-${runId}-${lineupId}-${seed}`, { type: 'apply_fragment' })
-            afterAction()
-            break
-          }
-        }
+        // Post-Council shop model (2026-06-16): fragments ACCUMULATE through a
+        // continent and are spent at the graduation store on the way out — so the
+        // bot no longer applies them on the road. We just measure how many it banks.
+        void applyFragmentStart   // (kept imported; road-apply intentionally disabled)
         const map = c.map!
         const node = map.nodes.find(n => n.id === map.currentNodeId)!
         const p = personaOf(0) // host commits the route; host persona steers
@@ -673,16 +669,6 @@ function runCampaign(
           // ascending-deck drafts: prefer recruiting a card (permanence) over
           // pure tempo, then defer to the first such option.
           optId = pc.options.find(o => !o.id.startsWith('draft:tempo'))?.id ?? pc.options[0]!.id
-        } else if (pc.kind === 'exile_pick') {
-          // exile the lowest card of the least-valued suit
-          const prefs = suitPref(p)
-          let best = Infinity
-          for (const o of pc.options) {
-            const suit = o.id[0] as Suit
-            const v = cardValue(o.id.slice(1) as Card['rank'])
-            const cost = v * 2 + prefs[suit]
-            if (cost < best) { best = cost; optId = o.id }
-          }
         } else if (pc.kind === 'forge_token') {
           // ascending-deck forge: spend budget on offense — value/edge tokens
           // first, then any token; only leave if nothing else is offered.
@@ -937,14 +923,7 @@ function runCampaign(
           if (!act(() => beginReplacement(c, kingdom), 'begin-replacement')) return rec
           break
         }
-        // 2) exile a weak card if an Exile is in the party (max 3 per chapter)
-        const exIdx = c.heroes.findIndex(h => h.alive && h.classId === 'exile')
-        if (exIdx >= 0 && c.exiledCards.length < 3 &&
-            (c as CampaignState & { exileCampFlag?: string }).exileCampFlag !== c.map!.currentNodeId) {
-          const r = applyExileAtCamp(c, c.heroes[exIdx]!.playerId)
-          if (!r.error) { afterAction(); break }
-          // fall through if nothing to exile
-        }
+        // (exile-at-camp retired — the deck only grows; nothing to thin here)
         if (!act(() => applyBreakCamp(c, HOST, HOST), 'break-camp')) return rec
         break
       }

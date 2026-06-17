@@ -626,16 +626,16 @@ console.log('Test C: ascending-deck flag-on — start-small deck + backfill')
   ok(`backfill end-ch1: granted 6s+7s (${afterBackfill.length} cards)`)
 
   // backfill redundancy: recruit a 6♣ via ownedCards, then backfill again —
-  // that slot becomes a tokenBudget instead
+  // that slot becomes a token FRAGMENT instead (not Forge budget)
   const c4 = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-step3b', kingdom).campaign!
   applyClassPick(c4, P1, 'sentinel')
   c4.ownedCards = ['C6']   // already owns 6♣ (e.g., recruited by exact kill)
   backfillAct(c4)
   const afterB2 = c4.ownedCards ?? []
-  const budget = c4.tokenBudget ?? 0
+  const frags = c4.tokenFragments ?? 0
   assert(afterB2.length === 8, `backfill still grants 8 total owned cards (got ${afterB2.length}): pre-owned counted`)
-  assert(budget === 1, `backfill redundancy: 1 token budget from the already-owned 6♣ (got ${budget})`)
-  ok(`backfill redundancy: owned card → +1 tokenBudget (budget=${budget})`)
+  assert(frags === 1, `backfill redundancy: 1 fragment from the already-owned 6♣ (got ${frags})`)
+  ok(`backfill redundancy: owned card → +1 fragment (fragments=${frags})`)
 
   // setupChapterDeck with ownedCards: deck includes recruited cards
   const c5 = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-step3c', kingdom).campaign!
@@ -833,6 +833,68 @@ console.log('Test F: ascending-deck — item economy (retired relics, unlock poo
   assert((c.unlockedSpells ?? []).length === (kingdom.unlockedSpells ?? []).length, 'run snapshots the Kingdom spell pool')
   assert((c.unlockedRelics ?? []).every(id => RELIC_UNLOCK_ORDER.includes(id) || STARTING_RELICS.includes(id)), 'snapshot relics are real pool ids')
   ok('item economy: run snapshots the unlocked pools')
+
+  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
+  EXPERIMENTS.provinceMode = LIVE_PROVINCE
+}
+
+// ── Test G: ascending-deck — Sanctum Rites (Phase 4) ─────────────────────────
+console.log('Test G: ascending-deck — Sanctum Rites (Foresight / Blessing / Cleanse; no Exile)')
+{
+  EXPERIMENTS.ascendingDeck = true
+  EXPERIMENTS.provinceMode = false
+  const { stampToken } = await import('../campaign/tokens')
+
+  // helper: stage a Sanctum rite menu and pick a rite (solo → resolves immediately)
+  const pickRite = (c: CampaignState, riteId: string) => {
+    c.phase = 'landmark'
+    c.pendingChoice = { kind: 'landmark_reward', forPlayerId: null, prompt: '✨ Sanctum', options: [{ id: riteId, label: riteId }] }
+    return applyChoice(c, P1, riteId, P1)
+  }
+
+  // (a) Blessing rite → shrineBlessing armed, back on the road
+  const cB = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-sanctum-b', kingdom).campaign!
+  applyClassPick(cB, P1, 'sentinel')
+  assert(!cB.shrineBlessing, 'no blessing before the rite')
+  assert(!pickRite(cB, 'sanctum:blessing').error, 'blessing rite resolves')
+  assert(cB.shrineBlessing && cB.phase === 'road', 'Blessing rite arms shrineBlessing + returns to road')
+  ok('Sanctum: Blessing rite arms the next-fight boon')
+
+  // (b) Foresight rite → flag armed, then revealed in the next encounter + projected
+  const cF = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-sanctum-f', kingdom).campaign!
+  applyClassPick(cF, P1, 'sentinel')
+  assert(!pickRite(cF, 'sanctum:foresight').error, 'foresight rite resolves')
+  assert(cF.foresightNext === true, 'Foresight rite arms foresightNext')
+  drive(cF, { cheatKill: false, stopAt: ['encounter'], budget: 80 })
+  assert(cF.phase === 'encounter', `Foresight: reached an encounter (${cF.phase})`)
+  assert(cF.encounter!.flags['foreseen'] === true, 'Foresight: enemy lineup laid bare this fight')
+  assert(cF.foresightNext === false, 'Foresight: flag consumed at the encounter')
+  const proj = buildClientCampaign(cF, P1, P1, kingdom)
+  assert(Array.isArray(proj.encounter?.foreseen), 'Foresight: upcoming lineup projected to the client')
+  ok('Sanctum: Foresight rite reveals the next fight (server flag + client projection)')
+
+  // (c) Exile is GONE — the Sanctum never offers a card-removal rite (the deck only grows)
+  const cE = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-sanctum-e', kingdom).campaign!
+  applyClassPick(cE, P1, 'sentinel')
+  cE.phase = 'landmark'
+  // drive offerSanctum indirectly by exercising the rite handler surface: the menu
+  // must contain no exile option, and the (removed) rite id must be a no-op.
+  const rExile = pickRite(cE, 'sanctum:exile')   // unknown rite id → falls through to road
+  assert(!rExile.error && cE.phase === 'road' && cE.pendingChoice === null, 'no Exile rite: unknown id is an inert no-op')
+  assert(cE.exiledCards.length === 0, 'no card was exiled (deck only grows)')
+  ok('Sanctum: Exile rite removed — no mechanic thins the deck')
+
+  // (d) Cleanse rite → lifts a curse (folds the Shrine in)
+  const cC = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-sanctum-c', kingdom).campaign!
+  applyClassPick(cC, P1, 'sentinel')
+  stampToken(cC, 'D2', { defId: 'undercut' })   // a −1 curse on 2♦
+  assert((cC.cardTokens?.['D2'] ?? []).length === 1, 'curse stamped before cleanse')
+  assert(!pickRite(cC, 'sanctum:cleanse').error, 'cleanse rite resolves')
+  const cpc = cC.pendingChoice!
+  assert(cpc.options.some(o => o.id === 'shrine:cleanse:D2'), 'Cleanse offers the cursed 2♦')
+  assert(!applyChoice(cC, P1, 'shrine:cleanse:D2', P1).error, 'cleanse pick resolves')
+  assert((cC.cardTokens?.['D2'] ?? []).length === 0, 'Cleanse: the curse is lifted')
+  ok('Sanctum: Cleanse rite lifts a curse (Shrine folded in)')
 
   EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
   EXPERIMENTS.provinceMode = LIVE_PROVINCE

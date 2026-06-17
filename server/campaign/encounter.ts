@@ -51,6 +51,8 @@ export function maxHandSize(c: CampaignState, heroIdx?: number): number {
   if (s?.bossModifierId === 'starving-court') size -= 1
   // Reliquary relic: hand cap +1 (every encounter)
   if (s && c.heroes.some(h => h.alive && h.relicIds.includes('r-reliquary'))) size += 1
+  // Hoard (mythic): the OWNER's hand cap +2 (the coast-vanilla comfort relic)
+  if (heroIdx !== undefined && c.heroes[heroIdx]?.alive && c.heroes[heroIdx]!.relicIds.includes('r-hoard')) size += 2
   // Quartermaster: hand cap +1 for the Quartermaster's OWN hand (playtest
   // canon 2026-06-11: class powers affect only the player running the class)
   if (heroIdx !== undefined && c.heroes[heroIdx]?.alive && c.heroes[heroIdx]!.classId === 'quartermaster') size += 1
@@ -507,6 +509,15 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
   if (def) clog(c, `   ${def.mechanicText}`)
 
   revealNextEnemy(c, s)
+  // Sanctum Foresight rite: lay the upcoming enemy lineup bare for this fight.
+  if (c.foresightNext) {
+    s.flags['foreseen'] = true
+    c.foresightNext = false
+    const upcoming = s.enemyDeck.map(card => cardLabel(card))
+    clog(c, upcoming.length
+      ? `👁 Foresight reveals what's coming: ${upcoming.join(', ')}.`
+      : '👁 Foresight: this foe stands alone.')
+  }
   setupPeekPhase(c, s)
   done()
 }
@@ -592,22 +603,17 @@ function revealNextEnemy(c: CampaignState, s: EncounterState) {
     hp = Math.ceil(hp * 0.55)
     attack = Math.max(3, Math.ceil(attack * 0.5))
   }
+  // Continent-2 royals keep FULL stats (J 20/10 · Q 30/15 · K 40/20). The ch4
+  // "decapitation" (8k5jk9uq) wasn't the stats — 6→10 ATK entering C2 is fine; the
+  // problem was a 20-ATK King appearing in ACT 1 via the Lair. Fixed structurally:
+  // the Lair (with its King) is gated to the end of the continent (see PROVINCE_1).
   const enemy: Enemy = { card, hp, maxHp: hp, attack, shield: 0, immunityNullified: false }
 
   if (s.bossModifierId === 'iron-court') { enemy.hp += 5; enemy.maxHp += 5 }
   if (s.bossModifierId === 'cruel-court') enemy.attack += 2
 
-  // Exile siege ultimate — Tithe of the Severed: at the first royal's reveal,
-  // permanently exile the top 2 Tavern cards; their value wounds the royal
-  // (cannot kill outright).
-  if (s.tier === 'boss' && c.heroes.some(h => h.alive && h.classId === 'exile') &&
-      s.tavern.length >= 2 && once(s, 'ult.exile')) {
-    const sacrificed = [s.tavern.pop()!, s.tavern.pop()!]
-    const wound = Math.min(sacrificed.reduce((t, cd) => t + cardValue(cd.rank), 0), enemy.hp - 1)
-    enemy.hp -= wound
-    clog(c, `🗡 TITHE OF THE SEVERED! Two cards are exiled forever — ${cardLabel(enemy.card)} takes ${wound} damage.`)
-    ev(s, 'proc', `🗡 TITHE — ${wound} damage`, 'gold', true)
-  }
+  // (Exile's "Tithe of the Severed" siege ultimate was retired — no mechanic may
+  // remove a card from the deck. The deck only ever grows. See the Exile class note.)
 
   // per-enemy hooks reset
   for (const k of Object.keys(s.flags)) if (k.startsWith('enemy.')) delete s.flags[k]
@@ -771,16 +777,16 @@ function resolveSpades(c: CampaignState, s: EncounterState, playerIdx: number, a
 }
 
 /**
- * Scry token (v2): foresee the top 3 of the Tavern and **bury your worst upcoming
- * card** — the lowest-value of the next three is sent to the bottom, so your next
- * draws skew higher. Deterministic consistency, no overflow. (A full player-choice
- * reorder/keep-or-discard pause is the planned upgrade — see ascending-deck.md.)
- * Tavern is drawn from the END (`pop`), so "top 3" = the last three cards.
+ * Scry token: foresee the top of the Tavern and **bury your worst upcoming card**
+ * to the bottom (drawn last), so your next draws skew higher. By definition it
+ * ALWAYS buries one whenever the Tavern has a card (looks at up to the top 3).
+ * Tavern is drawn from the END (`pop`), so "top" = the last cards.
  */
 function scryTopTavern(c: CampaignState, s: EncounterState) {
   const n = s.tavern.length
-  if (n < 3) return
-  const top = [n - 1, n - 2, n - 3]
+  if (n < 1) return
+  const k = Math.min(3, n)
+  const top = Array.from({ length: k }, (_, i) => n - 1 - i)
   let worst = top[0]!
   for (const i of top) if (cardValue(s.tavern[i]!.rank) < cardValue(s.tavern[worst]!.rank)) worst = i
   const [buried] = s.tavern.splice(worst, 1)
@@ -849,14 +855,36 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
 
   const enemy = s.currentEnemy!
   const tok = EXPERIMENTS.ascendingDeck   // token effects gated by the flag
+  const hasRelic = (id: string) => hero.relicIds.includes(id)
   let base = cards.reduce((sum, card) => sum + cardValue(card.rank), 0)
   if (tok) {
-    const sd = cards.reduce((sum, card) => sum + spendDelta(c, card), 0)
+    let sd = cards.reduce((sum, card) => sum + spendDelta(c, card), 0)
+    // Catalyst (mythic bridge): once per turn, the value tokens on your FIRST play
+    // count double — the abstract amplifier that compounds with a tokened deck.
+    if (sd && hasRelic('r-catalyst') && !s.flags[flagKey('catalystUsed', pi)]) {
+      s.flags[flagKey('catalystUsed', pi)] = true
+      sd *= 2
+      clog(c, '   ⚡ Catalyst: first-play token value doubled.')
+      ev(s, 'proc', '⚡ Catalyst ×2', 'gold')
+    }
     if (sd) {
       base = Math.max(0, base + sd)
       clog(c, `   ✒ Tokens: ${sd > 0 ? '+' : ''}${sd} value (base ${base}).`)
       ev(s, 'proc', `✒ ${sd > 0 ? '+' : ''}${sd} value`, sd > 0 ? 'gold' : 'blood')
     }
+    // Glass Core (mythic): your TOKENED cards deal +2 each (the over-token bait).
+    const tokenedPlayed = cards.filter(cd => (c.cardTokens?.[`${cd.suit}${cd.rank}`]?.length ?? 0) > 0).length
+    if (hasRelic('r-glass-core') && tokenedPlayed) {
+      base += 2 * tokenedPlayed
+      clog(c, `   💎 Glass Core: +${2 * tokenedPlayed} (tokened cards).`)
+      ev(s, 'proc', `💎 Glass Core +${2 * tokenedPlayed}`, 'gold')
+    }
+  }
+  // Warhorn (mythic): flat +2 damage on every play.
+  if (hasRelic('r-warhorn')) {
+    base += 2
+    clog(c, '   📯 Warhorn: +2 damage.')
+    ev(s, 'proc', '📯 Warhorn +2', 'gold')
   }
   clog(c, `${hero.playerName} plays ${cards.map(cardLabel).join(' + ')} (base ${base}).`)
   ev(s, 'play', `${hero.playerName}: ${cards.map(cardLabel).join(' + ')}`, 'plain')
@@ -947,9 +975,12 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
 
   const wagered = s.wagerArmedBy === pi
   if (enemy.hp <= 0) {
-    // Kill: still draw (no pause — the fight is moving on), then resolve the kill.
-    if (activeSuits.has('D')) resolveDiamonds(c, s, pi, base, drawB, false)
+    // Resolve the kill first (reveal the next enemy / set turn state), THEN draw.
+    // A kill has no counterattack, so the overdraw selection pause is safe here —
+    // on resume `applyKeepDrawn` just returns to play (no `pendingCounterPi`).
     resolveKill(c, s, pi, enemy.hp === 0)
+    if (s.outcome === 'active' && s.turnPhase === 'play' && activeSuits.has('D'))
+      resolveDiamonds(c, s, pi, base, drawB, true)
     if (wagered) {
       s.wagerArmedBy = null
       const got = drawForHero(c, s, pi, 2)
@@ -972,6 +1003,11 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
     }
     done()
   }
+
+  // (Enemy attack escalation was tried 2026-06-16 off the *first* raw feedback —
+  // reverted: the "Updated_Raw" same-session follow-up shows the loop becomes fun
+  // once attrition pressure appears NATURALLY, and a per-turn ATK ramp would cut
+  // short the long comeback fights that made it click. Keep enemies static.)
 
   // Enemy survives: now resolve the diamond draw. If it pauses for selection,
   // SUSPEND here — the counterattack runs after the player picks (applyKeepDrawn).
@@ -1000,6 +1036,11 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
       clog(c, '   🩸 Bloodprice: exact kill — +1 forge budget.')
       ev(s, 'proc', '🩸 Bloodprice +1 budget', 'gold')
     }
+  }
+  // Bloodhound (mythic): every exact kill draws a card — the finesse "win-more".
+  if (exact && c.heroes[killerIdx]!.relicIds.includes('r-bloodhound')) {
+    const got = drawForHero(c, s, killerIdx, 1)
+    if (got) { clog(c, '   🐺 Bloodhound: exact kill draws 1.'); ev(s, 'proc', '🐺 Bloodhound — draw 1', 'gold') }
   }
 
   // ── Ascending-deck: number-rank enemy resolution (THE GOLDEN RULE) ─────────
@@ -1178,6 +1219,11 @@ function counterattack(c: CampaignState, s: EncounterState, pi: number): { error
   }
 
   let net = Math.max(0, attack - enemy.shield)
+  if (s.flags['bulwarkNegate'] && net > 0) {
+    net = 0
+    s.flags['bulwarkNegate'] = false
+    clog(c, '   🛡 Bulwark: the counterattack is negated entirely.')
+  }
   if (s.flags['bulwarkChant'] && net > 0) {
     net = Math.max(0, net - 2)
     s.flags['bulwarkChant'] = false
@@ -1384,6 +1430,8 @@ function advanceTurn(c: CampaignState, s: EncounterState) {
   // round/turn bookkeeping for round-based modifiers
   const turnCount = ((s.flags['turnCount'] as number) ?? 0) + 1
   s.flags['turnCount'] = turnCount
+  // Catalyst is once-per-turn: clear the per-hero spent flag as the turn passes.
+  for (const k of Object.keys(s.flags)) if (k.startsWith('catalystUsed')) delete s.flags[k]
 
   // ── Siege ultimates + siege items (boss fights only, once per castle) ─────
   // (Class ultimates are canon-mode only; province mode replaces class power
@@ -1535,6 +1583,29 @@ export function applyCastSpell(c: CampaignState, playerId: string, spellId: stri
     }
     case 's-guard-up': if (!s.currentEnemy) return { error: 'No enemy.' }; s.currentEnemy.shield += 3; break
     case 's-bulwark-chant': s.flags['bulwarkChant'] = true; break
+    // ── Hail-mary spells (Item 2) ──────────────────────────────────────────────
+    case 's-overdrive': s.flags[flagKey('crownbreaker', pi)] = true; break   // next play ×3
+    case 's-bulwark': s.flags['bulwarkNegate'] = true; break                 // negate next counter
+    case 's-mass-muster': drawForHero(c, s, pi, 4); break
+    case 's-full-recovery': {
+      const { r, done } = rng(c)
+      const n = s.discard.length
+      if (n) s.tavern.unshift(...r.shuffle(s.discard.splice(0, n)))
+      done()
+      drawForHero(c, s, pi, maxHandSize(c, pi))   // draw to a full hand
+      break
+    }
+    case 's-execute': {
+      if (!s.currentEnemy) return { error: 'No enemy to execute.' }
+      if (s.currentEnemy.hp > 10) return { error: 'Execute only finishes an enemy at 10 HP or less.' }
+      clog(c, `   ☠️ Execute! ${cardLabel(s.currentEnemy.card)} is cut down.`)
+      ev(s, 'kill', `☠️ EXECUTE — ${cardLabel(s.currentEnemy.card)}`, 'gold', true)
+      s.currentEnemy.hp = 0
+      c.spells.splice(inv, 1)
+      clog(c, `📖 ${c.heroes[pi]!.playerName} casts ${item.name}.`)
+      resolveKill(c, s, pi, false)   // a save, not a recruit (non-exact)
+      return {}
+    }
     case 's-tactical-surge': {
       // Rare (rework 2026-06-15): foresee the top 5 of the Tavern and keep 2 —
       // a selective draw worth its rarity in solo (plain draw-1-each was a dud).

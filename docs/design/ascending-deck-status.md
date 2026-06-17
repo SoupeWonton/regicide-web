@@ -1,9 +1,29 @@
 # Ascending Deck — STATUS / handoff (resume here)
 
-**Single entry point for picking the work back up.** Last updated **2026-06-15**
-after playtest run #1. Deep design lives in [`ascending-deck.md`](ascending-deck.md);
+**Single entry point for picking the work back up.** Last updated **2026-06-16**
+after playtest runs #1–#4. Deep design lives in [`ascending-deck.md`](ascending-deck.md);
+**the forward progression/economy/identity vision is in
+[`economy-and-identity.md`](economy-and-identity.md)** (fragment shop, bridge-relic
+ladder, Token-2 engines, brute-force→finesse, Sanctum/spell split, difficulty freeze);
 sequenced build steps in [`ascending-deck-build-plan.md`](ascending-deck-build-plan.md);
 open questions in [`../ideas/open-design-questions.md`](../ideas/open-design-questions.md) → Q10.
+
+> **DIRECTION (2026-06-16):** difficulty is **FROZEN** (partner reached "ownership /
+> j'ai du fun" — `Final_Update.txt`). Next work is **forward design + presentation**,
+> not number-tuning.
+>
+> **▶ ACTIVELY BUILDING the economy/identity spine — RESUME AT PHASE 5.** Phases
+> 1–4 are **built + green** (smoke 5/5 incl. **Test G** for the rites, client
+> typecheck). Phases 1–3 = content + effects, the post-Council fragment shop, the
+> Caravan/Lair mythic sources. **Phase 4 = Sanctum → Rites DONE**
+> (`offerSanctum`/`applySanctumRite` in `campaign.ts`): Foresight (`foresightNext` →
+> `foreseen` client projection; **see-only, reorder deferred**) · Blessing
+> (`shrineBlessing`) · Cleanse (folds the Shrine in). **NO-EXILE (2026-06-16):** all
+> card-removal was retired (Sanctum Exile rite, Exile-class camp ability, "Tithe of
+> the Severed" siege ult, `exile_pick`) — **the deck only grows**; continents start
+> from a complete deck. The Exile **class** is parked (roster + signature tokens kept,
+> no active ability). **Phase 5 = proper shop UI + cut spells from veteran/elite/gate
+> spoils** (spells become shop+Lair only). Full spec: **`economy-and-identity.md`**.
 
 ## Where we are
 
@@ -50,6 +70,59 @@ Throne (8 enemies). Redesigned the Continent-1 fight/recruit economy:
 - Client: road fragment counter + "Apply token" button (`CampaignView.vue`).
 - Sim harness: bot applies fragments on the road; smoke updated (ch1 = skirmish
   + 3 gates, no recruit nodes). Smoke 6/6 green, client typecheck clean.
+
+**Playtest run #3 fixes (2026-06-16, raw feedback in `docs/Raw feedback/`):**
+- **Overdraw now triggers on a kill** — was `allowPause=false` on the kill path;
+  resolve the kill first, then draw-with-pause (no counter to clash with). The
+  draw-select modal now **shows your current hand** so you can judge what to keep.
+- **Scry** always buries the worst upcoming card whenever the Tavern has ≥1 card
+  (was a no-op below 3).
+- **Ballast "doesn't work"** was a display gap — the engine applied the soak
+  (`holdDelta`) but the client discard total ignored it; added `hold` to
+  `ClientToken` + `tokenHold`, discard total now includes it.
+- **Dual-type** verified correct in the engine (a grafted ♠+♦ both shields AND
+  draws); the "only 1 works" was the old single-suit preview, fixed by the v2
+  token preview.
+- **Tower removed** from Continent-1 maps (did nothing solo) → replaced with the
+  **Caravan** (buy a relic — relevant now that nobody starts with one).
+- **Forge "crystals" flood** — backfill/Council redundancy granted **Forge budget**;
+  rerouted to **fragments** (Forge budget now comes only from forge nodes).
+- **Enemy escalation — TRIED then REVERTED.** Off the first raw doc (Gabriel:
+  "early fights feel solved; enemies should regain power each turn") I added +1 ATK
+  per surviving turn on non-boss fights. The same-session **`Updated_Raw.txt`**
+  follow-up (≈20 min later) flips it: "I had 0 cards and pulled off something
+  insane — that was crazy." The loop becomes fun once **attrition** pressure
+  appears NATURALLY, and a per-turn ATK ramp would cut short exactly those long
+  comeback fights. **Verdict: tuning, not redesign** → reverted; enemies stay static.
+- Still open from the feedback: **early game light on pressure** (acceptable on-ramp
+  for now — do NOT force it with escalation), **boss difficulty spike**, **ch4/
+  Continent-2 one-shot** difficulty, the over-upgrade-vs-exact-kill tension (a *good*
+  emergent dilemma — keep), and the Continent-2 "story/class-unique cards" direction.
+
+**Playtest run #4 (2026-06-16, log `8k5jk9uq`, Surgeon, 84 min, died ch4) → fixes:**
+- **Over-upgrade trap CONFIRMED:** redundancy dumped 8+7+4 forge budget + ~10 frag
+  applies → cards played +1/+2 over face → exact-kills became impossible (0 tens
+  recruited at Council; "overkill — no recruit" everywhere). **Fix shipped:**
+  fragment cost **2 → 6** (`FRAGMENTS_PER_TOKEN`, tunable) — tokens scarce (~1–4/
+  continent), so over-stamping into overshoot is now a real cost. (Pairs with the
+  earlier backfill/Council redundancy → fragments change.)
+- **CANON — ch4 decapitation fixed STRUCTURALLY (not by stat nerf).** Corrected
+  read (designer): 6→10 ATK entering C2 is fine; the problem was a **20-ATK King in
+  ACT 1 via the Lair**. So royals keep FULL stats (J20/10·Q30/15·K40/20) and the
+  **Lair is gated to ONCE, in Act III** (`PROVINCE_1`) — the "mini-throne" gamble
+  (a full King for a rare) now lands when you're ready, not as an act-1 ambush.
+  Tower retired from the province map too. (An earlier ATK ×0.65 scale was tried
+  and **reverted** — overtuning; see the Final_Update "stop tuning" signal below.)
+- **DESIGN FREEZE on difficulty (`Final_Update.txt`, 2026-06-16):** partner moved
+  Criticism→Engagement→Retention→**Ownership** ("j'ai du fun" unqualified, 2 runs
+  while impaired, overwriting his branch as baseline, now wants "ça look better").
+  Difficulty complaints are stale → **stop tuning numbers.** Per designer: the
+  **Jester reset is intentional** — the lack of early pressure is the point (you aim
+  for exact-kill every time); do NOT make it scarce. Relic rebalance / spell
+  hold-cap / Jester-scarcity = **shelved** (would tune the fun out). **Role split:**
+  systems/economy/balance (Landry + Claude) vs visuals/UX/presentation (Gabriel).
+- Possible **death→replacement leak** in Continent 2 (canon is full reset) — verify.
+- **NEXT = forward design, not tuning: Token 2 (Continent-2 per-class identity).**
 
 **No starting relic + token UI (2026-06-15):** heroes now **start with NO relic**
 — every relic must be bought (Caravan) or won (Lair/gate). (`campaign.ts`

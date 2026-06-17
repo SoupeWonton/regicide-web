@@ -96,7 +96,7 @@ const CONT1_CH1: ChapterSpec = {
     { kinds: ['market', 'abbey', 'shrine'] },
     { kinds: ['camp', 'lair'] },                  // REST or gamble
     { kinds: ['veteran', 'draft'] },              // tier fight, or steer the deck
-    { kinds: ['tower', 'forge'] },
+    { kinds: ['market', 'forge'] },               // Caravan (buy a relic) or Forge
     { kinds: ['boss'] },                          // THE COURTYARD — 3×7
     // ── Act III — the Throne (6s+7s) ──
     { kinds: ['skirmish'] },
@@ -121,7 +121,7 @@ const CONT1_CH2: ChapterSpec = {
     { kinds: ['market', 'abbey', 'shrine'] },
     { kinds: ['camp', 'lair'] },
     { kinds: ['veteran', 'draft'] },
-    { kinds: ['tower', 'forge'] },
+    { kinds: ['market', 'forge'] },               // Caravan (buy a relic) or Forge
     { kinds: ['boss'] },                          // THE COURTYARD — 3×9
     // ── Act III — the Throne (8s+9s) ──
     { kinds: ['skirmish'] },
@@ -153,12 +153,11 @@ const CONT1_CH3: ChapterSpec = {
   ],
 }
 
-// Province prototype: one run = 12 road stops + 3 rank gates. The 12-royal
-// base-Regicide castle is split across the acts — Gates (4 Jacks), Courtyard
-// (4 Queens), Throne (4 Kings). Each act guarantees one fight and one bonus on
-// the road to its gate, plus a lair-vs-safe fork (the gamble for a rare). The
-// camp/lair forks are the central routing dilemma: rest, or push on with no
-// rest, gambling a Lair for a rare relic. Acts ramp skirmish → veteran → elite.
+// Province / Continent 2: one run = 12 road stops + 3 rank gates (Gates 4 Jacks /
+// Courtyard 4 Queens / Throne 4 Kings). Royals keep full stats — the 6→10 ATK step
+// entering C2 is fine. The LAIR (a full King for a rare, the "mini-throne" gamble)
+// is gated to ONCE, in Act III — a 20-ATK King in act 1 was the decapitation
+// (8k5jk9uq). Tower is retired everywhere (did nothing solo).
 const PROVINCE_1: ChapterSpec = {
   variant: 'prov1-b',
   layers: [
@@ -166,19 +165,19 @@ const PROVINCE_1: ChapterSpec = {
     // ── Act I — the approach to the Gates ──
     { kinds: ['skirmish'] },                      // stop 1 — guaranteed fight
     { kinds: ['forge', 'market'] },               // stop 2 — guaranteed bonus
-    { kinds: ['skirmish', 'lair'] },              // stop 3 — easy fight, or gamble a Lair for a rare
+    { kinds: ['skirmish', 'market'] },            // stop 3 — easy fight, or a Caravan
     { kinds: ['boss'] },                          // THE GATES — 4 Jacks
     // ── Act II — the Courtyard ──
     { kinds: ['veteran'] },                       // stop 4 — guaranteed fight
     { kinds: ['market', 'abbey', 'shrine'] },     // stop 5 — guaranteed bonus
-    { kinds: ['camp', 'lair'] },                  // stop 6 — REST or gamble a Lair
+    { kinds: ['camp', 'shrine'] },                // stop 6 — REST or cleanse
     { kinds: ['veteran', 'elite'] },              // stop 7 — fight (push harder for more)
-    { kinds: ['tower', 'forge'] },                // stop 8 — bonus before the Queens
+    { kinds: ['market', 'forge'] },               // stop 8 — bonus before the Queens
     { kinds: ['boss'] },                          // THE COURTYARD — 4 Queens
     // ── Act III — the Throne ──
     { kinds: ['elite'] },                         // stop 9 — guaranteed fight
     { kinds: ['forge', 'market', 'shrine'] },     // stop 10 — guaranteed bonus
-    { kinds: ['camp', 'lair'] },                  // stop 11 — REST or gamble a Lair
+    { kinds: ['camp', 'lair'] },                  // stop 11 — REST, or the one Lair (a King) for a rare
     { kinds: ['elite', 'veteran'] },              // stop 12 — the last fight before the Kings
     { kinds: ['boss'] },                          // THE THRONE — 4 Kings
   ],

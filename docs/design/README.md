@@ -6,6 +6,12 @@ the bible — noted inside it).
 
 - **[ascending-deck.md](ascending-deck.md)** — headline direction: start-small-grow-up
   deck, continents, exact-kill recruit → backfill → tokens, overdraw-and-select.
+- **[ascending-deck-status.md](ascending-deck-status.md)** — **resume-here handoff**:
+  what's built, playtest runs #1–#4 → fixes, the difficulty FREEZE (2026-06-16).
+- **[economy-and-identity.md](economy-and-identity.md)** — the forward progression
+  spine (DESIGNED, not built): brute-force→finesse, the 4-tier fragment shop, the
+  bridge-relic ladder, Token-2 identity engines, the over-upgrade trap, the
+  Sanctum/spell (rites vs held) split, relic tier feel.
 - **[ascending-deck-build-plan.md](ascending-deck-build-plan.md)** — **the builder's
   handoff**: sequenced steps, protected boundaries, starting numbers, acceptance
   criteria (Continent 1 = chapters 1–3).

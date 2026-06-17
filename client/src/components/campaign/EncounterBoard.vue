@@ -2,7 +2,7 @@
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { socket } from '../../socket'
 import type { ClientCampaignState, Card, EncounterEvent } from '../../types'
-import { cardValue, suitSymbol, CLASS_ICONS, tokensOf, tokenToneClass, tokenSpend, effectiveSuits } from './cards'
+import { cardValue, suitSymbol, CLASS_ICONS, tokensOf, tokenToneClass, tokenSpend, tokenHold, effectiveSuits } from './cards'
 import OverlayModal from './OverlayModal.vue'
 import HeroPortrait from './HeroPortrait.vue'
 import ItemCard from './ItemCard.vue'
@@ -195,8 +195,12 @@ const comboError = computed(() => {
   return null
 })
 
+// discard coverage total — includes HOLD-token soak (Ballast +1) so the soak shows
 const selectedTotal = computed(() =>
-  selected.value.reduce((s, i) => s + cardValue(hand.value[i]?.rank ?? 'A'), 0))
+  selected.value.reduce((s, i) => {
+    const card = hand.value[i]
+    return card ? s + cardValue(card.rank) + tokenHold(cardTokensOf(card)) : s
+  }, 0))
 
 // per-suit live boost for MY cards (server computes from once-per-enemy flags)
 function suitBoost(suit: string): number {
@@ -415,6 +419,21 @@ const netAttack = computed(() => {
         <button class="btn btn-primary btn-sm" @click="confirmKeepDrawn">
           Keep {{ drawPoolSelected.length }} card{{ drawPoolSelected.length !== 1 ? 's' : '' }}
         </button>
+        <!-- your current hand, so you can judge which pool cards are best to keep -->
+        <div v-if="hand.length" class="mt-1 pt-2 border-t border-base-content/10">
+          <p class="text-[10px] uppercase tracking-widest text-base-content/40 text-center mb-1">Your hand</p>
+          <div class="flex gap-1 justify-center flex-wrap">
+            <span
+              v-for="card in hand" :key="card.id"
+              class="card-face w-9 h-12 font-mono flex flex-col items-center justify-center text-xs opacity-90"
+              :title="cardTokensOf(card).map(t => t.name).join(', ')"
+            >
+              <span class="font-bold" :class="suitClass(card.suit)">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
+              <span :class="suitClass(card.suit)">{{ card.rank !== 'Jo' ? suitSymbol(card.suit) : '' }}</span>
+              <span v-if="cardTokensOf(card).length" class="text-[8px] leading-none text-success">{{ cardTokensOf(card).map(t => t.sym).join('') }}</span>
+            </span>
+          </div>
+        </div>
       </template>
       <p v-else class="text-sm text-center text-base-content/50 soft-pulse">
         ♦ Someone is selecting from their draw pool…

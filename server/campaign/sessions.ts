@@ -1,7 +1,7 @@
 import type { CampaignState, ClientCampaignState, KingdomState } from './types'
 import {
   createCampaign, applyClassPick, applyRoadChoose, applyChoice, applyDeathVote,
-  applyExileAtCamp, applyBreakCamp, beginReplacement, applyFragmentStart,
+  applyBreakCamp, beginReplacement, applyFragmentStart,
   applyContinueChapter, buildClientCampaign, checkEncounterEnd,
 } from './campaign'
 import {
@@ -81,7 +81,6 @@ export type CampaignAction =
   | { type: 'keep_drawn'; keepIndices: number[] }   // ascending-deck: overdraw selection
   | { type: 'apply_fragment' }                       // fragment track: spend 2 → apply a C-tier token
   | { type: 'death_vote'; vote: string }
-  | { type: 'exile_camp' }
   | { type: 'begin_replacement' }
   | { type: 'break_camp' }
   | { type: 'continue_chapter' }
@@ -114,7 +113,6 @@ export function dispatchCampaignAction(
     case 'keep_drawn': result = applyKeepDrawn(c, playerId, action.keepIndices); break
     case 'apply_fragment': result = applyFragmentStart(c, playerId, hostId); break
     case 'death_vote': result = applyDeathVote(c, playerId, action.vote); break
-    case 'exile_camp': result = applyExileAtCamp(c, playerId); break
     case 'begin_replacement': result = beginReplacement(c, kingdom); break
     case 'break_camp': result = applyBreakCamp(c, playerId, hostId); break
     case 'continue_chapter': result = applyContinueChapter(c, playerId, hostId); break

@@ -51,15 +51,6 @@ function act(action: Record<string, unknown>) {
       </div>
     </div>
 
-    <!-- Exile camp action -->
-    <div v-if="state.exileAvailable" class="card bg-base-100 border border-warning/40">
-      <div class="card-body p-4 gap-2">
-        <p class="font-semibold text-sm">🔥 The Exile's rite</p>
-        <p class="text-xs text-base-content/50">Remove one card from the deck for the rest of the chapter. Every second exile adds Burden.</p>
-        <button class="btn btn-sm btn-warning btn-outline" @click="act({ type: 'exile_camp' })">Begin the rite</button>
-      </div>
-    </div>
-
     <!-- Heroes recap -->
     <div class="grid grid-cols-2 gap-2">
       <div v-for="h in state.heroes" :key="h.playerId" class="card bg-base-100">
