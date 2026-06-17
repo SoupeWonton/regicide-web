@@ -17,7 +17,8 @@ import { cardLabel } from '../deck'
 // write is wrapped and a failure is dropped silently.
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const TRACE_DIR = path.join(HERE, '..', 'data', 'traces')
+// honor REGICIDE_DATA_DIR (like store.ts) so traces persist on the prod disk
+const TRACE_DIR = path.join(process.env.REGICIDE_DATA_DIR || path.join(HERE, '..', 'data'), 'traces')
 
 const safe = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, '_')
 

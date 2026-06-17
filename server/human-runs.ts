@@ -20,7 +20,9 @@ import { dbEnabled, insertRun } from './db'
 // the CSV append above always runs as the local/dev source of truth.
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const DIR = path.join(HERE, 'data', 'human-runs')
+// honor REGICIDE_DATA_DIR (like store.ts) so prod writes land on the persistent
+// disk, not the ephemeral default — must match the dir the /data endpoint serves
+const DIR = path.join(process.env.REGICIDE_DATA_DIR || path.join(HERE, 'data'), 'human-runs')
 
 const esc = (v: unknown) => {
   const s = String(v ?? '')
