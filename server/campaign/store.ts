@@ -8,7 +8,9 @@ import { STARTING_CLASSES, STARTING_RELICS, STARTING_SPELLS } from './content'
 // are permanent; campaign saves are independent from each other).
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const DATA_DIR = path.join(HERE, '..', 'data')
+// REGICIDE_DATA_DIR lets sims/tests redirect persistence to a throwaway dir so
+// they never touch the live game's kingdom.json / saves. Default: server/data.
+const DATA_DIR = process.env.REGICIDE_DATA_DIR || path.join(HERE, '..', 'data')
 const CAMPAIGN_DIR = path.join(DATA_DIR, 'campaigns')
 const KINGDOM_FILE = path.join(DATA_DIR, 'kingdom.json')
 

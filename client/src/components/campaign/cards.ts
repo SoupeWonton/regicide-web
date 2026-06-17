@@ -58,6 +58,12 @@ export function suitColor(suit: string): string {
   return suit === 'H' || suit === 'D' ? 'text-red-400' : 'text-base-content'
 }
 
+// Proper card-face suit colors (matches the in-fight deck viewer): red pips for
+// hearts/diamonds, dark pips for spades/clubs — readable on the light card face.
+export function suitClass(suit: string): string {
+  return suit === 'H' || suit === 'D' ? 'suit-red' : 'suit-black'
+}
+
 export function cardLabel(c: Card): string {
   if (c.rank === 'Jo') return '🃏'
   return `${c.rank}${suitSymbol(c.suit)}`

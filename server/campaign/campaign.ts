@@ -1637,6 +1637,8 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
     heroes,
     myHeroIndex,
     myHand: myHeroIndex < 0 ? [] : (s ? s.hands[myHeroIndex]! : (c.deck?.hands[myHeroIndex] ?? [])),
+    deckTavern: sortedPile(c.deck?.tavern ?? []),
+    deckDiscard: sortedPile(c.deck?.discard ?? []),
     isHost: forPlayerId === hostId,
     map,
     encounter,

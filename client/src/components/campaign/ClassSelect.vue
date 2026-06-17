@@ -13,56 +13,56 @@ const CORE = [
   {
     id: 'sentinel', name: 'Sentinel', theme: 'Shield · Stability', suit: '♠',
     question: 'How do we survive tomorrow?',
-    text: 'Starts with Plate (+1 shield) stamped on three Spades — lead spades to stack shield and tank counters.',
+    text: 'Stacks ♠ shield to tank counters — an all-Spade turn grants +3 shield (mix suits and it’s lost). Siege: once per castle, fully negate one counterattack.',
     pillars: [['Shield', 3], ['Recovery', 1]] as const,
     accent: 'sentinel-accent',
   },
   {
     id: 'quartermaster', name: 'Quartermaster', theme: 'Draw · Access', suit: '♦',
     question: 'How do we keep options?',
-    text: 'Starts with Provision (+1 draw pool) on three Diamonds — your diamonds dig deeper into the deck.',
+    text: 'Diamonds dig deeper — your first Diamond each encounter draws an extra card, and your hand cap is +1. Siege: when your hand first empties at the castle, the whole party re-draws to full.',
     pillars: [['Access', 3], ['Consistency', 1]] as const,
     accent: 'quartermaster-accent',
   },
   {
     id: 'surgeon', name: 'Surgeon', theme: 'Recovery · Precision', suit: '♥',
     question: 'How do we recover mistakes?',
-    text: 'Starts with Mend (+1 recover) on three Hearts — hearts return extra cards; outlast the attrition.',
+    text: 'Hearts outlast the attrition — your first Heart each enemy recovers an extra card. Siege: when the Tavern runs dry at the castle, shuffle up to 8 discards back in.',
     pillars: [['Recovery', 3], ['Consistency', 1]] as const,
     accent: 'surgeon-accent',
   },
   {
     id: 'executioner', name: 'Executioner', theme: 'Thresholds · Edge', suit: '♣',
     question: 'When should the enemy die?',
-    text: 'Starts with Edge (+2 ♣ damage) on two Clubs and an Undercut (−1) scalpel — hit hard, then land exact kills.',
+    text: 'Hits hard, then lands exact kills — once per enemy, a blow leaving the enemy at 1-2 HP deals +2 to finish. Siege: at the castle, your attacks finish royals from 1-4 HP.',
     pillars: [['Initiative', 2], ['Consistency', 1]] as const,
     accent: 'executioner-accent',
   },
   {
     id: 'commander', name: 'Commander', theme: 'Initiative · Sequencing', suit: '⚜',
     question: 'Who strikes next?',
-    text: 'Starts with Banner on three cards — every kill with a Banner card draws you forward. (Parked — untuned.)',
+    text: 'After any kill, Press the Advantage: draw 2 solo, or draw 1 and hand your follow-up turn to an ally (multiplayer). Siege: your first castle handoff re-arms that ally with 2 cards.',
     pillars: [['Initiative', 3], ['Access', 1]] as const,
     accent: 'commander-accent',
   },
   {
     id: 'warden', name: 'Warden', theme: 'Defense · Hold', suit: '🕯',
     question: 'Who carries the fallen?',
-    text: 'Starts with Bulwark-weave (+2 soak) on three low cards — cheap cards become heavy armor. (Parked — untuned.)',
+    text: 'Defiant Stand — once per run, the death fork gains a third path: revive the fallen ally with 2 cards. Siege: once per castle, the first death is prevented outright. (Locked — not yet selectable.)',
     pillars: [['Shield', 2], ['Recovery', 2]] as const,
     accent: 'warden-accent',
   },
   {
     id: 'gambler', name: 'Gambler', theme: 'Risk · Tempo', suit: '🎲',
     question: 'What is it worth to you?',
-    text: 'Starts with Glasswork (+2 hit / −1 soak) and a Mark — monstrous swings, fragile defense. (Parked — untuned.)',
+    text: 'Once per encounter, wager on a kill: land it to draw 2 (and pick who acts next in multiplayer); miss and discard 1 at random. Siege: at the castle, your first strike is doubled or halved on a coin flip.',
     pillars: [['Initiative', 2], ['Access', 2]] as const,
     accent: 'gambler-accent',
   },
   {
     id: 'oracle', name: 'Oracle', theme: 'Foresight · Consistency', suit: '🔮',
     question: 'What does the road hide?',
-    text: 'Starts with Scry and Mark — foresee the Tavern and strike the marked card. (Parked — untuned.)',
+    text: 'At each encounter start, reorder the top 3 Tavern cards — the one you place on top is Marked for +2 damage when played. Siege: at the castle, the Marked strike deals +3.',
     pillars: [['Consistency', 3], ['Initiative', 1]] as const,
     accent: 'oracle-accent',
   },
@@ -174,7 +174,7 @@ function pick(classId: string) {
     </p>
     <p v-else class="text-center text-[11px] text-primary/50 font-flavor tracking-wide">
       ⚔ Province rules: each suited hero curates the deck at setup — their lowest cards of their own suit are cut.
-      One Second Wind per act on the road; rank gates grant no mercy.
+      Dead is dead — no second winds; rank gates grant no mercy.
     </p>
   </div>
 </template>

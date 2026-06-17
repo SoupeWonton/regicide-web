@@ -424,7 +424,7 @@ interface RunRecord {
 
 // ── Bot driver ───────────────────────────────────────────────────────────────
 
-function runCampaign(
+export function runCampaign(
   lineupId: string,
   personas: Persona[],
   seed: string,
@@ -994,8 +994,19 @@ function parseArgs() {
   }
 }
 
-const { seeds, classCombos, persona: personaFlag, grants: GRANTS, bossReshuffle, castleHearts, shortCastle, province, discardModel: DISCARD_MODEL, trace: TRACE, traceOnly: TRACE_ONLY } = parseArgs()
-let { counts, lineups } = parseArgs()
+// Knobs that runCampaign reads — kept at module scope with safe defaults so this
+// module can be imported (SIM_NO_MAIN=1, e.g. by evolve.ts) without running main.
+let GRANTS: string[] = []
+let TRACE = false
+let TRACE_ONLY: string[] = []
+let DISCARD_MODEL: 'legacy' | 'pressure' = 'pressure'
+
+// CLI entry point — skipped when imported with SIM_NO_MAIN set.
+if (!process.env.SIM_NO_MAIN) {
+const _a = parseArgs()
+const { seeds, classCombos, persona: personaFlag, bossReshuffle, castleHearts, shortCastle, province } = _a
+let { counts, lineups } = _a
+;({ grants: GRANTS, trace: TRACE, traceOnly: TRACE_ONLY, discardModel: DISCARD_MODEL } = _a)
 for (const gid of GRANTS) getItem(gid)   // fail fast on item-id typos
 if (GRANTS.length) console.log(`grants (forced inclusion): ${GRANTS.join(', ')}`)
 if (classCombos.length) {
@@ -1287,3 +1298,4 @@ if (errs.length) {
 
 console.log(`\n${runs.length} campaigns, ${encs.length} encounters in ${((Date.now() - t0) / 1000).toFixed(1)}s`)
 console.log(`Data: ${OUT_DIR}`)
+}  // end CLI entry point (SIM_NO_MAIN guard)

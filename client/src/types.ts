@@ -171,6 +171,9 @@ export interface ClientCampaignState {
   heroes: ClientHero[]
   myHeroIndex: number
   myHand: Card[]
+  // persistent deck snapshot for the map's deck/discard viewer (sorted; order secret)
+  deckTavern: Card[]
+  deckDiscard: Card[]
   isHost: boolean
   map: { nodes: ClientRoadNode[]; currentNodeId: string } | null
   encounter: ClientEncounterState | null

@@ -17,7 +17,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   },
   quartermaster: {
     id: 'quartermaster', tier: 1, name: 'Quartermaster', theme: 'Draw / Access', suit: 'D', ct: 0.75, siegeCt: 1.0,
-    abilityText: 'Your first Diamond trigger each enemy draws +1 extra card, and your hand cap is +1.',
+    abilityText: 'Your first Diamond trigger each encounter draws +1 extra card, and your hand cap is +1.',
     siegeText: 'Last Requisition — once per castle, when the Quartermaster’s hand empties, the whole party draws back to full.',
   },
   surgeon: {
@@ -37,12 +37,12 @@ export const CLASSES: Record<ClassId, ClassDef> = {
   },
   warden: {
     id: 'warden', tier: 2, name: 'Warden', theme: 'Death Mitigation', suit: null, ct: 0.75, siegeCt: 1.0,
-    abilityText: 'Vigil — once per act, the Warden’s own collapse does not spend the party’s second wind. Once per run, death forks gain Defiant Stand.',
+    abilityText: 'Defiant Stand — once per run, while the Warden is alive the party’s death fork gains a third option: revive the fallen hero with 2 cards.',
     siegeText: 'Deathward — once per castle, the first death is prevented; the hero discards what they can and stands.',
   },
   gambler: {
     id: 'gambler', tier: 3, name: 'Gambler', theme: 'Uncertainty / Tempo', suit: null, ct: 0.75, siegeCt: 0.3,
-    abilityText: 'Once per encounter, wager before a play: if the enemy dies this turn, draw 2 cards and choose who acts next; if not, discard 1 random card.',
+    abilityText: 'Once per encounter, wager before a play: if the enemy dies this turn, draw 2 cards (and in multiplayer, choose who acts next); if not, discard 1 random card.',
     siegeText: 'All In — once per boss fight, the Gambler’s first strike is doubled or halved on a coin flip.',
   },
   exile: {
@@ -91,7 +91,7 @@ export const ENCOUNTERS: EncounterDef[] = [
   { id: 'fog-marker', name: 'Fog Marker', tier: 'skirmish', pressure: 0.25, category: 'Consistency',
     mechanicText: 'Intel is partial: the top of the Tavern stays hidden to setup peeks this encounter.' },
   { id: 'hooked-blades', name: 'Hooked Blades', tier: 'skirmish', pressure: 0.25, category: 'Shield',
-    mechanicText: 'A net counterattack of exactly 1 is treated as 2 unless a Spade contributed this turn.' },
+    mechanicText: 'The first net counterattack of exactly 1 this encounter is treated as 2, unless a Spade contributed that turn.' },
 
   // Veterans (0.5)
   { id: 'shieldbreaker-line', name: 'Shieldbreaker Line', tier: 'veteran', pressure: 0.5, category: 'Shield',
@@ -101,9 +101,9 @@ export const ENCOUNTERS: EncounterDef[] = [
   { id: 'starved-caravan', name: 'Starved Caravan', tier: 'veteran', pressure: 0.5, category: 'Access',
     mechanicText: 'Diamond draws are capped at 2 cards. Every second Diamond trigger ignores the cap.' },
   { id: 'command-fracture', name: 'Command Fracture', tier: 'veteran', pressure: 0.5, category: 'Initiative',
-    mechanicText: 'After a kill, if the killer keeps the follow-up turn, the next enemy’s first counterattack deals +2.' },
+    mechanicText: 'After a kill, if the killer keeps the follow-up turn, the next counterattack deals +2.' },
   { id: 'iron-rain-file', name: 'Iron Rain File', tier: 'veteran', pressure: 0.5, category: 'Shield',
-    mechanicText: 'Every second round, the first unshielded counterattack costs +1 extra discard value.' },
+    mechanicText: 'Every second counterattack you fail to fully shield costs +1 extra discard value.' },
 
   // Elites (0.75-1.0)
   { id: 'blackwall-captain', name: 'Blackwall Captain', tier: 'elite', pressure: 0.75, category: 'Shield',
@@ -179,7 +179,7 @@ export const ITEMS: ItemDef[] = [
 
   // Spells — team owned, one-shot, cast on your turn
   { id: 's-keen-edge', kind: 'spell', tier: 'standard', name: 'Keen Edge', ct: 0.25, category: 'Initiative',
-    text: 'Your next play this turn deals double damage.' },
+    text: 'Your next play deals double damage.' },
   { id: 's-quick-muster', kind: 'spell', tier: 'standard', name: 'Quick Muster', ct: 0.25, category: 'Access',
     text: 'Draw 2 cards.' },
   { id: 's-refit', kind: 'spell', tier: 'standard', name: 'Refit', ct: 0.25, siegeCt: 0.2, category: 'Recovery',
@@ -193,7 +193,7 @@ export const ITEMS: ItemDef[] = [
   { id: 's-tactical-surge', kind: 'spell', tier: 'rare', name: 'Tactical Surge', ct: 0.75, siegeCt: 0.3, category: 'Access',
     text: 'Foresee the top 5 of the Tavern and keep 2 of them.' },
   { id: 's-crownbreaker', kind: 'spell', tier: 'rare', name: 'Crownbreaker', ct: 0.75, category: 'Initiative',
-    text: 'Your next play this turn deals triple damage.' },
+    text: 'Your next play deals triple damage.' },
   { id: 's-full-recycle', kind: 'spell', tier: 'rare', name: 'Full Recycle', ct: 0.75, siegeCt: 0.5, category: 'Recovery',
     text: 'Shuffle up to 6 discard cards into the Tavern, then draw 2 cards.' },
 ]

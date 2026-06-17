@@ -8,7 +8,7 @@ import EncounterBoard from './EncounterBoard.vue'
 import CampPanel from './CampPanel.vue'
 import OverlayModal from './OverlayModal.vue'
 import ItemCard from './ItemCard.vue'
-import { suitSymbol, suitColor, CLASS_ICONS } from './cards'
+import { suitSymbol, suitColor, suitClass, CLASS_ICONS } from './cards'
 import { sound, toggleMute, sfx } from '../../sound'
 
 const muted = ref(sound.muted)
@@ -28,6 +28,9 @@ const props = defineProps<{ state: ClientCampaignState; code: string }>()
 
 const errorMsg = ref('')
 socket.on('error', (msg: string) => { errorMsg.value = msg })
+
+// deck/discard viewer (road & camp) — mirrors the in-fight deck viewer
+const showDeck = ref(false)
 
 const phase = computed(() => props.state.phase)
 const choice = computed(() => props.state.pendingChoice)
@@ -164,12 +167,18 @@ watch(() => props.state.phase, (now, was) => {
       const gates = {
         J: { title: 'The Gates', sub: `${e.totalEnemies} Jacks bar the way. Break them.` },
         Q: { title: 'The Courtyard', sub: `${e.totalEnemies} Queens hold the yard. No mercy here.` },
-        K: { title: 'The Throne', sub: `${e.totalEnemies} Kings. No retreat. No second wind.` },
+        K: { title: 'The Throne', sub: `${e.totalEnemies} Kings. No retreat. No mercy.` },
       }[e.siegeRank]
       showSplash({ over: e.siegeRank === 'K' ? 'The final siege' : 'The siege', title: gates.title, sub: gates.sub, tone: 'blood' }, 3000)
-    } else if (e.tier === 'boss')
-      showSplash({ over: 'No retreat', title: props.state.chapter === 1 ? 'The Castle' : 'The Broken Court', sub: 'Twelve royals stand between you and the crown.', tone: 'blood' }, 3000)
-    else if (e.modifier)
+    } else if (e.tier === 'boss') {
+      const royals = e.totalEnemies
+      const boss = props.state.chapter <= 1
+        ? { over: 'The First Ascension', title: 'The Castle Awaits', sub: `${royals} royals hold the keep — take the crown and let your lineage endure.` }
+        : props.state.chapter === 2
+        ? { over: 'The Broken Court', title: 'The Shattered Throne', sub: `${royals} royals bar the way — break the court and the province breathes free.` }
+        : { over: 'The Final Ascent', title: 'One Last Crown', sub: `${royals} royals between you and victory — stand together and make it count.` }
+      showSplash({ over: boss.over, title: boss.title, sub: boss.sub, tone: 'blood' }, 3000)
+    } else if (e.modifier)
       showSplash({ over: { skirmish: 'Skirmish', veteran: 'Veterans', elite: 'Elite' }[e.tier] ?? 'Encounter', title: e.modifier.name, sub: e.modifier.text, tone: 'gold' }, 2400)
   }
 })
@@ -283,9 +292,15 @@ function heroTooltip(h: ClientHero): string {
             ? 'Both chapters conquered. Gambler, Exile and Oracle join the Kingdom roster.'
             : 'Every hero is dead — but the Kingdom keeps its unlocks. The next lineage will know better.' }}
         </p>
-        <button class="btn btn-primary mt-2 rise-in-4" @click="socket.emit('end_campaign_session', { code })">
-          Back to the lobby
-        </button>
+        <div class="flex flex-wrap gap-2 justify-center mt-2 rise-in-4">
+          <button v-if="state.isHost" class="btn btn-primary" @click="socket.emit('restart_campaign', { code })">
+            ⚔ Run it again
+          </button>
+          <button class="btn" :class="state.isHost ? 'btn-ghost' : 'btn-primary'" @click="socket.emit('end_campaign_session', { code })">
+            Back to the lobby
+          </button>
+        </div>
+        <p v-if="!state.isHost" class="text-[11px] text-base-content/40">The host can start a new run for the party.</p>
       </div>
     </div>
     </div>
@@ -386,7 +401,7 @@ function heroTooltip(h: ClientHero): string {
     <OverlayModal v-if="choice" tone="primary">
       <h3 class="text-lg font-bold text-center">{{ choice.prompt }}</h3>
       <template v-if="choice.mine">
-        <div class="space-y-2">
+        <div :class="(choice.kind === 'exile_pick' || choice.kind === 'forge_card') ? 'flex flex-wrap gap-1.5 justify-center' : 'space-y-2'">
           <template v-for="opt in choice.options" :key="opt.id">
             <!-- items are physical cards; everything else stays a button -->
             <ItemCard
@@ -395,10 +410,21 @@ function heroTooltip(h: ClientHero): string {
               :class="choice.teamVote && choice.myVote === opt.id ? 'ring-2 ring-primary' : ''"
               @click="act({ type: 'choice_pick', optionId: opt.id })"
             />
+            <!-- card pickers (exile rite / forge stamp) — rendered like the in-fight deck viewer -->
+            <button
+              v-else-if="choice.kind === 'exile_pick' || choice.kind === 'forge_card'"
+              class="card-face w-12 h-16 font-mono flex flex-col items-center justify-center relative transition-transform hover:-translate-y-1"
+              :class="choice.teamVote && choice.myVote === opt.id ? 'ring-2 ring-primary' : ''"
+              :title="opt.detail"
+              @click="act({ type: 'choice_pick', optionId: opt.id })"
+            >
+              <span class="text-lg font-bold" :class="suitClass(opt.id[0])">{{ opt.id.slice(1) }}</span>
+              <span :class="suitClass(opt.id[0])">{{ suitSymbol(opt.id[0]) }}</span>
+            </button>
             <button
               v-else
               class="btn btn-outline justify-start text-left h-auto py-2 w-full"
-              :class="[choice.teamVote && choice.myVote === opt.id ? 'ring-2 ring-primary' : '']"
+              :class="choice.teamVote && choice.myVote === opt.id ? 'ring-2 ring-primary' : ''"
               @click="act({ type: 'choice_pick', optionId: opt.id })"
             >
               <span class="font-semibold">{{ opt.label }}</span>
@@ -414,6 +440,36 @@ function heroTooltip(h: ClientHero): string {
       <p v-else class="text-sm text-center text-base-content/50 soft-pulse">
         {{ choice.forPlayerId ? 'Their decision to make…' : 'The host decides…' }}
       </p>
+    </OverlayModal>
+
+    <!-- Deck & discard viewer — mirrors the in-fight deck viewer -->
+    <OverlayModal v-if="showDeck" tone="primary" dismissable @close="showDeck = false">
+      <h3 class="text-lg font-bold text-center">🂠 The Deck</h3>
+      <p class="text-[10px] text-center text-base-content/40 -mt-2">sorted by suit · the draw order stays secret</p>
+
+      <p class="text-sm font-semibold text-center mt-2">🍺 Tavern
+        <span class="font-normal text-base-content/50">— {{ state.deckTavern?.length ?? 0 }} cards</span></p>
+      <div v-if="state.deckTavern?.length" class="flex flex-wrap gap-1 justify-center">
+        <div v-for="card in (state.deckTavern ?? [])" :key="card.id"
+          class="card-face w-9 h-12 flex flex-col items-center justify-center font-mono text-xs">
+          <span class="font-bold" :class="suitClass(card.suit)">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
+          <span :class="suitClass(card.suit)">{{ card.rank !== 'Jo' ? suitSymbol(card.suit) : '' }}</span>
+        </div>
+      </div>
+      <p v-else class="text-sm text-center text-base-content/40">Empty.</p>
+
+      <p class="text-sm font-semibold text-center mt-2">🗑 Discard
+        <span class="font-normal text-base-content/50">— {{ state.deckDiscard?.length ?? 0 }} cards</span></p>
+      <div v-if="state.deckDiscard?.length" class="flex flex-wrap gap-1 justify-center">
+        <div v-for="card in (state.deckDiscard ?? [])" :key="card.id"
+          class="card-face w-9 h-12 flex flex-col items-center justify-center font-mono text-xs">
+          <span class="font-bold" :class="suitClass(card.suit)">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
+          <span :class="suitClass(card.suit)">{{ card.rank !== 'Jo' ? suitSymbol(card.suit) : '' }}</span>
+        </div>
+      </div>
+      <p v-else class="text-sm text-center text-base-content/40">Empty.</p>
+
+      <button class="btn btn-ghost btn-sm" @click="showDeck = false">Close</button>
     </OverlayModal>
 
     <!-- Fragment track (road) — banked for the post-Council graduation shop -->
@@ -435,6 +491,14 @@ function heroTooltip(h: ClientHero): string {
         <div class="font-semibold truncate">{{ h.alive ? CLASS_ICONS[h.classId] : '💀' }} {{ h.playerName }}</div>
         <div class="text-base-content/40">{{ h.handSize }} cards{{ h.relics.length ? ' · 🏺' + h.relics.length : '' }}</div>
       </div>
+    </div>
+
+    <!-- Deck & discard viewer trigger (road / camp / landmark) -->
+    <div v-if="(phase === 'road' || phase === 'camp' || phase === 'landmark') && state.map" class="flex justify-center px-3">
+      <button class="btn btn-ghost btn-xs gap-1 text-base-content/60" @click="showDeck = true">
+        🂠 View deck &amp; discard
+        <span class="opacity-50">({{ state.deckTavern?.length ?? 0 }}/{{ state.deckDiscard?.length ?? 0 }})</span>
+      </button>
     </div>
 
     <!-- Persistent hand (carries between encounters; camp rests redraw it) -->
