@@ -110,7 +110,7 @@ export const CLASS_SIGNATURE_PREVIEW: Record<string, SigStamp[]> = {
 
 export const NODE_DESCRIPTIONS: Record<string, string> = {
   start: 'Where the lineage set out.',
-  camp: 'Rest: the deck is reshuffled, hands redrawn to full. Replace fallen heroes.',
+  camp: 'Rest: the deck is reshuffled, hands redrawn to full.',
   boss: 'The full castle — 12 royals. No retreat once a hero falls.',
   skirmish: 'A light fight (2 Jacks) with a minor twist. Your hand and deck carry over from the road.',
   veteran: 'A harder fight (Jacks + a Queen) with a nastier twist.',

@@ -503,7 +503,7 @@ socket.on('error', (msg: string) => { errorMsg.value = msg })
 function heroTooltip(h: (typeof props.state.heroes)[number]): string {
   const lines = [`${h.className} — ${h.abilityText}`]
   for (const rl of h.relics) lines.push(`🏺 ${rl.name}: ${rl.text}`)
-  if (!h.alive) lines.push('💀 Fallen — can be replaced at camp.')
+  if (!h.alive) lines.push('💀 Fallen.')
   return lines.join('\n')
 }
 
