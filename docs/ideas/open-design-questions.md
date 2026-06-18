@@ -489,3 +489,50 @@ steps can be closed and then evaluated by **raw play feedback**.
 tier; number-enemy stat line; backfill cadence vs. chapter length; what an exact-kill
 grants when the card is *new* vs. owned; recruit-node density feel (2–4 exact kills
 per lane); whether the ch1→ch2→ch3→Council→province arc lands at ~1–2 hr.
+
+---
+
+## Q11 — Continent 2: scaling forces specialization ✅ DIRECTION RATIFIED (2026-06-17)
+
+**Decision.** Continent 2 (ch4–6) is **the same game scaled up**, not new mechanics.
+Chapters 4–5 are tuned so a **vanilla deck with a few +1 tokens cannot reliably
+survive** (win% craters) while a deck that **specializes hard into one suit-axis**
+clears. The pressure is **statistical, not mechanical** — bosses just have more
+HP/attack; **no anti-class modifiers, nothing references the player's build.** A boss
+should feel *bigger and meaner, not weird.*
+
+> **Explicitly rejected:** the earlier "anti-class walls" idea (Bulwark / Bloodletter /
+> Siege modifiers that mechanically force a suit — lock-and-key puzzle design). Bosses
+> are never adversarial to a specific build.
+
+**Rationale (the load-bearing math).** A fight is a race: *turns-to-kill*
+(`HP / DPS`) vs. *attrition* (soak each turn without running dry). Scaling worsens both
+terms together. Vanilla improves every term **linearly**; a scaled bar outpaces linear
+gains. Each specialization breaks **one term non-linearly** — ♣ collapses turns-to-kill,
+♥ removes attrition, ♠ makes soak free + chips HP, ♦ fuels both. You cannot beat a
+non-linear bar by spreading power evenly (wrong *shape*).
+
+**Implications ratified:**
+- **Token economy split:** generic +value tokens = **linear** power (Continent 1 ramp);
+  the class **level-2 axis exploit = non-linear** power (required for Continent 2).
+- **Exploits = ★★★★ super-stamps** (pure-token; one/chapter → ch4/5/6 ladder), reframing
+  `specialization-trees.md` Root + Branch A. The four axes: ♠ Sentinel (Aegis/Riposte),
+  ♦ QM (Munitions), ♥ Surgeon (Painless/Transfusion), ♣ Executioner (Chain/Cleave).
+- **Anti-wall gimmicks dropped** (QM combo-rule "Salvo", Executioner "ignore caps") —
+  with no walls to crack, exploits only need to be multiplicative on their axis.
+
+**Tuning = sim + playtest (this is a numbers problem, not content).** Human telemetry
+mirrors the sim record shape, so both pool into `analyze-province.ts`. **Sims set the
+win% curve** (prerequisite: two personas/class — *vanilla generalist* vs. *axis
+specialist* — measure the win% delta as bosses scale; that delta is the target).
+**Humans confirm the feel** (forced vs. chosen specialization; is a loss legible).
+Target split: **vanilla ≈ 15–20% / specialized ≈ 50–60%.** Sequencing: collect human
+rows now → build the persona split → sweep boss stats in sim → re-validate with humans.
+
+⏳ **Open (brainstorm/data):** off-suit classes (Commander/Gambler/Oracle — which term
+do they break?); Exile repurpose (owns no axis post-NO-EXILE); the actual HP/attack
+curve and exploit formulas; whether Camp four-axis pips are the "raise toward ceiling"
+dial under the same system; where deck-growth stops in ch5–6.
+
+**Full design:** [`continent-2-axes-and-exploits.md`](./continent-2-axes-and-exploits.md);
+structure note in `docs/design/ascending-deck.md`.

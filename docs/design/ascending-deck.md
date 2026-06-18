@@ -41,13 +41,38 @@ A campaign spans **continents**; each continent is ~3 chapters (provinces).
   special fight against all four 10s); winning completes the number deck and
   ascends you into Continent 2. End state: a complete, lightly-tuned A–10 deck.
 - **Continent 2 — "mastery" (chapters 4–6).** Royal recruiting + fine-tuning.
-  **No backfill.** Exact-kill royals to recruit them; exile/forge to sharpen.
+  **No backfill.** Exact-kill royals to recruit them; forge to sharpen.
   The deck **carries across** from Continent 1.
 
 > **Implementation note:** Continent 2 is approximately the *currently shipped*
-> province (J/Q/K gates, exact-recruit `resolveKill:661`, exile/forge, no
+> province (J/Q/K gates, exact-recruit `resolveKill:661`, forge, no
 > backfill). Continent 1 is the genuinely new content. **Backfill is a
 > Continent-1-only rule**, gated by continent, not global.
+
+### Continent 2 = scaling forces specialization (ratified 2026-06-17)
+
+J/Q/K stays the boss vocabulary across Continent 2, but the **content of a chapter
+is its difficulty scaling, not a new royal rank.** Chapters 4–5 are tuned so that a
+**vanilla deck with a few +1 tokens cannot reliably survive** (win% craters), while a
+deck that **specializes hard into one suit-axis** clears. The pressure is
+**statistical, not mechanical**: bosses simply have more HP/attack — **no anti-class
+modifiers, nothing references your build.** A boss feels *bigger and meaner, not weird.*
+
+**Why scaling alone forces it:** a fight is a race between *turns-to-kill*
+(`HP / damage-per-turn`) and *attrition* (soaking each turn's attack without running
+dry). Scaling worsens both terms together. Vanilla improves every term *linearly*; a
+scaled bar outpaces linear gains. **Each specialization breaks one term *non-linearly*
+— ♣ collapses turns-to-kill, ♥ removes attrition, ♠ makes soak free + chips HP, ♦ fuels
+both.** You can't beat a non-linear bar by spreading power evenly.
+
+This sets the **token economy split**: generic **+value tokens = linear power** (enough
+for Continent 1's ramp); the **class level-2 axis exploit = non-linear power** (required
+for Continent 2). The exploits are delivered as **★★★★ super-stamps** (pure-token; one
+per chapter → the ch4/5/6 ladder), reframing `specialization-trees.md` Root + Branch A.
+
+Full design + the four per-class exploits + the sim/playtest tuning plan:
+[`../ideas/continent-2-axes-and-exploits.md`](../ideas/continent-2-axes-and-exploits.md).
+Target split (set by data): **vanilla ≈ 15–20% / specialized ≈ 50–60%.**
 
 ## Systems & identity (consolidation, locked 2026-06-14)
 

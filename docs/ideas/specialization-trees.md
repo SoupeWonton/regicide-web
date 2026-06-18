@@ -3,6 +3,18 @@
 **Status:** Design suggestion — not yet implemented. For review and playtest
 validation before coding. Treat all numbers as first-draft targets.
 
+> **2026-06-17 reframe:** under the ascending-deck model, this tree's **Root +
+> Branch A** is now read as each class's **level-2 "axis exploit"** — the
+> non-linear power that scaled-up Continent 2 bosses require (vanilla win% craters;
+> the pressure is **statistical scaling, not anti-class mechanics**). See
+> [`continent-2-axes-and-exploits.md`](./continent-2-axes-and-exploits.md) for the
+> four-axis framing and the reconciliation. Two carry-over changes: **(1)** the
+> in-run unlock is the branch at the continent seam; **Branch B / depth = cross-run
+> candle meta** (Q6). **(2)** The **Exile tree is RETIRED** — it is built on
+> exile/deck-thinning, which the **NO-EXILE** rule bans; the Exile class is parked
+> pending a non-thinning repurpose. The point economy below (Lair/province-clear
+> across runs) is superseded; re-map the earn side when candles (Q6) are specified.
+
 ## Framework
 
 ### How points are earned
