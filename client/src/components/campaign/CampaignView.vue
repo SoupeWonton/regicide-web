@@ -240,6 +240,17 @@ function heroTooltip(h: ClientHero): string {
     <EncounterBoard v-else-if="(phase === 'encounter' || phase === 'death_vote') && state.encounter" :state="state" :code="code" />
     <CampPanel v-else-if="phase === 'camp'" :state="state" :code="code" />
 
+    <!-- Tutorial complete — end on the win, one plain line, then into a real run -->
+    <div v-else-if="phase === 'tutorial_done'" class="flex-1 flex items-center justify-center p-4">
+      <div class="card bg-base-100/95 border border-primary/30 shadow-xl text-center py-10 px-8 gap-4 flex flex-col items-center max-w-sm">
+        <div class="text-5xl crown-rise">⚜️</div>
+        <h2 class="text-2xl font-display font-bold gold-title rise-in-2">You've got it.</h2>
+        <button class="btn btn-primary btn-lg mt-2" @click="socket.emit('start_campaign', { code, chapter: 1 })">
+          Begin your run →
+        </button>
+      </div>
+    </div>
+
     <!-- Chapter complete -->
     <div v-else-if="phase === 'chapter_complete'" class="flex-1 flex items-center justify-center p-4">
       <div class="card bg-base-100/95 border border-primary/30 shadow-xl text-center py-10 px-8 gap-3 flex flex-col items-center max-w-md">

@@ -7,7 +7,7 @@ import {
   markConnected, gameStateFor, leaveRoom, deleteRoom,
 } from './rooms'
 import {
-  startCampaignSession, resumeCampaignSession, dispatchCampaignAction,
+  startCampaignSession, startTutorialSession, resumeCampaignSession, dispatchCampaignAction,
   buildCampaignStates, getSaves, getKingdom, getSession, endSession,
 } from './campaign/sessions'
 import type { CampaignAction } from './campaign/sessions'
@@ -284,6 +284,15 @@ io.on('connection', socket => {
     if (!info) { socket.emit('error', 'Room not found.'); return }
     if (info.hostId !== cid) { socket.emit('error', 'Only the host can start a campaign.'); return }
     const { error } = startCampaignSession(code, info.players.map(p => ({ id: p.id, name: p.name })), (chapter === 2 ? 2 : 1), seed, { runName, record })
+    if (error) { socket.emit('error', error); return }
+    broadcastCampaign(code)
+  })
+
+  socket.on('start_tutorial', ({ code }: { code: string }) => {
+    const info = roomInfo(code)
+    if (!info) { socket.emit('error', 'Room not found.'); return }
+    if (info.hostId !== cid) { socket.emit('error', 'Only the host can start the tutorial.'); return }
+    const { error } = startTutorialSession(code, info.players.map(p => ({ id: p.id, name: p.name })))
     if (error) { socket.emit('error', error); return }
     broadcastCampaign(code)
   })

@@ -59,6 +59,26 @@ function startCampaign() {
 function resumeCampaign(campaignId: string) {
   socket.emit('resume_campaign', { code, campaignId })
 }
+
+// ── First-run / tutorial gate ────────────────────────────────────────────────
+// Per-visitor flag (the server Kingdom is global, so it can't scope "first run").
+const TUTORIAL_FLAG = 'kingfall-tutorial-done'
+const firstRunPrompt = ref(false)
+
+function onStart() {
+  if (localStorage.getItem(TUTORIAL_FLAG)) { startCampaign(); return }
+  firstRunPrompt.value = true
+}
+function chooseTutorial() {
+  localStorage.setItem(TUTORIAL_FLAG, '1')   // answered once — don't ask again
+  firstRunPrompt.value = false
+  socket.emit('start_tutorial', { code })
+}
+function skipTutorial() {
+  localStorage.setItem(TUTORIAL_FLAG, '1')
+  firstRunPrompt.value = false
+  startCampaign()
+}
 </script>
 
 <template>
@@ -77,6 +97,16 @@ function resumeCampaign(campaignId: string) {
     </p>
     <button class="btn btn-error w-full" @click="leaveRoom">Leave</button>
     <button class="btn btn-ghost btn-sm" @click="confirmLeave = false">Stay</button>
+  </OverlayModal>
+
+  <!-- First-run prompt: offer the tutorial -->
+  <OverlayModal v-if="firstRunPrompt" tone="primary" dismissable @close="firstRunPrompt = false">
+    <h3 class="text-lg font-bold text-center">Is this your first run?</h3>
+    <p class="text-sm text-center text-base-content/60">
+      We'll walk you through the basics in a short scripted fight — about two minutes.
+    </p>
+    <button class="btn btn-primary w-full" @click="chooseTutorial">Yes — show me the ropes</button>
+    <button class="btn btn-ghost btn-sm" @click="skipTutorial">No — straight to the run</button>
   </OverlayModal>
 
   <!-- Campaign mode -->
@@ -120,7 +150,7 @@ function resumeCampaign(campaignId: string) {
             <input v-model="recordRun" type="checkbox" class="checkbox checkbox-sm checkbox-primary" />
             <span class="text-xs text-base-content/60">save this run's stats (bot vs human data)</span>
           </label>
-          <button class="btn btn-primary w-full" @click="startCampaign">Begin a new lineage</button>
+          <button class="btn btn-primary w-full" @click="onStart">Start</button>
 
           <template v-if="saves.length">
             <div class="divider my-0 text-xs text-base-content/40">or resume</div>

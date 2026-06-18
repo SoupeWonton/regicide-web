@@ -5,13 +5,14 @@ import type {
   CampaignState, ClassId, ClientCampaignState, ClientHero, ClientRoadNode,
   Hero, KingdomState, NodeKind, PendingChoice, Token,
 } from './types'
-import { CLASSES, TIER1_CLASSES, STARTING_CLASSES, getItem, itemsOf, RELIC_SLOTS, getEncounterDef, BOSS_MODIFIERS, FORGEABLE_TOKEN_IDS, C_TIER_TOKEN_IDS, getTokenDef, RELIC_UNLOCK_ORDER, SPELL_UNLOCK_ORDER, HAILMARY_SPELL_IDS, MYTHIC_RELIC_IDS, BRIDGE_RELIC_ID, MYTHIC_PER_CONTINENT } from './content'
+import { CLASSES, TIER1_CLASSES, getItem, itemsOf, RELIC_SLOTS, getEncounterDef, BOSS_MODIFIERS, FORGEABLE_TOKEN_IDS, C_TIER_TOKEN_IDS, getTokenDef, RELIC_UNLOCK_ORDER, SPELL_UNLOCK_ORDER, HAILMARY_SPELL_IDS, MYTHIC_RELIC_IDS, BRIDGE_RELIC_ID, MYTHIC_PER_CONTINENT } from './content'
 import { stampToken, projectCardTokens, MAX_TOKENS_PER_CARD } from './tokens'
 import { buildMap } from './maps'
 import {
   startEncounter, maxHandSize, setupChapterDeck, campRest, dealReplacementHand,
   computeBoosts, RECRUIT_RANKS_BY_CHAPTER,
 } from './encounter'
+import { buildTutorialDeck, tutorialBeatProjection, tutorialDiscardHints } from './tutorial'
 import { loadKingdom, saveKingdom, saveCampaign, appendGameLog } from './store'
 import { EXPERIMENTS } from './experiments'
 import { RUN_EVENTS } from './events'
@@ -98,9 +99,10 @@ export function createCampaign(
 
 export function applyClassPick(c: CampaignState, playerId: string, classId: ClassId): { error?: string } {
   if (c.phase !== 'class_select') return { error: 'Not selecting classes.' }
-  // province canon 2026-06-11: support (commander, warden) and weird (gambler,
-  // oracle) classes are start-available; exile remains a later unlock
-  if (!STARTING_CLASSES.includes(classId)) return { error: 'That class has not been unlocked yet.' }
+  // New players get only the 4 core classes (TIER1); the other 5 are meta-unlock
+  // runway, hidden in the UI and rejected here until unlocks ship. Mirrors the
+  // client AVAILABLE_CLASSES list in ClassSelect.vue.
+  if (!TIER1_CLASSES.includes(classId)) return { error: 'That class has not been unlocked yet.' }
   if (!(playerId in c.classPicks)) return { error: 'You are not in this campaign.' }
   const taken = Object.entries(c.classPicks).some(([pid, cid]) => pid !== playerId && cid === classId)
   if (taken) return { error: 'That class is already claimed.' }
@@ -121,6 +123,24 @@ export function applyClassPick(c: CampaignState, playerId: string, classId: Clas
     logNodeCT(c)
   }
   return {}
+}
+
+// Launch the scripted onboarding tutorial: force a solo Sentinel, skip class
+// select, and drop straight into a fixed-deck / fixed-enemy encounter. Isolated
+// behind c.tutorial so the live campaign engine is untouched.
+export function startTutorial(c: CampaignState) {
+  c.tutorial = true
+  c.chapter = 1
+  for (const h of c.heroes) { h.classId = 'sentinel'; c.classPicks[h.playerId] = 'sentinel' }
+  c.map = {
+    variant: 'tutorial',
+    nodes: [{ id: 'tut', kind: 'skirmish', known: true, layer: 0, next: [], visited: true, rewardCT: 0, pressureCT: 0 }],
+    currentNodeId: 'tut',
+  }
+  buildTutorialDeck(c)
+  startEncounter(c, 'tut', 'skirmish')
+  c.phase = 'encounter'
+  clog(c, '🎓 Tutorial — First Blood. A safe fight to learn the verbs.')
 }
 
 // playtest logging canon: per-node reward/pressure/net CT (server log only)
@@ -1074,6 +1094,9 @@ function unlockNextItems(relics: number, spells: number): boolean {
 export function checkEncounterEnd(c: CampaignState, kingdom?: KingdomState) {
   const s = c.encounter
   if (!s || s.outcome === 'active') return
+  // Tutorial: the scripted fight just ended — show the end card, don't run any
+  // chapter/road advancement (the tutorial map has no real next node).
+  if (c.tutorial) { c.phase = 'tutorial_done'; c.encounter = null; return }
   reclaimDeck(c)
   if (s.outcome === 'wiped') {
     c.encounter = null
@@ -1614,6 +1637,16 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
       drawSelectKeep: s.turnPhase === 'draw_select' && s.drawSelectHeroIdx === myHeroIndex
         ? (s.drawSelectCap ?? Math.max(0, maxHandSize(c, myHeroIndex) - s.hands[myHeroIndex]!.length))
         : undefined,
+      // ascending-deck: graft picker — only the hero who landed the kill chooses
+      graftSelect: s.turnPhase === 'graft_select' && s.pendingGraft?.heroIdx === myHeroIndex
+        ? { suit: s.pendingGraft.suit }
+        : undefined,
+      // scripted tutorial: the current guide beat for the viewing hero
+      tutorialBeat: tutorialBeatProjection(c, s, myHeroIndex >= 0 ? s.hands[myHeroIndex]! : []),
+      // scripted tutorial: present the no-reward enemy as a Training Dummy, and
+      // flash the safe cards to pay with during discard.
+      tutorialDummy: c.tutorial && s.flags['tut.reward'] === 'none' ? true : undefined,
+      tutorialDiscard: tutorialDiscardHints(c, s, myHeroIndex >= 0 ? s.hands[myHeroIndex]! : []),
       cardTokens: projectCardTokens(c),
       // Sanctum Foresight rite: the upcoming enemy lineup, laid bare this fight
       foreseen: s.flags['foreseen'] ? s.enemyDeck.map(card => cardLabelFromId(`${card.suit}${card.rank}`)) : undefined,

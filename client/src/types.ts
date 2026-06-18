@@ -52,7 +52,7 @@ export interface RoomInfo {
 export type CampaignPhase =
   | 'class_select' | 'road' | 'landmark' | 'encounter' | 'death_vote'
   | 'camp' | 'replace_hero' | 'chapter_complete'
-  | 'campaign_won' | 'campaign_lost'
+  | 'campaign_won' | 'campaign_lost' | 'tutorial_done'
 
 export interface ItemView { id: string; name: string; text: string; tier: 'standard' | 'rare' }
 
@@ -110,6 +110,16 @@ export interface ClientEncounterState {
   drawPool?: Card[]
   // how many of the drawPool the viewing hero may keep
   drawSelectKeep?: number
+  // ascending-deck: redundant exact-kill graft picker — the slain card's suit
+  // (offered as the +suit option; +value is always a flat +1). Present only for
+  // the hero choosing, during graft_select.
+  graftSelect?: { suit: string }
+  // scripted tutorial: current guide beat (line + which hand card to highlight)
+  tutorialBeat?: { line: string; highlightCardId?: string; step: number; total: number }
+  // scripted tutorial: render the current enemy as a Training Dummy (no suit)
+  tutorialDummy?: boolean
+  // scripted tutorial: fodder card ids to flash during discard-to-pay
+  tutorialDiscard?: string[]
   // ascending-deck: tokens stamped on cards, keyed by logical id (`${suit}${rank}`)
   cardTokens?: Record<string, ClientToken[]>
 }

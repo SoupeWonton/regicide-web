@@ -75,6 +75,12 @@ const CORE = [
   },
 ]
 
+// New players get only the 4 core classes; the other 5 are meta-unlock runway
+// (hidden until unlocked). The server enforces the same set in pick_class.
+// Widen this list when meta-unlocks ship.
+const AVAILABLE_CLASSES = ['sentinel', 'quartermaster', 'surgeon', 'executioner']
+const VISIBLE = CORE.filter(c => AVAILABLE_CLASSES.includes(c.id))
+
 const takenBy = computed(() => {
   const map: Record<string, string> = {}
   for (const h of props.state.heroes) if (h.picked) map[h.classId] = h.playerName
@@ -96,13 +102,13 @@ function pick(classId: string) {
       <h2 class="text-3xl font-display font-bold gold-title mt-1">Assemble the Lineage</h2>
       <div class="splash-rule h-px mt-3 mx-auto w-56 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
       <p class="text-sm text-base-content/50 mt-2 font-flavor tracking-wide">
-        Chapter {{ state.chapter }} — all nine banners answer the call.
+        Chapter {{ state.chapter }} — choose your banner.
       </p>
     </div>
 
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <button
-        v-for="(cls, i) in CORE" :key="cls.id"
+        v-for="(cls, i) in VISIBLE" :key="cls.id"
         :class="[`rise-in-${Math.min(i + 1, 4)}`, 'class-card group relative text-left flex flex-col',
           myHero?.picked && myHero?.classId === cls.id ? 'class-card-chosen' : '',
           takenBy[cls.id] && takenBy[cls.id] !== myHero?.playerName ? 'class-card-taken' : '']"
@@ -166,7 +172,7 @@ function pick(classId: string) {
       <template v-if="waitingOn.length">
         <span class="soft-pulse">Waiting on {{ waitingOn.join(', ') }}…</span>
       </template>
-      All classes are unlocked for playtesting.
+      More banners unlock as your Kingdom grows.
     </p>
     <p v-if="state.ascendingDeck" class="text-center text-[11px] text-primary/50 font-flavor tracking-wide">
       ✒ The Ascending Deck: everyone starts the same 20 cards (A–5). Your class is the

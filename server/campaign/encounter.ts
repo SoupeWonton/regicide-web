@@ -1,11 +1,12 @@
 import type { Card, Enemy, Suit } from '../types'
 import { cardValue, cardLabel, suitSymbol, enemyStats, isNumberRank, numberEnemyStats, jesterCount } from '../deck'
 import { createRng } from '../rng'
-import type { CampaignState, CampaignTurnPhase, EncounterState, EncounterTier, EncounterEvent } from './types'
+import type { CampaignState, CampaignTurnPhase, EncounterState, EncounterTier, EncounterEvent, Token } from './types'
 import { getEncounterDef, getItem, encountersOf, BOSS_MODIFIERS, CLASSES, CLASS_SIGNATURES, SIGNATURE_CARDS } from './content'
 import { EXPERIMENTS, CURATION_CUT } from './experiments'
 import { appendGameLog } from './store'
-import { spendDelta, holdDelta, cardSuits, leverBonus, markDamage, hasKeyword } from './tokens'
+import { spendDelta, holdDelta, cardSuits, leverBonus, markDamage, hasKeyword, stampToken, MAX_TOKENS_PER_CARD } from './tokens'
+import { tutorialEnemies, tutorialEnemyMeta, tutorialBlocksPlay, tutorialBlocksDiscard, recordTutorialPlay } from './tutorial'
 
 /** Returns the continent number for a given chapter. Inlined to avoid circular import with campaign.ts. */
 function continentOf(chapter: number): number { return Math.ceil(chapter / 3) }
@@ -392,7 +393,7 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
   let bossModifierId: string | null = null
   // Ascending-deck ramp: NO modifier on recruit fights (the recruiting tutorial)
   // or on Chapter 1 at all — a 20-card A–5 deck shouldn't also fight a rule-bend.
-  const noModifier = EXPERIMENTS.ascendingDeck && (opts.isRecruit || c.chapter === 1)
+  const noModifier = c.tutorial || (EXPERIMENTS.ascendingDeck && (opts.isRecruit || c.chapter === 1))
   if (tier !== 'boss' && !noModifier) {
     // debug override (playtest canon: force outcomes)
     const pool = c.debug.forceNextEncounterId
@@ -431,7 +432,10 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
   }
 
   const heroesAlive = aliveIndices(c)
-  const stackResult = buildEnemyStack(tier, !!opts.isLair, heroesAlive.length, shuffler, rankOnly, opts.isRecruit, c.chapter, c.ownedCards ?? [], opts.isCouncil, gateRanks)
+  // Tutorial: a fixed, scripted enemy order instead of the seeded stack.
+  const stackResult = c.tutorial
+    ? { cards: tutorialEnemies() }
+    : buildEnemyStack(tier, !!opts.isLair, heroesAlive.length, shuffler, rankOnly, opts.isRecruit, c.chapter, c.ownedCards ?? [], opts.isCouncil, gateRanks)
   // If the recruit tier was fully owned, the node degrades to a filler fight
   // (the player already has all the cards — enemies are now generic royals)
   if (stackResult.recruitDegraded) {
@@ -607,7 +611,15 @@ function revealNextEnemy(c: CampaignState, s: EncounterState) {
   // "decapitation" (8k5jk9uq) wasn't the stats — 6→10 ATK entering C2 is fine; the
   // problem was a 20-ATK King appearing in ACT 1 via the Lair. Fixed structurally:
   // the Lair (with its King) is gated to the end of the continent (see PROVINCE_1).
+  // Tutorial: explicit, scripted enemy stats (so every exact-kill is exact).
+  if (c.tutorial) {
+    const m = tutorialEnemyMeta(card)
+    if (m) { hp = m.hp; attack = m.atk; s.flags['tut.reward'] = m.reward }
+  }
   const enemy: Enemy = { card, hp, maxHp: hp, attack, shield: 0, immunityNullified: false }
+  // Tutorial: the bag / recruit / graft targets seal NO suit (a training dummy
+  // doesn't block) — only the royal Gatekeeper keeps immunity, to teach it.
+  if (c.tutorial && s.flags['tut.reward'] !== 'kill') enemy.immunityNullified = true
 
   if (s.bossModifierId === 'iron-court') { enemy.hp += 5; enemy.maxHp += 5 }
   if (s.bossModifierId === 'cruel-court') enemy.attack += 2
@@ -682,6 +694,16 @@ function resolveDiamonds(c: CampaignState, s: EncounterState, playerIdx: number,
       return
     }
     const emptySlots = maxHandSize(c, playerIdx) - s.hands[playerIdx]!.length
+    // Tutorial: scripted reload — draw the top cards in fixed Tavern order, no
+    // overdraw-select pause (a rail, not a choice).
+    if (c.tutorial) {
+      const take = Math.min(pool.length, Math.max(0, emptySlots))
+      s.hands[playerIdx]!.push(...pool.slice(0, take))
+      for (const card of pool.slice(take).reverse()) s.tavern.push(card)
+      clog(c, `   ♦ Reload: drew ${take}.`)
+      ev(s, 'suit', `♦ Draw ${take}`, 'info')
+      return
+    }
     if (emptySlots <= 0 || pool.length <= emptySlots || !allowPause) {
       // Hand is full, pool fits exactly, or pausing is disallowed (kill path) —
       // no selection needed, keep the highest-value cards that fit.
@@ -825,11 +847,15 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   const comboMax = c.heroes[pi]!.relicIds.includes('r-combat-cache') ? 12 : 10
   const comboError = validateCampaignCombo(cards, comboMax)
   if (comboError) return { error: comboError }
+  // Tutorial rail: while a gated beat highlights a card, bounce off-script plays.
+  const tutBlock = tutorialBlocksPlay(c, s, hand, cards.map(cd => cd.id))
+  if (tutBlock) return { error: tutBlock }
 
   beginEvents(s)
   for (const i of sorted) hand.splice(i, 1)
   s.lastPlayed = cards
   s.flags['spadeThisTurn'] = false
+  recordTutorialPlay(c, s, cards)   // record beat flags before a kill clears lastPlayed
   const hero = c.heroes[pi]!
 
   // ── Jester ────────────────────────────────────────────────────────────────
@@ -1044,13 +1070,22 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
   }
 
   // ── Ascending-deck: number-rank enemy resolution (THE GOLDEN RULE) ─────────
-  // Exact (perfect) kill → recruit the card if unowned, else a token fragment.
-  // Overkill → nothing: the enemy just dies (no recruit, no fragment, no defer).
+  // Exact (perfect) kill → recruit the card if unowned, else a PERMANENT graft
+  // onto a hand card (Design_V3: the redundant kill reinforces what you hold —
+  // the deck deepens instead of widening; no shard currency).
+  // Overkill → nothing: the enemy just dies (no recruit, no graft, no defer).
   if (EXPERIMENTS.ascendingDeck && numberEnemy) {
     const cardId = `${enemy.card.suit}${enemy.card.rank}`
     // "Owned" = a recruited card OR a starting-deck card (A–5 are always in hand).
-    // So exact-killing a skirmish low card (a 5) gives a fragment, not a dup recruit.
+    // So exact-killing a skirmish low card (a 5) grafts, not a dup recruit.
     const alreadyOwned = cardValue(enemy.card.rank) <= 5 || (c.ownedCards ?? []).includes(cardId)
+    // Tutorial punching-bag: dies with no recruit/graft (suit lessons happen on it).
+    if (c.tutorial && s.flags['tut.reward'] === 'none') {
+      clog(c, `✅ ${cardLabel(enemy.card)} defeated.`)
+      ev(s, 'kill', `✅ ${cardLabel(enemy.card)} DEFEATED`, 'gold', true)
+      advanceAfterNumberKill(c, s, killerIdx)
+      return
+    }
     if (exact && !alreadyOwned) {
       // First time recruiting this number-enemy: card enters the Tavern
       s.tavern.unshift(enemy.card)
@@ -1058,36 +1093,32 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
       s.flags['exactKills'] = ((s.flags['exactKills'] as number) ?? 0) + 1
       clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} recruited — slides under the Tavern.`)
       ev(s, 'kill', `✨ RECRUIT — ${cardLabel(enemy.card)} joins the Tavern`, 'gold', true)
+      if (c.tutorial) s.flags['tut.recruited'] = true
     } else if (exact) {
-      // Exact kill on a card you already own → a token fragment (2 → 1 C-token).
-      const frags = (c.tokenFragments = (c.tokenFragments ?? 0) + 1)
+      // Exact kill on a card you already own → permanent graft onto a hand card.
       s.flags['exactKills'] = ((s.flags['exactKills'] as number) ?? 0) + 1
-      clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} already owned — +1 token fragment${frags >= 2 ? ' (2 ready — apply one on the road)' : ''}.`)
-      ev(s, 'kill', `✦ FRAGMENT (${frags})`, 'gold', true)
+      // Only pause if the killer holds at least one card with room for a token.
+      const hand = s.hands[killerIdx] ?? []
+      const hasRoom = hand.some(card =>
+        (c.cardTokens?.[`${card.suit}${card.rank}`]?.length ?? 0) < MAX_TOKENS_PER_CARD)
+      if (hasRoom) {
+        s.currentEnemy = null
+        s.pendingGraft = { heroIdx: killerIdx, suit: enemy.card.suit }
+        s.turnPhase = 'graft_select'
+        clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} already owned — reinforce a card you hold.`)
+        ev(s, 'kill', `⚔ GRAFT — choose a card to reinforce`, 'gold', true)
+        if (c.tutorial) s.flags['tut.grafted'] = true
+        return   // PAUSE: applyGraftSelect resumes via advanceAfterNumberKill
+      }
+      clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} already owned — no card free to reinforce.`)
+      ev(s, 'kill', `✅ ${cardLabel(enemy.card)} DEFEATED`, 'gold', true)
     } else {
       // Overkill: golden rule — you get nothing but the kill. (Unrecruited tier
       // cards are still completed by the chapter-end backfill.)
       clog(c, `✅ ${cardLabel(enemy.card)} defeated (overkill — no recruit).`)
       ev(s, 'kill', `✅ ${cardLabel(enemy.card)} DEFEATED`, 'gold', true)
     }
-    s.currentEnemy = null
-    revealNextEnemy(c, s)
-    if (s.outcome === 'won') {
-      // A number gate (Continent-1 boss) finishes via checkEncounterEnd's boss
-      // path; only a road recruit announces "recruit encounter cleared" here.
-      if (s.tier !== 'boss') {
-        clog(c, '🎉 Recruit encounter cleared!')
-        ev(s, 'kill', '🎉 ENCOUNTER CLEARED', 'gold', true)
-      }
-    } else {
-      s.lastPlayed = []
-      const hero = c.heroes[killerIdx]!
-      if (hero.classId === 'commander' && aliveIndices(c).length > 1) {
-        s.turnPhase = 'choose_next'; s.pendingChooseNext = true
-      } else {
-        applyKeepTurnPenalties(c, s, killerIdx)
-      }
-    }
+    advanceAfterNumberKill(c, s, killerIdx)
     return
   }
 
@@ -1304,6 +1335,9 @@ export function applyEncounterDiscard(c: CampaignState, playerId: string, cardIn
   const cards = sorted.map(i => hand[i]!)
   const total = cards.reduce((t, card) => t + cardValue(card.rank) + (EXPERIMENTS.ascendingDeck ? holdDelta(c, card) : 0), 0)
   if (total < s.discardNeeded) return { error: `Total ${total} is less than ${s.discardNeeded}.` }
+  // Tutorial rail: keep players from paying counters with a card a beat still needs.
+  const tutDiscardBlock = tutorialBlocksDiscard(c, hand, cards)
+  if (tutDiscardBlock) return { error: tutDiscardBlock }
 
   beginEvents(s)
   for (const i of sorted) hand.splice(i, 1)
@@ -1311,6 +1345,7 @@ export function applyEncounterDiscard(c: CampaignState, playerId: string, cardIn
   clog(c, `${c.heroes[pi]!.playerName} discards ${cards.map(cardLabel).join(', ')} (${total}/${s.discardNeeded}).`)
   ev(s, 'info', `${c.heroes[pi]!.playerName} pays ${total} in cards`, 'plain')
   s.discardNeeded = 0
+  if (c.tutorial) s.flags['tut.discarded'] = true
   advanceTurn(c, s)
   return {}
 }
@@ -1362,6 +1397,80 @@ export function applyKeepDrawn(c: CampaignState, playerId: string, keepIndices: 
     delete s.flags['pendingCounterPi']
     return counterattack(c, s, cpi)
   }
+  return {}
+}
+
+/** Shared post-kill advance for ascending-deck number enemies: clear the dead
+ *  enemy, reveal the next, resolve win / keep-turn. Also the resume point after a
+ *  graft_select pause. (Hoisted — used by the kill resolver above.) */
+function advanceAfterNumberKill(c: CampaignState, s: EncounterState, killerIdx: number) {
+  // Restore the play baseline (a graft_select pause may have left it elsewhere);
+  // revealNextEnemy / applyKeepTurnPenalties below re-derive the real phase.
+  s.turnPhase = 'play'
+  s.currentEnemy = null
+  revealNextEnemy(c, s)
+  if (s.outcome === 'won') {
+    // A number gate (Continent-1 boss) finishes via checkEncounterEnd's boss path;
+    // only a road recruit announces "recruit encounter cleared" here.
+    if (s.tier !== 'boss') {
+      clog(c, '🎉 Recruit encounter cleared!')
+      ev(s, 'kill', '🎉 ENCOUNTER CLEARED', 'gold', true)
+    }
+  } else {
+    s.lastPlayed = []
+    const hero = c.heroes[killerIdx]!
+    if (hero.classId === 'commander' && aliveIndices(c).length > 1) {
+      s.turnPhase = 'choose_next'; s.pendingChooseNext = true
+    } else {
+      applyKeepTurnPenalties(c, s, killerIdx)
+    }
+  }
+}
+
+/**
+ * Resolve a graft_select pause: a redundant exact-kill permanently stamps a token
+ * onto a chosen hand card. mode 'value' → flat +1 (Hone); 'suit' → add the slain
+ * card's suit (Graft). cardIndex < 0 declines the graft. Resumes the post-kill flow.
+ */
+export function applyGraftSelect(
+  c: CampaignState, playerId: string, cardIndex: number, mode: 'value' | 'suit',
+): { error?: string } {
+  const s = c.encounter
+  if (!s || s.turnPhase !== 'graft_select') return { error: 'Not in graft-select phase.' }
+  if (!EXPERIMENTS.ascendingDeck) return { error: 'Ascending deck is not active.' }
+  const g = s.pendingGraft
+  if (!g) return { error: 'No pending graft.' }
+  const pi = c.heroes.findIndex(h => h.playerId === playerId)
+  if (pi !== g.heroIdx) return { error: 'Not your graft to choose.' }
+
+  // Decline: cardIndex < 0 skips the graft entirely.
+  if (cardIndex < 0) {
+    beginEvents(s)
+    clog(c, '   ⚔ Graft declined.')
+    ev(s, 'kill', '⚔ Graft declined', 'plain')
+    s.pendingGraft = undefined
+    advanceAfterNumberKill(c, s, g.heroIdx)
+    return {}
+  }
+
+  const hand = s.hands[pi] ?? []
+  if (cardIndex >= hand.length) return { error: 'Invalid card.' }
+  if (mode !== 'value' && mode !== 'suit') return { error: 'Choose value or suit.' }
+  const target = hand[cardIndex]!
+  const targetId = `${target.suit}${target.rank}`
+  const token: Token = mode === 'value'
+    ? { defId: 'hone' }
+    : { defId: 'graft', suit: g.suit as Suit }
+  // validate-then-mutate: stampToken rejects (and does not mutate) a full card.
+  const err = stampToken(c, targetId, token)
+  if (err) return { error: err }
+
+  beginEvents(s)
+  const label = mode === 'value' ? '+1 value' : `+${suitSymbol(g.suit as Suit)}`
+  clog(c, `   ⚔ Graft: ${cardLabel(target)} reinforced (${label}).`)
+  ev(s, 'kill', `⚔ GRAFT — ${cardLabel(target)} ${label}`, 'gold', true)
+  s.pendingGraft = undefined
+  advanceAfterNumberKill(c, s, g.heroIdx)
   return {}
 }
 

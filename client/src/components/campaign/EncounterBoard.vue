@@ -43,6 +43,12 @@ const inDrawSelect = computed(() =>
   enc.value.turnPhase === 'draw_select' && enc.value.drawPool !== undefined && isMyTurn.value)
 const drawPoolSelected = ref<number[]>([])
 
+// ascending-deck: redundant exact-kill graft picker (reinforce a hand card).
+// Only the hero who landed the kill chooses; graftSelect carries the slain suit.
+const inGraftSelect = computed(() =>
+  enc.value.turnPhase === 'graft_select' && enc.value.graftSelect !== undefined)
+const graftCardIdx = ref<number | null>(null)
+
 // Overdraw pool shown grouped by suit (S,H,C,D) then rank low→high, jesters
 // always last — same ordering as the hand's "Sort by suit". Each entry keeps
 // its real `drawPool` index `i` so selection and keep_drawn stay correct.
@@ -533,6 +539,17 @@ function confirmKeepDrawn() {
   drawPoolSelected.value = []
 }
 
+// ascending-deck: resolve the graft — reinforce the chosen hand card (+value / +suit), or skip
+function confirmGraft(mode: 'value' | 'suit') {
+  if (graftCardIdx.value === null) return
+  act({ type: 'graft_select', cardIndex: graftCardIdx.value, mode })
+  graftCardIdx.value = null
+}
+function declineGraft() {
+  act({ type: 'graft_select', cardIndex: -1, mode: 'value' })
+  graftCardIdx.value = null
+}
+
 function togglePeekCard(i: number) {
   if (!enc.value.setupPeek?.canReorder) return
   const idx = peekOrder.value.indexOf(i)
@@ -568,6 +585,12 @@ const netAttack = computed(() => {
 
     <!-- ═══ CENTER: the battlefield ═══ -->
     <div class="flex flex-col gap-2 p-3 lg:p-0 max-w-lg mx-auto pb-4 w-full lg:max-w-3xl">
+
+      <!-- Tutorial: the Steward's guide line — top of the fight area, clear of the Play button -->
+      <div v-if="enc.tutorialBeat" class="mx-auto w-full max-w-md rounded-lg border border-primary/40 bg-base-300/95 shadow-lg px-4 py-2 text-center">
+        <p class="text-[9px] uppercase tracking-[0.25em] text-primary/50">The Steward · {{ enc.tutorialBeat.step + 1 }}/{{ enc.tutorialBeat.total }}</p>
+        <p class="text-sm text-base-content/90 leading-snug">{{ enc.tutorialBeat.line }}</p>
+      </div>
 
     <!-- Encounter banner (mobile — desktop gets the intel wing) -->
     <div class="card bg-base-100/80 border border-base-content/10 lg:hidden">
@@ -638,6 +661,55 @@ const netAttack = computed(() => {
       </template>
       <p v-else class="text-sm text-center text-base-content/50 soft-pulse">
         ♦ Someone is selecting from their draw pool…
+      </p>
+    </OverlayModal>
+
+    <!-- Ascending-deck: redundant exact-kill graft — reinforce a card you hold -->
+    <OverlayModal v-if="enc.turnPhase === 'graft_select'" tone="primary">
+      <template v-if="inGraftSelect">
+        <p class="text-sm font-semibold text-center">
+          ⚔ Exact kill on a card you already hold — reinforce one of yours
+        </p>
+        <p class="text-[11px] text-center text-base-content/60">
+          Tap a card, then add <b class="text-success">+1 value</b> or its
+          <b class="text-info">{{ suitSymbol(enc.graftSelect!.suit) }}</b> suit. Permanent.
+        </p>
+        <div class="flex gap-2 justify-center flex-wrap">
+          <button
+            v-for="(card, i) in hand" :key="card.id"
+            class="card-face w-14 h-20 font-mono flex flex-col items-center justify-center leading-none relative transition-all duration-150"
+            :class="graftCardIdx === i
+              ? '-translate-y-1.5 scale-105 ring-2 ring-primary bg-primary/20 shadow-lg shadow-primary/40 z-10'
+              : 'ring-1 ring-base-content/10 hover:-translate-y-1'"
+            :title="cardTokensOf(card).map(t => `${t.name} — ${t.text}`).join('\n')"
+            @click="graftCardIdx = i"
+          >
+            <!-- our card rendering: rank + inline value delta, suit row with grafted suits in blue -->
+            <span class="flex items-start">
+              <span class="text-xl font-bold" :class="suitClass(mainSuitOf(card))">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
+              <span v-if="card.rank !== 'Jo' && valueDeltaOf(card) !== 0"
+                class="text-[10px] font-extrabold leading-none mt-0.5"
+                :class="valueDeltaOf(card) > 0 ? 'text-success' : 'text-error'"
+              >{{ valueDeltaOf(card) > 0 ? '+' + valueDeltaOf(card) : valueDeltaOf(card) }}</span>
+            </span>
+            <span v-if="card.rank !== 'Jo'" class="flex items-center gap-px text-base">
+              <span :class="suitClass(mainSuitOf(card))">{{ suitSymbol(mainSuitOf(card)) }}</span>
+              <span v-for="su in extraSuitsOf(card)" :key="su" class="text-info font-bold">{{ suitSymbol(su) }}</span>
+            </span>
+            <span v-if="graftCardIdx === i"
+              class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-primary text-primary-content text-[10px] font-bold flex items-center justify-center shadow">✓</span>
+          </button>
+        </div>
+        <div class="flex gap-2 justify-center">
+          <button class="btn btn-primary btn-sm" :disabled="graftCardIdx === null" @click="confirmGraft('value')">+1 value</button>
+          <button class="btn btn-primary btn-sm" :disabled="graftCardIdx === null" @click="confirmGraft('suit')">
+            +{{ suitSymbol(enc.graftSelect!.suit) }} suit
+          </button>
+          <button class="btn btn-ghost btn-sm" @click="declineGraft">Skip</button>
+        </div>
+      </template>
+      <p v-else class="text-sm text-center text-base-content/50 soft-pulse">
+        ⚔ Someone is reinforcing a card…
       </p>
     </OverlayModal>
 
@@ -760,7 +832,7 @@ const netAttack = computed(() => {
             >{{ f.text }}</div>
           </div>
 
-          <div class="royal-card w-32 h-44 flex flex-col items-center justify-between py-2 px-2 relative"
+          <div v-if="!enc.tutorialDummy" class="royal-card w-32 h-44 flex flex-col items-center justify-between py-2 px-2 relative"
             :class="[enc.tier === 'boss' ? 'royal-boss' : '',
               enc.currentEnemy.card.suit === 'H' || enc.currentEnemy.card.suit === 'D' ? 'royal-red' : 'royal-black']">
             <span class="self-start text-sm font-display font-black leading-none" :class="suitClass(enc.currentEnemy.card.suit)">
@@ -778,12 +850,20 @@ const netAttack = computed(() => {
               :title="`Immune to ${suitSymbol(enc.currentEnemy.card.suit)} power`"
             >{{ suitSymbol(enc.currentEnemy.card.suit) }}</span>
           </div>
+          <!-- Tutorial: a friendly Training Dummy — no suit, blocks nothing -->
+          <div v-else class="royal-card w-32 h-44 flex flex-col items-center justify-center gap-1 relative royal-black">
+            <span class="text-6xl leading-none">🎯</span>
+            <span class="text-[10px] uppercase tracking-[0.2em] text-base-content/40">practice</span>
+          </div>
           <div class="royal-shadow" aria-hidden="true" />
 
           <p class="font-display text-xs mt-1.5 text-base-content/80 tracking-wide">
-            {{ rankNames[enc.currentEnemy.card.rank] ?? enc.currentEnemy.card.rank }}
-            of {{ { C: 'Clubs', D: 'Diamonds', H: 'Hearts', S: 'Spades' }[enc.currentEnemy.card.suit] }}
-            <span v-if="enc.currentEnemy.immunityNullified" class="text-warning">· immunity off</span>
+            <template v-if="enc.tutorialDummy">Training Dummy</template>
+            <template v-else>
+              {{ rankNames[enc.currentEnemy.card.rank] ?? enc.currentEnemy.card.rank }}
+              of {{ { C: 'Clubs', D: 'Diamonds', H: 'Hearts', S: 'Spades' }[enc.currentEnemy.card.suit] }}
+              <span v-if="enc.currentEnemy.immunityNullified" class="text-warning">· immunity off</span>
+            </template>
           </p>
 
           <!-- HP -->
@@ -949,6 +1029,7 @@ const netAttack = computed(() => {
               selected.includes(entry.i) ? (inDiscard ? 'fan-card-selected fan-card-discard' : 'fan-card-selected') : '',
               (!inPlay && !inDiscard) ? 'pointer-events-none' : '',
               drag?.index === entry.i ? 'opacity-30' : '',
+              (inDiscard ? enc.tutorialDiscard?.includes(entry.card.id) : entry.card.id === enc.tutorialBeat?.highlightCardId) ? 'ring-4 ring-amber-400 animate-pulse z-20' : '',
             ]"
             @pointerdown="onCardPointerDown($event, entry.i)"
           >
