@@ -4,7 +4,7 @@ title Regicide commit
 cd /d "%~dp0"
 
 echo ============================================
-echo   REGICIDE - commit to Design_V2
+echo   REGICIDE - commit to Design_V3
 echo ============================================
 
 rem -- git available? --
@@ -23,22 +23,22 @@ if errorlevel 1 (
   exit /b 1
 )
 
-rem -- branch guard: all work happens on Design_V2; master is read-only --
+rem -- branch guard: all work happens on Design_V3; master is read-only --
 for /f %%b in ('git branch --show-current') do set "BRANCH=%%b"
 if /i "!BRANCH!"=="master" (
   echo [ERROR] You are on MASTER ^(read-only by convention^). Switch first:
-  echo            git checkout Design_V2
+  echo            git checkout Design_V3
   pause
   exit /b 1
 )
-if /i not "!BRANCH!"=="Design_V2" (
-  echo [ERROR] You are on "!BRANCH!", not Design_V2.
-  echo         Switch first:  git checkout Design_V2   ^(commit or stash changes first^)
+if /i not "!BRANCH!"=="Design_V3" (
+  echo [ERROR] You are on "!BRANCH!", not Design_V3.
+  echo         Switch first:  git checkout Design_V3   ^(commit or stash changes first^)
   pause
   exit /b 1
 )
 
-echo On branch Design_V2. Pending changes:
+echo On branch Design_V3. Pending changes:
 echo --------------------------------------------
 git status --short
 echo --------------------------------------------
@@ -56,8 +56,8 @@ if not errorlevel 1 (
 )
 
 echo.
-set /p COMMIT_MSG=Commit message (blank = "WIP: Design_V2 update"):
-if "!COMMIT_MSG!"=="" set "COMMIT_MSG=WIP: Design_V2 update"
+set /p COMMIT_MSG=Commit message (blank = "WIP: Design_V3 update"):
+if "!COMMIT_MSG!"=="" set "COMMIT_MSG=WIP: Design_V3 update"
 
 rem -- hooks run here (master block, etc.); never bypass them --
 git commit -m "!COMMIT_MSG!"
@@ -69,18 +69,18 @@ if errorlevel 1 (
 )
 
 echo.
-echo Commit created on Design_V2.
-set /p DOPUSH=Push to origin/Design_V2 now? [y/N]:
+echo Commit created on Design_V3.
+set /p DOPUSH=Push to origin/Design_V3 now? [y/N]:
 if /i "!DOPUSH!"=="y" (
   echo Pushing...
-  git push -u origin Design_V2
+  git push -u origin Design_V3
   if errorlevel 1 (
     echo   [WARN] Push failed ^(offline, no remote, or rejected^). Commit is saved locally.
   ) else (
     echo   Pushed.
   )
 ) else (
-  echo Skipped push. To push later:  git push -u origin Design_V2
+  echo Skipped push. To push later:  git push -u origin Design_V3
 )
 
 echo.
