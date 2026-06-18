@@ -43,6 +43,11 @@ const inDrawSelect = computed(() =>
   enc.value.turnPhase === 'draw_select' && enc.value.drawPool !== undefined && isMyTurn.value)
 const drawPoolSelected = ref<number[]>([])
 
+// ascending-deck: redundant exact-kill graft picker (reinforce a hand card)
+const inGraftSelect = computed(() =>
+  enc.value.turnPhase === 'graft_select' && enc.value.graftSelect !== undefined)
+const graftCardIdx = ref<number | null>(null)
+
 const hand = computed(() => enc.value.myHand)
 
 // Keep the display order in sync with the real hand: surviving cards hold their
@@ -491,6 +496,17 @@ function confirmKeepDrawn() {
   drawPoolSelected.value = []
 }
 
+// ascending-deck: resolve the graft — reinforce the chosen hand card with +value or +suit
+function confirmGraft(mode: 'value' | 'suit') {
+  if (graftCardIdx.value === null) return
+  act({ type: 'graft_select', cardIndex: graftCardIdx.value, mode })
+  graftCardIdx.value = null
+}
+function declineGraft() {
+  act({ type: 'graft_select', cardIndex: -1, mode: 'value' })
+  graftCardIdx.value = null
+}
+
 function togglePeekCard(i: number) {
   if (!enc.value.setupPeek?.canReorder) return
   const idx = peekOrder.value.indexOf(i)
@@ -584,6 +600,41 @@ const netAttack = computed(() => {
       </template>
       <p v-else class="text-sm text-center text-base-content/50 soft-pulse">
         ♦ Someone is selecting from their draw pool…
+      </p>
+    </OverlayModal>
+
+    <!-- Ascending-deck: redundant exact-kill graft — reinforce a card you hold -->
+    <OverlayModal v-if="enc.turnPhase === 'graft_select'" tone="primary">
+      <template v-if="inGraftSelect">
+        <p class="text-sm font-semibold text-center">
+          ⚔ Exact kill on a card you already hold — reinforce one of your cards
+        </p>
+        <p class="text-[11px] text-center text-base-content/60">
+          Tap a card, then add <b>+1 value</b> or its <b :class="suitClass(enc.graftSelect!.suit as any)">{{ suitSymbol(enc.graftSelect!.suit as any) }}</b> suit. Permanent.
+        </p>
+        <div class="flex gap-2 justify-center flex-wrap">
+          <button
+            v-for="(card, i) in hand" :key="card.id"
+            class="card-face w-14 h-20 font-mono flex flex-col items-center justify-center relative transition-transform hover:-translate-y-1"
+            :class="graftCardIdx === i ? 'ring-2 ring-primary' : ''"
+            :title="cardTokensOf(card).map(t => t.name).join(', ')"
+            @click="graftCardIdx = i"
+          >
+            <span class="text-xl font-bold" :class="suitClass(card.suit)">{{ card.rank === 'Jo' ? '🃏' : card.rank }}</span>
+            <span class="text-base" :class="suitClass(card.suit)">{{ card.rank !== 'Jo' ? suitSymbol(card.suit) : '' }}</span>
+            <span v-if="cardTokensOf(card).length" class="text-[8px] leading-none text-success">{{ cardTokensOf(card).map(t => t.sym).join('') }}</span>
+          </button>
+        </div>
+        <div class="flex gap-2 justify-center">
+          <button class="btn btn-primary btn-sm" :disabled="graftCardIdx === null" @click="confirmGraft('value')">+1 value</button>
+          <button class="btn btn-primary btn-sm" :disabled="graftCardIdx === null" @click="confirmGraft('suit')">
+            +{{ suitSymbol(enc.graftSelect!.suit as any) }} suit
+          </button>
+          <button class="btn btn-ghost btn-sm" @click="declineGraft">Skip</button>
+        </div>
+      </template>
+      <p v-else class="text-sm text-center text-base-content/50 soft-pulse">
+        ⚔ Someone is reinforcing a card…
       </p>
     </OverlayModal>
 

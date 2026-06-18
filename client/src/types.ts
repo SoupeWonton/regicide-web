@@ -110,6 +110,10 @@ export interface ClientEncounterState {
   drawPool?: Card[]
   // how many of the drawPool the viewing hero may keep
   drawSelectKeep?: number
+  // ascending-deck: redundant exact-kill graft picker — the slain card's suit
+  // (offered as the +suit option; +value is always a flat +1). Present only for
+  // the hero choosing, during graft_select.
+  graftSelect?: { suit: string }
   // ascending-deck: tokens stamped on cards, keyed by logical id (`${suit}${rank}`)
   cardTokens?: Record<string, ClientToken[]>
 }

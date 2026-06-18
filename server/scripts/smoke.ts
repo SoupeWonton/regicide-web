@@ -5,7 +5,8 @@
 // plus death → vote → retreat → replacement, and save/load round-trip.
 
 import { createCampaign, applyClassPick, applyRoadChoose, applyChoice, applyDeathVote, applyBreakCamp, beginReplacement, applyContinueChapter, buildClientCampaign, checkEncounterEnd } from '../campaign/campaign'
-import { applyEncounterPlay, applyEncounterDiscard, applyEncounterYield, applyEncounterChooseNext, applySetupReorder, applyCastSpell, applyKeepDrawn, maxHandSize } from '../campaign/encounter'
+import { applyEncounterPlay, applyEncounterDiscard, applyEncounterYield, applyEncounterChooseNext, applySetupReorder, applyCastSpell, applyKeepDrawn, applyGraftSelect, maxHandSize } from '../campaign/encounter'
+import { MAX_TOKENS_PER_CARD } from '../campaign/tokens'
 import { loadKingdom, saveCampaign, loadCampaign } from '../campaign/store'
 import { cardValue } from '../deck'
 import { EXPERIMENTS } from '../campaign/experiments'
@@ -83,6 +84,16 @@ function drive(c: CampaignState, opts: { cheatKill: boolean; budget?: number; st
             .sort((a, b) => b.v - a.v)
           const keepIdxs = ranked.slice(0, Math.min(slots, ranked.length)).map(x => x.i)
           step(c, pid2, () => applyKeepDrawn(c, pid2, keepIdxs), 'keep drawn')
+          break
+        }
+        // ascending-deck: redundant-kill graft — reinforce the first hand card with room
+        if (s.turnPhase === 'graft_select') {
+          const gi = s.pendingGraft!.heroIdx
+          const gpid = c.heroes[gi]!.playerId
+          const ghand = s.hands[gi] ?? []
+          const idx = ghand.findIndex(card =>
+            (c.cardTokens?.[`${card.suit}${card.rank}`]?.length ?? 0) < MAX_TOKENS_PER_CARD)
+          step(c, gpid, () => applyGraftSelect(c, gpid, idx, 'value'), 'graft select')
           break
         }
         const pi = s.currentPlayerIndex
@@ -452,6 +463,52 @@ console.log('Test A: ascending-deck flag-on — overdraw-and-select')
   assert(!!loaded, 'ascending-deck save loads')
   assert(loaded!.chapter === c.chapter, 'chapter preserved across save')
   ok('ascending-deck: save/load round-trip (optional fields guard)')
+
+  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
+  EXPERIMENTS.provinceMode = LIVE_PROVINCE
+}
+
+// ── Test A2: ascending-deck — redundant exact-kill grafts onto a hand card ───
+console.log('Test A2: ascending-deck — redundant exact-kill → permanent graft')
+{
+  EXPERIMENTS.ascendingDeck = true
+  EXPERIMENTS.provinceMode = false
+
+  const c = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-graft', kingdom).campaign!
+  applyClassPick(c, P1, 'sentinel')
+  drive(c, { cheatKill: false, stopAt: ['encounter'], budget: 80 })
+  assert(c.phase === 'encounter', `reached encounter (${c.phase})`)
+  const s = c.encounter!
+  while (s.turnPhase === 'setup') applySetupReorder(c, s.setupPeek!.playerId, s.setupPeek!.cards.map((_, i) => i))
+
+  const pi = s.currentPlayerIndex
+  const pid = c.heroes[pi]!.playerId
+  // Force a redundant exact-kill: rewrite the live enemy to an OWNED low card
+  // (D2, value 2 ≤ 5 ⇒ alreadyOwned) at 2 HP, give a 2♠ to land it exactly and a
+  // 4♥ to receive the graft. ♠ adds no damage, so 2 dmg ⇒ enemy.hp 0 ⇒ exact.
+  s.modifierId = null
+  delete s.flags['enemy.guard']
+  const enemy = s.currentEnemy!
+  enemy.card = { suit: 'D', rank: '2', id: 'enemy-d2' }
+  enemy.hp = 2
+  s.turnPhase = 'play'
+  s.hands[pi] = [
+    { suit: 'S', rank: '2', id: 'kill-s2' },
+    { suit: 'H', rank: '4', id: 'graft-h4' },
+  ]
+  const before = c.cardTokens?.['H4']?.length ?? 0
+  const rp = applyEncounterPlay(c, pid, [0])   // 2♠ → 2 dmg → exact kill on owned D2
+  assert(!rp.error, `play to exact-kill: ${rp.error}`)
+  assert(s.turnPhase === 'graft_select', `redundant exact-kill pauses for graft (got ${s.turnPhase})`)
+  assert(s.pendingGraft?.suit === 'D', `pendingGraft carries the slain suit (got ${s.pendingGraft?.suit})`)
+  const gIdx = s.hands[pi]!.findIndex(card => card.id === 'graft-h4')
+  const rg = applyGraftSelect(c, pid, gIdx, 'suit')   // graft the D suit onto 4♥
+  assert(!rg.error, `graft select: ${rg.error}`)
+  assert((c.cardTokens?.['H4']?.length ?? 0) === before + 1, 'graft stamped one token on H4')
+  // phase resumes to combat unless that kill ended the encounter (won → checkEncounterEnd transitions)
+  assert(s.turnPhase !== 'graft_select' || s.outcome === 'won', `graft_select phase resolved (got ${s.turnPhase}/${s.outcome})`)
+  assert(s.pendingGraft === undefined, 'pendingGraft cleared after selection')
+  ok('ascending-deck: redundant exact-kill → permanent graft onto a hand card')
 
   EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
   EXPERIMENTS.provinceMode = LIVE_PROVINCE

@@ -209,6 +209,7 @@ export type CampaignTurnPhase =
   | 'play' | 'discard' | 'choose_next'   // mirrors base TurnPhase
   | 'setup'                               // encounter setup peek
   | 'draw_select'                         // ascending-deck: overdraw hold
+  | 'graft_select'                        // ascending-deck: redundant exact-kill graft pick
   | 'over'                                // encounter finished
 
 export interface EncounterState {
@@ -249,6 +250,11 @@ export interface EncounterState {
   // keep-limit override for the current draw_select. Diamonds leave this unset
   // (limit = empty hand slots); Tactical Surge sets a fixed cap ("keep 2 of 5").
   drawSelectCap?: number
+
+  // ascending-deck: a redundant exact-kill pauses to graft onto a hand card.
+  // Only populated when turnPhase === 'graft_select'. `suit` is the slain card's
+  // suit (offered for the +suit graft); the +value graft is a flat +1 (Hone).
+  pendingGraft?: { heroIdx: number; suit: string }
 
   flags: EncounterFlags          // modifier + ability one-shot bookkeeping
 
@@ -441,6 +447,9 @@ export interface ClientEncounterState {
   drawPool?: Card[]
   // how many of the drawPool the viewing hero may keep (empty slots, or a spell cap)
   drawSelectKeep?: number
+  // ascending-deck: present during graft_select for the hero choosing — the slain
+  // card's suit (for the +suit option). The +value option is always a flat +1.
+  graftSelect?: { suit: string } | undefined
   // ascending-deck: tokens stamped on cards, keyed by logical id (`${suit}${rank}`)
   cardTokens?: Record<string, ClientToken[]>
   // Sanctum Foresight rite: the upcoming enemy lineup (labels), revealed this fight

@@ -7,7 +7,7 @@ import {
 import {
   applyEncounterPlay, applyEncounterDiscard, applyEncounterYield,
   applyEncounterChooseNext, applyCastSpell, applyActivateRelic, applyArmWager,
-  applySetupReorder, applyKeepDrawn,
+  applySetupReorder, applyKeepDrawn, applyGraftSelect,
 } from './encounter'
 import { loadKingdom, saveKingdom, saveCampaign, loadCampaign, listCampaigns, deleteCampaign } from './store'
 import type { SaveSummary } from './store'
@@ -79,6 +79,7 @@ export type CampaignAction =
   | { type: 'activate_relic'; targetIndex?: number; relicId?: string }
   | { type: 'arm_wager' }
   | { type: 'keep_drawn'; keepIndices: number[] }   // ascending-deck: overdraw selection
+  | { type: 'graft_select'; cardIndex: number; mode: 'value' | 'suit' }   // ascending-deck: redundant-kill graft
   | { type: 'apply_fragment' }                       // fragment track: spend 2 → apply a C-tier token
   | { type: 'death_vote'; vote: string }
   | { type: 'begin_replacement' }
@@ -111,6 +112,7 @@ export function dispatchCampaignAction(
     case 'activate_relic': result = applyActivateRelic(c, playerId, action.targetIndex, action.relicId); break
     case 'arm_wager': result = applyArmWager(c, playerId); break
     case 'keep_drawn': result = applyKeepDrawn(c, playerId, action.keepIndices); break
+    case 'graft_select': result = applyGraftSelect(c, playerId, action.cardIndex, action.mode); break
     case 'apply_fragment': result = applyFragmentStart(c, playerId, hostId); break
     case 'death_vote': result = applyDeathVote(c, playerId, action.vote); break
     case 'begin_replacement': result = beginReplacement(c, kingdom); break

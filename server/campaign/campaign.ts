@@ -1614,6 +1614,10 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
       drawSelectKeep: s.turnPhase === 'draw_select' && s.drawSelectHeroIdx === myHeroIndex
         ? (s.drawSelectCap ?? Math.max(0, maxHandSize(c, myHeroIndex) - s.hands[myHeroIndex]!.length))
         : undefined,
+      // ascending-deck: graft picker — only the hero who landed the kill chooses
+      graftSelect: s.turnPhase === 'graft_select' && s.pendingGraft?.heroIdx === myHeroIndex
+        ? { suit: s.pendingGraft.suit }
+        : undefined,
       cardTokens: projectCardTokens(c),
       // Sanctum Foresight rite: the upcoming enemy lineup, laid bare this fight
       foreseen: s.flags['foreseen'] ? s.enemyDeck.map(card => cardLabelFromId(`${card.suit}${card.rank}`)) : undefined,
