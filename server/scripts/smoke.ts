@@ -4,8 +4,10 @@
 // → landmarks → camp → boss → chapter 2 → campaign win,
 // plus death → vote → retreat → replacement, and save/load round-trip.
 
-import { createCampaign, applyClassPick, applyRoadChoose, applyChoice, applyDeathVote, applyBreakCamp, beginReplacement, applyContinueChapter, buildClientCampaign, checkEncounterEnd } from '../campaign/campaign'
-import { applyEncounterPlay, applyEncounterDiscard, applyEncounterYield, applyEncounterChooseNext, applySetupReorder, applyCastSpell, applyKeepDrawn, maxHandSize } from '../campaign/encounter'
+import { createCampaign, applyClassPick, applyRoadChoose, applyChoice, applyDeathVote, applyBreakCamp, beginReplacement, applyContinueChapter, buildClientCampaign, checkEncounterEnd, startTutorial } from '../campaign/campaign'
+import { advanceTutorialStep } from '../campaign/tutorial'
+import { applyEncounterPlay, applyEncounterDiscard, applyEncounterYield, applyEncounterChooseNext, applySetupReorder, applyCastSpell, applyKeepDrawn, applyGraftSelect, maxHandSize } from '../campaign/encounter'
+import { MAX_TOKENS_PER_CARD } from '../campaign/tokens'
 import { loadKingdom, saveCampaign, loadCampaign } from '../campaign/store'
 import { cardValue } from '../deck'
 import { EXPERIMENTS } from '../campaign/experiments'
@@ -83,6 +85,16 @@ function drive(c: CampaignState, opts: { cheatKill: boolean; budget?: number; st
             .sort((a, b) => b.v - a.v)
           const keepIdxs = ranked.slice(0, Math.min(slots, ranked.length)).map(x => x.i)
           step(c, pid2, () => applyKeepDrawn(c, pid2, keepIdxs), 'keep drawn')
+          break
+        }
+        // ascending-deck: redundant-kill graft — reinforce the first hand card with room
+        if (s.turnPhase === 'graft_select') {
+          const gi = s.pendingGraft!.heroIdx
+          const gpid = c.heroes[gi]!.playerId
+          const ghand = s.hands[gi] ?? []
+          const idx = ghand.findIndex(card =>
+            (c.cardTokens?.[`${card.suit}${card.rank}`]?.length ?? 0) < MAX_TOKENS_PER_CARD)
+          step(c, gpid, () => applyGraftSelect(c, gpid, idx, 'value'), 'graft select')
           break
         }
         const pi = s.currentPlayerIndex
@@ -452,6 +464,52 @@ console.log('Test A: ascending-deck flag-on — overdraw-and-select')
   assert(!!loaded, 'ascending-deck save loads')
   assert(loaded!.chapter === c.chapter, 'chapter preserved across save')
   ok('ascending-deck: save/load round-trip (optional fields guard)')
+
+  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
+  EXPERIMENTS.provinceMode = LIVE_PROVINCE
+}
+
+// ── Test A2: ascending-deck — redundant exact-kill grafts onto a hand card ───
+console.log('Test A2: ascending-deck — redundant exact-kill → permanent graft')
+{
+  EXPERIMENTS.ascendingDeck = true
+  EXPERIMENTS.provinceMode = false
+
+  const c = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-graft', kingdom).campaign!
+  applyClassPick(c, P1, 'sentinel')
+  drive(c, { cheatKill: false, stopAt: ['encounter'], budget: 80 })
+  assert(c.phase === 'encounter', `reached encounter (${c.phase})`)
+  const s = c.encounter!
+  while (s.turnPhase === 'setup') applySetupReorder(c, s.setupPeek!.playerId, s.setupPeek!.cards.map((_, i) => i))
+
+  const pi = s.currentPlayerIndex
+  const pid = c.heroes[pi]!.playerId
+  // Force a redundant exact-kill: rewrite the live enemy to an OWNED low card
+  // (D2, value 2 ≤ 5 ⇒ alreadyOwned) at 2 HP, give a 2♠ to land it exactly and a
+  // 4♥ to receive the graft. ♠ adds no damage, so 2 dmg ⇒ enemy.hp 0 ⇒ exact.
+  s.modifierId = null
+  delete s.flags['enemy.guard']
+  const enemy = s.currentEnemy!
+  enemy.card = { suit: 'D', rank: '2', id: 'enemy-d2' }
+  enemy.hp = 2
+  s.turnPhase = 'play'
+  s.hands[pi] = [
+    { suit: 'S', rank: '2', id: 'kill-s2' },
+    { suit: 'H', rank: '4', id: 'graft-h4' },
+  ]
+  const before = c.cardTokens?.['H4']?.length ?? 0
+  const rp = applyEncounterPlay(c, pid, [0])   // 2♠ → 2 dmg → exact kill on owned D2
+  assert(!rp.error, `play to exact-kill: ${rp.error}`)
+  assert(s.turnPhase === 'graft_select', `redundant exact-kill pauses for graft (got ${s.turnPhase})`)
+  assert(s.pendingGraft?.suit === 'D', `pendingGraft carries the slain suit (got ${s.pendingGraft?.suit})`)
+  const gIdx = s.hands[pi]!.findIndex(card => card.id === 'graft-h4')
+  const rg = applyGraftSelect(c, pid, gIdx, 'suit')   // graft the D suit onto 4♥
+  assert(!rg.error, `graft select: ${rg.error}`)
+  assert((c.cardTokens?.['H4']?.length ?? 0) === before + 1, 'graft stamped one token on H4')
+  // phase resumes to combat unless that kill ended the encounter (won → checkEncounterEnd transitions)
+  assert(s.turnPhase !== 'graft_select' || s.outcome === 'won', `graft_select phase resolved (got ${s.turnPhase}/${s.outcome})`)
+  assert(s.pendingGraft === undefined, 'pendingGraft cleared after selection')
+  ok('ascending-deck: redundant exact-kill → permanent graft onto a hand card')
 
   EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
   EXPERIMENTS.provinceMode = LIVE_PROVINCE
@@ -887,6 +945,75 @@ console.log('Test G: ascending-deck — Sanctum Rites (Foresight / Blessing / Cl
 
   EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
   EXPERIMENTS.provinceMode = LIVE_PROVINCE
+}
+
+// Test T1 — onboarding tutorial launches a scripted Sentinel encounter
+{
+  const wasAsc = EXPERIMENTS.ascendingDeck
+  EXPERIMENTS.ascendingDeck = true
+  console.log('\nTest T1: onboarding tutorial — scripted launch')
+  const { campaign: t } = createCampaign([{ id: P1, name: 'Newbie' }], 1, 'tutorial', kingdom)
+  assert(!!t, 'tutorial campaign created')
+  if (t) {
+    startTutorial(t)
+    assert(t.tutorial === true, 'tutorial flag set')
+    assert(t.phase === 'encounter', `phase is encounter (got ${t.phase})`)
+    assert(t.heroes.every(h => h.classId === 'sentinel'), 'all heroes forced to Sentinel')
+    assert(!!t.encounter, 'encounter exists')
+    const enemy = t.encounter?.currentEnemy
+    assert(enemy?.card.rank === '7' && enemy?.card.suit === 'H', `first enemy is the 7♥ bag (got ${enemy?.card.suit}${enemy?.card.rank})`)
+    assert(enemy?.hp === 14, `bag uses explicit HP 14, not rank×3 (got ${enemy?.hp})`)
+    assert((t.encounter?.enemyDeck.length ?? 0) === 3, `3 enemies queued behind the bag (got ${t.encounter?.enemyDeck.length})`)
+    const hand = t.encounter?.hands[0] ?? []
+    assert(hand.length === 12, `opening hand is 10 tools + 2 fodder (got ${hand.length})`)
+    assert(hand.some(cd => cd.suit === 'H' && cd.rank === '4'), 'hand contains 4♥ (the first-attack card)')
+    assert(hand.some(cd => cd.rank === 'Jo'), 'hand contains a Jester')
+    assert(enemy?.immunityNullified === true, 'the training dummy blocks no suit (immunity nullified)')
+    ok('Tutorial: launches a fixed Sentinel encounter (7♥ dummy @14hp, no suit-block, 12-card hand)')
+  }
+  EXPERIMENTS.ascendingDeck = wasAsc
+}
+
+// Test T2 — play the whole tutorial on the forced line; the guide must advance
+// through every beat and the run must reach the end card (no stuck beat, no softlock).
+{
+  const wasAsc = EXPERIMENTS.ascendingDeck
+  EXPERIMENTS.ascendingDeck = true
+  console.log('\nTest T2: tutorial — full playthrough on the rail')
+  const { campaign: t } = createCampaign([{ id: P1, name: 'New' }], 1, 'tutorial', kingdom)
+  let reached = 0
+  if (t) {
+    startTutorial(t)
+    for (let i = 0; i < 80 && t.phase === 'encounter'; i++) {
+      const s = t.encounter!
+      const proj = buildClientCampaign(t, P1, P1, kingdom).encounter!
+      reached = Math.max(reached, proj.tutorialBeat?.step ?? 0)
+      const hand = s.hands[0]!
+      let r: { error?: string }
+      if (s.turnPhase === 'setup') r = applySetupReorder(t, P1, [])
+      else if (s.turnPhase === 'play') {
+        const hl = proj.tutorialBeat?.highlightCardId
+        let idx = hl ? hand.findIndex(cd => cd.id === hl) : 0
+        if (idx < 0) idx = 0
+        r = applyEncounterPlay(t, P1, [idx])
+      } else if (s.turnPhase === 'discard') {
+        const fodder = (proj.tutorialDiscard ?? []).map(id => hand.findIndex(cd => cd.id === id)).filter(x => x >= 0)
+        const pick: number[] = []; let tot = 0
+        for (const idx of fodder) { pick.push(idx); tot += cardValue(hand[idx]!.rank); if (tot >= s.discardNeeded) break }
+        r = applyEncounterDiscard(t, P1, pick)
+      } else if (s.turnPhase === 'draw_select') {
+        r = applyKeepDrawn(t, P1, (s.drawPool ?? []).map((_, k) => k).slice(0, proj.drawSelectKeep ?? 0))
+      } else if (s.turnPhase === 'graft_select') r = applyGraftSelect(t, P1, 0, 'value')
+      else break
+      assert(!r.error, `T2 step ${i} @${s.turnPhase}: ${r.error}`)
+      if (t.encounter) advanceTutorialStep(t, t.encounter)
+      if (t.encounter && t.encounter.outcome !== 'active') checkEncounterEnd(t, kingdom)
+    }
+  }
+  assert(t?.phase === 'tutorial_done', `tutorial reaches the end card (phase ${t?.phase})`)
+  assert(reached >= 11, `the guide advanced through all beats (max step ${reached}/11)`)
+  ok('Tutorial: full forced-line playthrough reaches the end card; every beat fires')
+  EXPERIMENTS.ascendingDeck = wasAsc
 }
 
 console.log(failures === 0 ? '\nAll smoke tests passed ✅' : `\n${failures} failure(s) ❌`)

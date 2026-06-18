@@ -158,6 +158,7 @@ export type CampaignPhase =
   | 'chapter_complete'      // interlude between chapters / campaign won screen
   | 'campaign_won'
   | 'campaign_lost'
+  | 'tutorial_done'         // scripted tutorial finished — show the end card
 
 export interface PendingChoice {
   kind: 'landmark_reward' | 'replacement' | 'relic_full' | 'draft_pick'
@@ -209,6 +210,7 @@ export type CampaignTurnPhase =
   | 'play' | 'discard' | 'choose_next'   // mirrors base TurnPhase
   | 'setup'                               // encounter setup peek
   | 'draw_select'                         // ascending-deck: overdraw hold
+  | 'graft_select'                        // ascending-deck: redundant exact-kill graft pick
   | 'over'                                // encounter finished
 
 export interface EncounterState {
@@ -249,6 +251,14 @@ export interface EncounterState {
   // keep-limit override for the current draw_select. Diamonds leave this unset
   // (limit = empty hand slots); Tactical Surge sets a fixed cap ("keep 2 of 5").
   drawSelectCap?: number
+
+  // ascending-deck: a redundant exact-kill pauses to graft onto a hand card.
+  // Only populated when turnPhase === 'graft_select'. `suit` is the slain card's
+  // suit (offered for the +suit graft); the +value graft is a flat +1 (Hone).
+  pendingGraft?: { heroIdx: number; suit: string }
+
+  // scripted tutorial: index into the beat list (campaign/tutorial.ts).
+  tutorialStep?: number
 
   flags: EncounterFlags          // modifier + ability one-shot bookkeeping
 
@@ -338,6 +348,10 @@ export interface CampaignState {
   log: string[]
   // debug/playtest controls (admin canon: deterministic testing support)
   debug: { forceNextEncounterId?: string; forceNextRewardId?: string }
+
+  // scripted onboarding tutorial: when true, deck/enemies are fixed (see
+  // campaign/tutorial.ts) and the run is isolated from the live campaign.
+  tutorial?: boolean
 
   // human-run telemetry — maintained by campaign/telemetry.ts via the session
   // dispatcher only, so simulator-driven campaigns never write human rows.
@@ -441,6 +455,15 @@ export interface ClientEncounterState {
   drawPool?: Card[]
   // how many of the drawPool the viewing hero may keep (empty slots, or a spell cap)
   drawSelectKeep?: number
+  // ascending-deck: present during graft_select for the hero choosing — the slain
+  // card's suit (for the +suit option). The +value option is always a flat +1.
+  graftSelect?: { suit: string } | undefined
+  // scripted tutorial: the current guide beat (line + which hand card to highlight)
+  tutorialBeat?: { line: string; highlightCardId?: string; step: number; total: number }
+  // scripted tutorial: render the current enemy as a Training Dummy (no suit)
+  tutorialDummy?: boolean
+  // scripted tutorial: fodder card ids to flash during discard-to-pay
+  tutorialDiscard?: string[]
   // ascending-deck: tokens stamped on cards, keyed by logical id (`${suit}${rank}`)
   cardTokens?: Record<string, ClientToken[]>
   // Sanctum Foresight rite: the upcoming enemy lineup (labels), revealed this fight
