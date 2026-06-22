@@ -1,200 +1,139 @@
-# Regicide Web — Beta
+# Regicide Web
 
-An unofficial digital multiplayer adaptation of [Regicide](https://www.badgersfrommars.com/regicide) by Badgers from Mars. Play in your browser, real-time, with 1–4 players.
+An unofficial browser adaptation of
+[Regicide](https://www.badgersfrommars.com/regicide), with two game modes:
 
-> **This is a beta.** Expect rough edges, missing polish, and possible bugs. The core game loop is functional.
+- **Quick Game:** cooperative base Regicide for 1–4 players.
+- **Campaign:** a persistent, seeded roguelike campaign currently migrating to the
+  accepted V3 conquest-deck design.
 
----
+V3 is actively being designed and developed on `Design_V3`. The playable campaign
+still contains inherited V2 systems; implementation status is tracked separately from
+intended design.
 
-## How to Run
+## Start here
 
-### Prerequisites
+| Need | Read |
+|---|---|
+| Install, run, and verify | [`AGENTS.md`](AGENTS.md) |
+| Documentation map | [`docs/README.md`](docs/README.md) |
+| Accepted V3 design | [`docs/canon/README.md`](docs/canon/README.md) |
+| Current implementation state | [`docs/delivery/current-state.md`](docs/delivery/current-state.md) |
+| Active design questions | [`docs/proposals/open-design-questions.md`](docs/proposals/open-design-questions.md) |
 
-- Node.js 18+
-- npm
+Code and tests are authoritative for shipped behavior. Canon defines accepted intended
+behavior, including accepted work that is not implemented yet.
 
-> 🤖 Installing with an AI assistant (Claude Code, Copilot, etc.)? Point it at [`CLAUDE.md`](./CLAUDE.md) — it contains exact install/run/verify steps and the project's architecture conventions.
+## Requirements
 
-### Install
+- Node.js 18+; Node 20 LTS recommended.
+- npm.
+- No database, Docker, or environment variables required.
+
+## Install and run
 
 ```bash
 npm run install:all
-```
-
-This installs dependencies for both the server and the client.
-
-### Start
-
-```bash
 npm run dev
 ```
 
-Starts the game server on port `3001` and the Vite dev server on port `5173`. Open [http://localhost:5173](http://localhost:5173) in your browser.
+- Client: <http://localhost:5173>
+- Server health check: <http://localhost:3001/health>
 
-To play with others on your local network, share your machine's local IP at port `5173` (e.g. `http://192.168.x.x:5173`). The Vite proxy handles all WebSocket traffic through port 5173 — no extra firewall rules needed.
+For local-network play, share the host machine's IP on port `5173`. Vite proxies the
+Socket.IO connection through the same port.
 
----
+Persistent local campaign data is generated under `server/data/` and is gitignored.
 
-## Game Rules
+## Verify
 
-Regicide is a cooperative card game. All players work together to defeat 12 face-card enemies — 4 Jacks, 4 Queens, and 4 Kings — using the rest of a standard deck. You win by defeating all 12. You lose if any player can't pay the damage from a counterattack.
+Required campaign smoke suite:
 
----
+```bash
+cd server
+npx tsx scripts/smoke.ts
+```
 
-### Setup
+The suite must end with `All smoke tests passed ✅`.
 
-**Enemy deck (the Castle):**
-The 12 face cards are arranged in a fixed order: Jacks first, then Queens, then Kings — each group shuffled randomly within itself. Enemies are revealed one at a time, starting with a Jack.
+Additional checks:
 
-**Player deck (the Tavern):**
-The remaining 40 cards (Ace through 10 in all four suits) plus Jesters are shuffled and dealt to players as their starting hand.
+```bash
+cd server && npx tsx scripts/e2e.ts
+cd client && ./node_modules/.bin/vue-tsc --noEmit
+cd client && npm run build
+npm run docs:check
+```
 
-| Players | Hand size | Jesters |
-|---------|-----------|---------|
-| 1       | 8         | 0       |
-| 2       | 7         | 0       |
-| 3       | 6         | 1       |
-| 4       | 5         | 2       |
+## Quick Game
 
-Undealt cards form the tavern (draw pile). The discard pile starts empty.
-
----
-
-### Card Values
-
-| Card | Value |
-|------|-------|
-| A    | 1     |
-| 2–10 | Face value |
-| Jester | 0  |
-| Jack (enemy) | 10 |
-| Queen (enemy) | 15 |
-| King (enemy) | 20 |
-
----
-
-### Enemy Stats
-
-| Enemy | HP | Attack |
-|-------|----|--------|
-| Jack  | 20 | 10     |
-| Queen | 30 | 15     |
-| King  | 40 | 20     |
-
----
-
-### On Your Turn
-
-#### 1. Play phase
-
-You must play one or more cards from your hand, or yield.
-
-**Legal combos:**
-- Any single card
-- An Ace paired with exactly one other card (any rank or suit)
-- Multiple cards of the same rank, as long as their total value is **10 or less**
-- Jesters must be played alone
-
-**Dealing damage:**
-Add up the face values of all cards played. That total is the base damage dealt to the current enemy.
-
----
-
-#### 2. Suit Powers
-
-Each suit has a special power that triggers when you play a card of that suit. However, the enemy is **immune to its own suit's power** — that power is blocked if any of your played cards match the enemy's suit.
+Quick Game preserves base Regicide and remains isolated from campaign mechanics.
+Players cooperatively defeat the Jack, Queen, and King courts using card values,
+same-rank combinations, Aces, Jesters, and the four suit powers:
 
 | Suit | Power |
-|------|-------|
-| ♣ Clubs | **Double damage.** The base damage is multiplied by 2. |
-| ♠ Spades | **Shield.** Add the base attack value to the enemy's shield. The shield permanently reduces the enemy's attack (net attack = enemy ATK − shield). Shields accumulate across turns. |
-| ♥ Hearts | **Recover.** Move the top N cards from the discard pile back into the tavern (shuffled in), where N equals the base attack value. |
-| ♦ Diamonds | **Draw.** Starting with you and going clockwise, players draw cards up to their hand limit until N cards have been drawn total. |
+|---|---|
+| Clubs | Double damage. |
+| Spades | Reduce enemy attack through shielding. |
+| Hearts | Return cards from discard to the Tavern. |
+| Diamonds | Draw cards without exceeding hand limits. |
 
-If you play a mixed-suit combo, all applicable powers trigger. The Clubs damage multiplier applies to the combined total of the entire combo.
+The enemy is immune to its own suit power. An exact kill recruits the defeated royal
+into the Tavern for the current quick game; an overkill discards it.
 
----
+## V3 campaign direction
 
-#### 3. Enemy Counterattack
+The campaign's accepted identity is:
 
-After you play:
+> You don't build a deck—you conquer one.
 
-- If the enemy's HP drops to **exactly 0**: the enemy card is placed at the bottom of the tavern (draw pile). Exact kills are rewarded.
-- If the enemy's HP drops **below 0** (overkill): the enemy card goes to the discard pile.
-- If the enemy is **still alive**: the enemy counterattacks.
+The current V3 foundation includes:
 
-**Net attack = enemy ATK − shield accumulated so far.**
+- One continuous five-act expedition:
+  **Claim → Shape → Exploit → Adapt → Master**.
+- Death ends the expedition and the next run begins at Act 1.
+- Exact-killing an unowned number card recruits it.
+- Exact-killing an already-owned card replaces one hand card's rank or suit with the
+  defeated rank or suit.
+- The expedition deck persists across road encounters; explicit rests reshuffle and
+  redraw.
+- Four core class identities own Block, Kill, Combine, and Persist.
+- Meta progression widens future options rather than supplying required permanent
+  statistical power.
 
-If net attack is 0 (fully shielded), no damage is taken and the turn passes normally.
+These are design statements, not claims that the current build already implements all
+of them. Read the [canon manifest](docs/canon/README.md) for the complete accepted design
+and [current state](docs/delivery/current-state.md) for every known migration gap.
 
-Otherwise, you enter the **discard phase**: you must discard cards from your hand whose total value is **greater than or equal to** the net attack. If the sum of all cards in your hand is less than the net attack, the game is over — you lose.
+## Project layout
 
----
+```text
+server/                 lobby, quick game, campaign engine, persistence
+server/campaign/        campaign state, encounters, maps, content, tokens, saves
+server/scripts/         smoke, E2E, simulation, and bot tooling
+client/src/components/  lobby, quick-game, and campaign UI
+docs/canon/             accepted intended design
+docs/decisions/         dated rationale for canon changes
+docs/delivery/          implementation state and migration
+docs/proposals/         active and deferred design work
+docs/research/          simulations, playtests, and assessments
+docs/archive/           frozen V0/V2 and retired material
+```
 
-#### 4. Yield
+## Development rules
 
-You may choose to yield instead of playing cards. You skip the attack phase but still take the full counterattack. Useful when you have no legal plays worth making.
+- Work on `Design_V3`; `master` remains read-only.
+- Preserve unrelated local changes.
+- Do not bypass Git hooks.
+- Pull, commit, and push only when explicitly requested.
+- Campaign randomness uses serialized seeded RNG.
+- Campaign mutations use the central campaign action dispatcher and persist after every
+  successful action.
 
----
+See [`AGENTS.md`](AGENTS.md) for the complete engineering guide.
 
-### Jester
+## Technology
 
-Jesters are wildcards played alone. When played:
-- The enemy's suit immunity is **nullified** for this turn (all suit powers work regardless of the enemy's suit)
-- The enemy does **not** counterattack
-- You get to **choose which player goes next** (including yourself)
-
----
-
-### Drawing Cards
-
-Players do not draw at the start of their turn. Cards are drawn via the ♦ Diamonds power. When the tavern runs out, the discard pile is shuffled and becomes the new tavern.
-
----
-
-### Win & Lose Conditions
-
-- **Win:** All 12 enemies defeated (all 4 Jacks, 4 Queens, and 4 Kings).
-- **Lose:** The active player cannot cover the enemy's net attack damage with the cards remaining in their hand.
-
----
-
-## Campaign Mode (`Design_V2` branch)
-
-The `Design_V2` branch implements a playable campaign building on the design under `docs/design/` (start at `docs/README.md`). The campaign bible (`docs/design/campaign/campaign-bible.md`) is the original design canon; a **solo-first economy redesign** (see `CLAUDE.md` and `docs/design/`) has since superseded parts of it — notably, **memories and preparations are removed** and **relics now use two slots per hero**.
-
-**Loop:** Kingdom → Chapter → Team → road commitment → encounters → camp/interlude → boss (gate) → next act → final boss → win.
-
-From the room lobby the host can start a **Quick Game** (base Regicide, unchanged) or a **Campaign** (chapter + optional deterministic seed), or **resume** a saved campaign.
-
-What's in:
-
-- **Road:** handcrafted Ch.1/Ch.2 maps, seeded deterministic permutation, ~45% landmark visibility, one-way commitment. Per-node CT (reward/pressure/net) is logged server-side, never shown to players.
-- **Encounters:** skirmish/veteran/elite fights with 15 modifier rules adapted from the Chapter 1 encounter pack. **The deck persists across road encounters** (hands, Tavern and discard carry over — attrition canon); only camp/interlude rests reshuffle and redraw, and an empty Tavern is only refilled by ♥ Hearts or a rest. Ch.1 boss = literal 12-royal castle, no modifier. Ch.2 boss = castle + hidden modifier (Tower intel can reveal it).
-- **Classes:** all 9 (4 core + Commander/Warden/Gambler/Exile/Oracle) with their core abilities. Campaigns start core-only; Tier 2/3 enter via the death/replacement flow once unlocked. Specializations are deferred (canon: post-Ch.1 unlock — flag exists, effects not implemented).
-- **Death:** hero death → Retreat / Last Stand vote (dead player votes; majority, host tiebreak). Warden adds Defiant Stand once per run. No retreat at bosses. Replacement at camp from a randomized subset, class must differ.
-- **Items:** **relics (two slots per hero** — a third offered relic forces you to release one) plus team spells. Relics are axis-owners (e.g. every ♦ draws +1, every ♠ shields +1). Memories and camp preparations have been removed.
-- **Persistence:** Kingdom unlocks (`server/data/kingdom.json`) and per-campaign saves survive restarts. Manual abandon keeps Kingdom unlocks.
-- **Playtest controls:** deterministic seed input at campaign creation; `debug_force` socket action to force next encounter/reward; CT logging per node.
-
-Not yet implemented (flagged for iteration): the four-axis camp allocation (♦/♥/♠/♣ pips), the Forge (+1 permanent card upgrade), Exile-as-a-landmark-service, value-adjust meta currency, multiple map variants per chapter. The party economy still runs on the old single-relic assumptions — the redesign is solo-first.
-
-Tests: `cd server && npx tsx scripts/smoke.ts` (engine) and `npx tsx scripts/e2e.ts` against a running server (protocol).
-
----
-
-## Tech Stack
-
-- **Server:** Node.js, Express, Socket.IO, TypeScript
-- **Client:** Vue 3, Vite, TypeScript
-- **Transport:** WebSocket (Socket.IO)
-
----
-
-## Known Limitations (Beta)
-
-- No persistent state — rooms are lost on server restart
-- No reconnection recovery after a disconnect mid-game
-- Single-player mode is untested
-- No mobile-optimized layout
-- No sound or animations
+- Vue 3, Vite, and TypeScript.
+- Node.js, Express, Socket.IO, and TypeScript.
+- Local JSON persistence for campaign and Kingdom state.

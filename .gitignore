@@ -3,3 +3,7 @@ dist
 .env
 *.local
 server/data
+
+# Local Obsidian vault state and generated wiki
+docs/.obsidian/
+docs/wiki/

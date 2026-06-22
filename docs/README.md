@@ -1,20 +1,24 @@
-# Regicide — Design Docs
+# Regicide documentation
 
-Navigation hub for the game's design. Docs are bucketed by **status**, so you can
-tell at a glance what's decided vs proposed vs dead:
+This directory separates intended design, design history, implementation state, and
+evidence. Folder location is authoritative; archived and proposed documents do not
+override current canon.
 
-| Folder | Means | Trust it as… |
-|---|---|---|
-| **[design/](design/)** | Decided & current canon | what the game **is / should be** |
-| **[ideas/](ideas/)** | Proposed, deferred, or open | directions under discussion — **not locked** |
-| **[reference/](reference/)** | Empirical findings & analysis | observations, **not** decisions |
-| **[retired/](retired/)** | Removed, superseded, historical | what we tried and moved past — **do not implement** |
+| Question | Read |
+|---|---|
+| What should the game be? | [`canon/`](canon/) |
+| Why did the design change? | [`decisions/`](decisions/) |
+| What is built, and what comes next? | [`delivery/`](delivery/) |
+| What is still being considered? | [`proposals/`](proposals/) |
+| What evidence supports the design? | [`research/`](research/) |
+| What did older editions say? | [`archive/`](archive/) |
 
-**Start here:**
-- [design/ascending-deck.md](design/ascending-deck.md) — the current headline direction.
-- [design/ascending-deck-build-plan.md](design/ascending-deck-build-plan.md) — **building it?** the turnkey, sequenced handoff (Continent 1 = chapters 1–3).
-- [design/campaign/campaign-bible.md](design/campaign/campaign-bible.md) — the foundational canon (`campaign-bible` wins design conflicts).
-- [design/roadmap.md](design/roadmap.md) — what's next and in what order.
+The active design edition is **V3**. Its complete authority map lives in
+[`canon/README.md`](canon/README.md). Code remains the source of truth for shipped
+behavior; canon describes intended behavior, including accepted work not yet built.
 
-> Project setup, run instructions, and engineering conventions live in the
-> repo-root **`CLAUDE.md`**. Code is under `server/` and `client/`.
+## Authority rule
+
+There is one current answer per topic. Canon pages do not silently override one
+another. A change updates the affected canon page and records its rationale in a
+decision record. `delivery/current-state.md` records any temporary code/canon gap.
