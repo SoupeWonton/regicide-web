@@ -288,16 +288,14 @@ The Abbey does not sell a random spell from a catalog. Its verb is **attune**: c
 which of the four known trump cards becomes available or deeper. This creates a short,
 purposeful stop rather than a shop screen.
 
-### Shrine — zero-sum card transformation, or removal
+### Shrine — Consecrate *(resolved 2026-06-22 — see landmarks proposal)*
 
-Shrine has no spell-restoration role. Its V3 identity is not settled and the location
-should be removed if it cannot own a distinct verb.
-
-One direction is a zero-sum consecration: curse or weaken one owned card in order to
-upgrade another while keeping the same number of cards in the deck. This would
-redistribute strength rather than mint a free upgrade or thin the deck. Exact rank,
-suit, duration, targeting, and conservation rules remain unclear, and the idea may
-overlap too heavily with the Forge or Split Seal.
+Shrine has no spell-restoration role. Its V3 identity is now proposed as **Consecrate**:
+permanently **transmute one owned card's suit (or rank) without a kill** — the only
+*player-directed* reshape (grafts require a conquest; the Forge only rearranges). It
+respects no-removal (converts, never thins) and gives a no-kill way to fix a denied axis,
+softening the floor (Q1 #3) without a card faucet. Full write-up and open tuning live in
+[`landmarks.md`](landmarks.md#shrine--consecrate-resolves-the-open-landmark-slot).
 
 ### Lair — win a relic through a dangerous fight
 

@@ -23,6 +23,13 @@ No detailed kit or progression model is canon yet.
   invariant loophole plus a mutually exclusive facet, multiplied by five-act pressure
   permutations.
 
+## Brainstorm pool (for elimination)
+
+- [`facet-and-linear-candidates.md`](facet-and-linear-candidates.md) — an over-generated
+  candidate pool: multiple linear ladders **and** facet sets for all four classes, each with
+  rationale, scaling (linear), and playstyle divergence (facets), plus an elimination
+  worksheet. Use it to run the cut before locking the model above.
+
 ## Decision required
 
 Determine whether class depth comes primarily from a fixed linear path or from

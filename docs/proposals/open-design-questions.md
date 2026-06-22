@@ -64,6 +64,12 @@ Decisions still required:
 **Unlocks:** enemy pools, deck-size targets, class starting hands, route recovery,
 landmarks, onboarding, and balance assumptions.
 
+**Evidence (not a decision):** simulation + human-trace results bearing on #3 and #4 are
+recorded in [`../research/simulation/v3-deck-lifecycle-q1.md`](../research/simulation/v3-deck-lifecycle-q1.md).
+Headline: the death spiral is a skill-floor risk, not structural (humans never starve;
+bots do); "no removal" holds; graft value-semantics are win-neutral (feel, not balance).
+Awaits Landry↔Gab consensus before any canon change.
+
 ---
 
 # 2. Four deep classes

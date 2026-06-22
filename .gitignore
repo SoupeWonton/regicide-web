@@ -4,6 +4,5 @@ dist
 *.local
 server/data
 
-# Local Obsidian vault state and generated wiki
-docs/.obsidian/
-docs/wiki/
+# Local Obsidian vault app state (not content) — at any level
+.obsidian/
