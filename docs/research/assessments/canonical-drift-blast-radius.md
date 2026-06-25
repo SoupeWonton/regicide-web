@@ -161,13 +161,18 @@ radius is enormous** because they change the standard used to accept every featu
 
 ## Item inventory
 
-| ID | Canonical feature | Radius | Primary dependencies |
+> **⚠️ Superseded by the 2026-06-24 decision** ([`../../decisions/2026-06-24-crystals-continents-and-equipment.md`](../../decisions/2026-06-24-crystals-continents-and-equipment.md)).
+> IT-1 (slotless) → relics are now **equipment in four slots**; IT-2 → the class ability *is* the
+> **Staff** equipment slot (relics still don't carry identity); IT-4/IT-5 → spells are **crystals**
+> (Fragment/Half/Full), not removed. The radius numbers below remain a useful drift estimate.
+
+| ID | Canonical feature (snapshot — see note) | Radius | Primary dependencies |
 |---|---|---:|---|
-| IT-1 | Relics are very rare, slotless exceptions | **4** | Hero state, acquisition, UI, pools, content and save migration |
-| IT-2 | Relics do not provide class identity/progression | **4** | Class architecture, relic catalog and synergy expectations |
+| IT-1 | ~~Relics are very rare, slotless exceptions~~ → rare **equipment in four slots** | **4** | Hero state, acquisition, UI, pools, content and save migration |
+| IT-2 | Relics do not provide class identity/progression (the **Staff** does) | **4** | Class architecture, relic catalog and synergy expectations |
 | IT-3 | Keep-or-sacrifice relic decisions occur rarely | **3** | Offer cadence, pending choices, road rewards and run variance |
-| IT-4 | Standalone spell inventory and currency are removed | **4** | State/actions/UI/content/simulator cleanup and save compatibility |
-| IT-5 | Burst effects belong on cards or existing combat actions | **4** | Card vocabulary, relic boundaries, class actions and UX; replacement grafts remain rank/suit only |
+| IT-4 | ~~Standalone spell inventory and currency removed~~ → **crystal spells** (forged from fragments) | **4** | State/actions/UI/content/simulator cleanup and save compatibility |
+| IT-5 | ~~Burst effects belong on cards/actions~~ → burst lives in the **crystal spells**; grafts stay rank/suit only | **4** | Card vocabulary, relic boundaries, class actions and UX |
 | IT-6 | Exact relic content is intentionally unspecified | **2** | Content can iterate without rewriting structural canon |
 
 ## Highest-risk dependency clusters

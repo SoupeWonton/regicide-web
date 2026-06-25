@@ -12,17 +12,25 @@ things and structural hooks the mechanics already imply, with **no lore written 
 Everything here is a peg to hang a story on — invent freely. Nothing below is itself
 lore; it's the list of slots that want lore.
 
-> One-line premise the mechanics imply: it's a roguelite take on the card game
+> One-line premise the mechanics imply: it's a roguelike take on the card game
 > **Regicide** — heroes fight up through a realm to **kill the crowned royals**
-> (Jacks → Queens → Kings). "Regicide" = the killing of kings. That's the whole
-> spine. Everything else is open.
+> (Jacks → Queens → Kings). "Regicide" = the killing of kings.
+
+> **Accepted spine (2026-06-24):** the player, wronged by a king, is recruited by the
+> **God of Luck** to kill successive kings across **five continents**. Between continents the God
+> of Luck runs a rigged top-of-deck **wager** (always lost). **Continent 4 loops** — you have
+> *become* the king, fighting versions of yourself. The four spell **crystals**, forged to **Full**,
+> "emit a strange light"; completing all four ends the loop and triggers the **Continent 5** God of
+> Luck showdown. See [the decision](../../decisions/2026-06-24-crystals-continents-and-equipment.md).
+> The pegs below still need their stories written.
 
 ## Named things that need a story (locked terms — keep the names)
 
-- **Expedition** — one continuous five-act run. Death ends it and the next expedition
-  starts at Act 1. *What makes the heroes return after defeat?*
-- **Act** — one approximately hour-long leg: **Claim → Shape → Exploit → Adapt →
-  Master**. *How does the realm express each rising test?*
+- **Expedition** — one continuous **five-continent** run (Claim→Master). Death ends it and the
+  next expedition starts at Continent 1; victory comes via the opt-in God of Luck showdown.
+  *What makes the heroes return after defeat?*
+- **Continent / Act** — one approximately hour-long leg: **Claim → Shape → Exploit → Adapt →
+  Master** (Continents 1–5). *How does the realm express each rising test, and the God of Luck's role?*
 - **Act climaxes** — each act needs a recognizable gate or culmination. Existing Gate,
   Courtyard, and Throne terminology may be reassigned during lore/naming work.
 - **Kingdom** — the meta layer / the world that persists between runs. The map, plus

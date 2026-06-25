@@ -17,6 +17,14 @@ across mechanics, gameplay, and design intent. Companion docs:
 Where this migration narrative differs from the canon manifest, the canon manifest
 is authoritative.
 
+> **⚠️ Updated by the 2026-06-24 decision** ([`../decisions/2026-06-24-crystals-continents-and-equipment.md`](../decisions/2026-06-24-crystals-continents-and-equipment.md)).
+> Three "new" targets below changed: **(a)** relics are now **equipment in five slots**
+> (Staff + Cloak/Ring/Hat/Amulet), not slotless; **(b)** spells return as **fragment/half/full
+> crystals** forged at the Forge (not folded away); **(c)** classes are a **swappable Staff
+> (passive enabler) × a kept linear ladder**, and the run is **five continents** (Claim→Master)
+> with an **opt-in forge-to-Full ending** + God of Luck. Sections below are annotated where
+> superseded.
+
 ## The vision in one line
 
 **You don't build a deck — you conquer one.** Cards are acquired through the starting
@@ -42,7 +50,7 @@ pipeline rather than juggling parallel systems.
 | 10 | The 4 core classes | Differ by which **suit-lever** they buff (Surgeon/QM near-duplicates) | Differ by which **loop-rule** they break: BLOCK / KILL / COMBINE / PERSIST | Gameplay |
 | 11 | Continent 1 structure | ch1 recruits 6–7, ch2 8–9, ch3 Council of Tens | **Two rank-band acts** (2–6, then 7–A); royals = gate bosses you don't keep | Gameplay |
 | 12 | Ace | (start card, value 1) | **Low-1 companion: +1 to anything**, stays a starting card | Mechanics |
-| 13 | Run structure | Older chapter/Province arc | **One continuous five-act expedition**; death restarts at Act 1, act entry fixtures are internal only | Product/gameplay |
+| 13 | Run structure | Older chapter/Province arc | **Five continents** (Claim→Master) + God of Luck; **opt-in ending** = forge all four crystals to Full → C5 showdown; death restarts at Continent 1; entry fixtures internal only *(2026-06-24)* | Product/gameplay |
 
 ---
 
@@ -76,37 +84,43 @@ pipeline rather than juggling parallel systems.
   the shared 20-card start; no always-on effect. A separate class tree and a
   Lair/point economy were deferred on top.
 - **In:** a class is **a loophole and the hand to exploit it.** The **starting hand**
-  (suit-flavored stamps) is the legible on-ramp; the **loophole** is an innate,
-  always-on rule-bend that is the lasting identity. It **deepens one tier per
-  chapter on its own** (e.g. Sentinel: Aegis → Bulwark → Impenetrable) — this *is*
-  the class tree, with no relic slots and no point economy.
+  (suit-flavored stamps) is the legible on-ramp; the **loophole** is the lasting identity.
+  *(2026-06-24 refinement:* the loophole is now a **Staff** — a **swappable passive enabler**
+  held in the Staff equipment slot — paired with a **kept linear ladder** keyed to the class's
+  suit that **deepens across the continents**; other suit ladders unlock over the run, and Staffs
+  swap at the **Fallen Heroes** landmark. There is no purchasable point economy, but the ability
+  does live in an equipment slot.*)
 - **Reversal flagged:** this overturns the locked "pure-token / no-global-passive"
   decision on purpose. (Note: the live code already ran 4 global class passives, so
   this formalizes reality and retires the spec lock.)
 - **Risk to hold:** 3 always-on rule-bends approach "parallel load." Each tier must
   modify **one existing station** of the loop — never add a new station.
 
-### 6. Relics — sparse, slotless
+### 6. Relics — rare, equipment in four slots *(2026-06-24: revised from "slotless")*
 - **Out:** a managed relic inventory with 2 slots, offered often, the loophole-tree.
-- **In:** relics are a **separate, very rare** layer — no slots, no inventory churn.
-  You mostly just hold what you find; a "keep this or sacrifice it for another"
-  decision happens **at most once per run, and even that is rare.** Relics are *not*
-  the class identity (that's innate) — they're occasional spice.
+- **In:** relics are a **separate, rare** layer held as **equipment** in four slots
+  (**Cloak · Ring · Hat · Amulet**), alongside the class **Staff** (fifth slot). You mostly hold
+  what you find; most runs see one or two. Relics are *not* the class identity (the Staff is) —
+  they're occasional spice. *(This replaces the earlier "no slots" framing; the bounded five-slot
+  grid is the legible exception, not a churny inventory.)*
 
-### 7. Spells — folded into the deck
+### 7. Spells — crystals you forge *(2026-06-24: revised from "folded into the deck")*
 - **Out:** a full standalone vehicle: ~14 spell items, a `cast_spell` action, spell
   pools, Abbey/Market/Sanctum spell acquisition, UI buttons.
-- **In:** one-shot-burst roles move onto cards or existing combat actions — there is no
-  spell currency or inventory. Replacement grafts remain strictly rank/suit changes.
-- **Why:** it was the most generic, most "mathy" of the four power-kinds; cutting it
-  takes the economy from four kinds of power down to two (deck + rare relics).
+- **In:** **four suit-spell crystals** in a gauntlet — **Fragment → Half** castable, **Full**
+  a non-castable win token — forged from suit-specific **fragments** dropped in combat and
+  assembled at the **Forge**. No spendable spell currency; fragments are bounded inputs, not a
+  wallet. (Earlier plan "fold spells away" is superseded.)
+- **Why:** the crystal narrative ties spells to the Forge and the endgame; completing all four
+  Fulls is the opt-in, self-weakening path to the God of Luck showdown.
 
-### 8. Economy — two vehicles, no gold
+### 8. Economy — three bounded vehicles, no gold *(2026-06-24: was "two vehicles")*
 - **Out:** pricing four different *kinds* of power against each other; planned gold/buying.
-- **In:** exactly two vehicles — **the deck** (cards + grafts, grown only by conquest)
-  and **very-rare relics** (offered, not bought). **No gold.** A "purchase" is a
-  guaranteed **kill you set up** (e.g. the Caravan offers a weakened target). One unit
-  of value in the whole game: the exact kill. **The battlefield is the only shop.**
+- **In:** three **bounded, legible** vehicles — **the deck** (cards + grafts, grown only by
+  conquest), **equipment** (Staff + four relic slots), and **spell crystals** (the gauntlet of
+  four). **No gold, no spendable currency.** A "purchase" is a guaranteed **kill you set up**
+  (e.g. the Caravan offers a weakened target) or a Caravan relic paid for from hand. One core
+  unit of value: the exact kill. **The battlefield is the only shop.**
 
 ### 9–10. Roster & the four core classes
 - **Out:** 9 classes start-available; the core four differ only by which suit-lever
@@ -123,12 +137,16 @@ pipeline rather than juggling parallel systems.
 | **Surgeon — The Engine** | PERSIST (the deck never decks out) | Recursion / value |
 
 ### 11–12. Structure & the Ace
-- **Out:** ch1 recruits 6–7, ch2 8–9, ch3 = Council of Tens; royals only in Continent 2.
-- **In:** Continent 1 = **two rank-band acquisition acts** (2–6, then 7–A); royals are
-  the **gate bosses you fight but don't keep**. Continent 2 = recruit royals only +
+> **⚠️ Terminology clash (2026-06-24):** this section's "Continent 1 / Continent 2" is the *old*
+> V2 two-chapter sense. The accepted model now uses **five continents = the five beats**
+> (C1 Claim … C5 Master). Read the below as "the two **acquisition** beats then the **pressure**
+> beats"; see [`../canon/v3/campaign/structure.md`](../canon/v3/campaign/structure.md).
+- **Out:** ch1 recruits 6–7, ch2 8–9, ch3 = Council of Tens; royals only in the later chapter.
+- **In:** the **acquisition beats** = **two rank-bands** (2–6, then 7–A); royals are
+  the **gate bosses you fight but don't keep**. The **pressure beats** add royal recruitment +
   the **pressure engine** (≈ today's province).
 - **Ace = low (rank 1), a companion: +1 to anything.** It is a starting card, not a
-  late-act recruit. This pins every rank-band boundary in the new structure.
+  late recruit. This pins every rank-band boundary in the new structure.
 
 ### The hook (unchanged, now protected by design)
 The loop is a **single-threaded pipeline** — draw → combine → kill → block → persist —
@@ -159,12 +177,12 @@ overwhelms; V3 never reintroduces parallel load.)
 | # | Slice | Effort | Status |
 |---|---|---|---|
 | 1 | Replacement graft-on-kill (interactive, permanent) | L | Additive prototype built; accepted replacement semantics pending |
-| 2 | Retire fragment economy (Cluster A); Forge → reshuffle | L | ⏭ Next |
-| 3 | Fold/retire spells (Cluster B) | L | Pending |
-| 4 | Innate loophole progression + 4 class rewrites (C/E) | XL | Pending |
-| 5 | Two-act Continent 1 + Ace-as-low-1 (D) | XL | Pending |
-| 6 | Relics → very-rare sparse layer; no gold; Caravan = set-up kill | M | Pending |
-| 7 | Five-act continuous expedition + act recap/resume + internal fixtures | XL | Pending |
+| 2 | Retire generic fragment shop (Cluster A); Forge → reshuffle **+ crystal assembly** | L | ⏭ Next |
+| 3 | Crystal-spell system (suit fragments → Half → Full; gauntlet) *(was "fold/retire spells")* | L | Pending |
+| 4 | Staff (passive enabler) × kept ladder + 4 class rewrites (C/E) | XL | Pending |
+| 5 | Two rank-band acquisition beats + Ace-as-low-1 (D) | XL | Pending |
+| 6 | Relics → **equipment (5 slots)**; Fallen Heroes staff-swap; no gold; Caravan = set-up kill | M | Pending |
+| 7 | Five-continent expedition + God of Luck + opt-in forge-to-Full ending + recap/resume + fixtures | XL | Pending |
 
 **Interdependencies:** slice 4's
 loophole scaffold before its class abilities; slice 5 blocked on the Ace answer

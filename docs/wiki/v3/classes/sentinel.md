@@ -11,7 +11,9 @@ last_updated: 2026-06-21
 
 # Sentinel
 
-**Summary:** Sentinel is the proposed blocking and inevitability class, turning complete defense into sustained card and combat advantage.
+**Summary:** Sentinel is the blocking / inevitability class (♠), turning complete defense into sustained card and combat advantage.
+
+> **Progression model resolved 2026-06-24.** Sentinel is a **Staff** (swappable passive enabler, e.g. *Hold the Line* / *Reinforce*) **× a kept ♠ Block ladder**. The "Facet proposal" below is **historical**; the live menus are in [[v3/classes/facet-and-linear-candidates|the candidate pool]] (Sentinel is the worked example). See [[decisions/2026-06-24-crystals-continents-and-equipment|crystals decision]].
 
 The **Sentinel** is Kingfall's defensive character. Its confirmed identity is **Block**: the Sentinel should turn defending against enemy counterattacks into a productive strategy rather than treating defense only as lost cards. Its exact shield bonuses, starting hand, tiers, and facets are proposals rather than canon. (source: [[canon/v3/classes/overview|Classes]])
 
@@ -52,9 +54,9 @@ Only one facet would be active. Attrition favors efficient stored defense, tempo
 
 ## Not yet decided
 
-- Starting hand, Plate, and the Act 1 loophole.
+- Starting hand, Plate, and the Continent-1 Staff (passive enabler).
 - What counts as an exact block and whether surplus shield persists.
-- Linear tiers versus facets and their timing.
+- The specific Staff × ♠-ladder pairing and rung values (model itself is settled).
 - Fortify limits, reflection timing, and once-per-fight reset behavior.
 - Interaction with Spade immunity, replacement suits, payment, and multiplayer.
 - How encounters pressure Sentinel without simply disabling defense. (sources: [[proposals/open-design-questions|Active design questions]], [[proposals/classes/README|Class workspace]])

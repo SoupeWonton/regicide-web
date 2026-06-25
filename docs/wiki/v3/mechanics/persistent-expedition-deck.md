@@ -11,17 +11,17 @@ last_updated: 2026-06-20
 
 # Persistent expedition deck
 
-**Summary:** Hand, Tavern, discard, grafts, and conquered cards persist across road encounters and through the five-act expedition.
+**Summary:** Hand, Tavern, discard, grafts, and conquered cards persist across road encounters and through the five-continent expedition.
 
 ## What it is
 
 The campaign does not reconstruct or freely reshuffle the deck between fights. Only explicit rests reshuffle and redraw, while Hearts are the ordinary mechanism that returns discarded cards to an emptying Tavern. (sources: [[canon/v3/constraints|V3 constraints]], [[canon/v3/campaign/run-and-progression|Run and progression]])
 
-Persistence makes acquisition, attrition, missed opportunities, recovery, and card transformation carry consequences into later encounters. Act 5 therefore tests the history produced by the earlier acts rather than an independently prepared endgame deck. (sources: [[proposals/systems/deck-lifecycle|Deck lifecycle packet]], [[decisions/2026-06-20-five-act-continuous-expedition|Five-act decision]])
+Persistence makes acquisition, attrition, missed opportunities, recovery, and card transformation carry consequences into later encounters. The Master beat (Continent 5) therefore tests the history produced by the earlier continents rather than an independently prepared endgame deck — including the **self-weakening** of having forged spell crystals to Full. (sources: [[proposals/systems/deck-lifecycle|Deck lifecycle packet]], [[decisions/2026-06-24-crystals-continents-and-equipment|Crystals decision]])
 
 Rest cadence, act-boundary behavior, recovery routes, and the threshold for ending a functionally lost run remain open design questions. (source: [[proposals/open-design-questions|Active design questions]])
 
-Continuity includes the conquered deck, grafts, class identity, hand, Tavern, discard, and expedition consequences. Save/resume divides real-world sessions without constructing a new act deck, so Act 5 tests the history created by [[v3/mechanics/conquest-first-acquisition|Claim and Shape]]. (sources: [[canon/v3/campaign/run-and-progression|Run and progression]], [[decisions/2026-06-20-five-act-continuous-expedition|Five-act decision]])
+Continuity includes the conquered deck, grafts, class identity, hand, Tavern, discard, and expedition consequences. Save/resume divides real-world sessions without constructing a new deck, so the finale tests the history created by [[v3/mechanics/conquest-first-acquisition|Claim and Shape]]. (sources: [[canon/v3/campaign/run-and-progression|Run and progression]], [[decisions/2026-06-24-crystals-continents-and-equipment|Crystals decision]])
 
 Hearts return spent cards toward availability and Diamonds reach them through draw; without recovery, an empty Tavern turns every payment into irreversible hand shrinkage. This makes [[v3/classes/surgeon|Persist]], rests, and Heart pressure part of the same attrition engine. (source: [[research/strategy/additional-strategy|Additional strategy]])
 

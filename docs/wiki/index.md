@@ -27,11 +27,11 @@ Camp, Forge, Hunt, Lair, Abbey/Sanctum, Market/Caravan, Shrine, and lore-driven 
 
 ### [[v3/spells/index|Spells]]
 
-The proposed four golden trump cards: Clubs, Diamonds, Spades, and Hearts.
+Four suit **crystals** (Clubs, Diamonds, Spades, Hearts): Fragment → Half castable, Full = win token.
 
 ### [[v3/relics/index|Relics]]
 
-Rare slotless V3 candidates and explicitly labeled V2 comparison relics.
+Rare relics as **equipment** (Cloak/Ring/Hat/Amulet, beside the class Staff); V2 comparison relics labeled.
 
 ### [[v3/classes/index|Classes]]
 
@@ -39,7 +39,7 @@ Sentinel, Executioner, Quartermaster, Surgeon, and their shared class-system ent
 
 ### [[v3/stages/index|Stages]]
 
-The continuous five-act expedition, with nested [[v3/stages/continents/index|continents]] and [[v3/stages/continents/continent-1/provinces/index|province]] navigation ready for accepted content.
+The continuous **five-continent** expedition (Claim→Master, God of Luck overlay, opt-in ending), with nested [[v3/stages/continents/index|continents]] and [[v3/stages/continents/continent-1/provinces/index|province]] navigation ready for accepted content.
 
 ### [[v3/design/index|Design]]
 

@@ -19,5 +19,11 @@ Naming convention: `YYYY-MM-DD-short-title.md`.
   — accepts one continuous five-act, full-reset expedition with multi-session duration
   targets and breadth-not-power meta progression.
 - [`2026-06-22-spell-and-relic-models.md`](2026-06-22-spell-and-relic-models.md)
-  — **proposed** (ratify with Gab): four fixed suit spell-cards with a vertical tier
-  (silver→gold→purple), and rare slotless unique rule-bending relics.
+  — **superseded** by 2026-06-24: staged the four fixed suit spell-cards (silver→gold→purple)
+  and slotless relics.
+- [`2026-06-24-crystals-continents-and-equipment.md`](2026-06-24-crystals-continents-and-equipment.md)
+  — **accepted** V3 direction: spells become **fragment/half/full crystals** (two castable rungs;
+  Full = win token) in a four-slot gauntlet; the campaign gains a **five-continent + God of Luck**
+  lore layer over the five-act pressure skeleton with an **opt-in ending**; relics + the class
+  ability become **five equipment slots** (Staff = swappable passive enabler; Cloak/Ring/Hat/Amulet
+  = relics), swapped at the **Fallen Heroes** landmark.

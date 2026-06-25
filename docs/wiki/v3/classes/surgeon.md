@@ -11,7 +11,9 @@ last_updated: 2026-06-21
 
 # Surgeon
 
-**Summary:** Surgeon is the proposed persistence and recovery class, keeping valuable cards circulating through prolonged expedition attrition.
+**Summary:** Surgeon is the persistence / recovery class (♥), keeping valuable cards circulating through prolonged expedition attrition.
+
+> **Progression model resolved 2026-06-24.** Surgeon is a **Staff** (swappable passive enabler) **× a kept ♥ Persist ladder**. The "Facet proposal" below is **historical**; the live menus are in [[v3/classes/facet-and-linear-candidates|the candidate pool]]. See [[decisions/2026-06-24-crystals-continents-and-equipment|crystals decision]].
 
 The **Surgeon** is Kingfall's recovery and recursion character. Its confirmed identity is **Persist**: it should keep the expedition's card engine functioning when cards move into the discard and the Tavern approaches empty. Exact Heart triggers, targeted recovery, and full-deck refill effects remain proposals. (source: [[canon/v3/classes/overview|Classes]])
 
@@ -51,12 +53,12 @@ Attrition makes recurrence the main engine, tempo may force offensive recovery, 
 
 ## Not yet decided
 
-- Starting hand, Mend, and Act 1 loophole.
+- Starting hand, Mend, and the Continent-1 Staff (passive enabler).
 - Heart trigger frequency and recovery ordering.
 - Whether recovered cards are chosen, random, or returned nearer to play.
 - Empty-Tavern behavior and Full Capacity limits.
 - Interaction with rests, replacement identity, immunity, and multiplayer.
-- Linear progression versus facets. (sources: [[proposals/open-design-questions|Active design questions]], [[proposals/classes/README|Class workspace]])
+- The specific Staff × ♥-ladder pairing and rung values (model itself is settled). (sources: [[proposals/open-design-questions|Active design questions]], [[proposals/classes/README|Class workspace]])
 
 ## Implementation status
 

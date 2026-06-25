@@ -42,28 +42,27 @@ The accepted V3 roster owns four different loop stations and four different stra
 | [[v3/classes/quartermaster|Quartermaster]] | Combine | Tempo / large turns | Hold and combine cards beyond ordinary limits. |
 | [[v3/classes/surgeon|Surgeon]] | Persist | Recovery / recursion | Keep valuable cards and the deck engine circulating. |
 
-Each class is a starting hand plus one innate loophole. The loophole deepens during the five-act expedition without a separate point economy, class wallet, or relic-slot tree. Relics remain a rare supporting system and do not carry class identity. (sources: [[canon/v3/classes/overview|Classes]], [[decisions/2026-06-18-v3-foundation|V3 foundation]])
+Each class is a starting hand, a **Staff** (its innate loophole as a swappable passive enabler), and a **kept linear ladder** keyed to its suit. The ladder deepens across the continents without a separate point economy or purchasable skill wallet. The class ability lives in the Staff equipment slot and is swappable at **Fallen Heroes**; relics (the other four equipment slots) are a supporting system and do not carry class identity. (sources: [[canon/v3/classes/overview|Classes]], [[decisions/2026-06-24-crystals-continents-and-equipment|Crystals decision]])
 
 The class should remain recognizable even after its starting cards mix into the conquered deck. In practical terms, a spectator should be able to identify the hero from the decisions being rewarded—precise blocks, exact kills, unusual combinations, or persistent recovery—without relying only on the portrait or class name. This is an explicit design test, not a finalized implementation rule. (source: [[proposals/open-design-questions|Active design questions]])
 
 ## How character selection fits into a run
 
-The precise selection screen and multiplayer ownership rules are not yet specified. The accepted product direction implies that a class is chosen at the beginning of an expedition and remains part of the same continuous character-and-deck history through all five acts. The class does not grant permission to start at a later act or construct an endgame deck independently. (sources: [[canon/v3/classes/overview|Classes]], [[decisions/2026-06-20-five-act-continuous-expedition|Five-act decision]])
+The precise selection screen and multiplayer ownership rules are not yet specified. The accepted product direction implies that a class is chosen at the beginning of an expedition and remains part of the same continuous character-and-deck history through all five continents. The class does not grant permission to start at a later continent or construct an endgame deck independently. (sources: [[canon/v3/classes/overview|Classes]], [[decisions/2026-06-24-crystals-continents-and-equipment|Crystals decision]])
 
 Once selected, the character begins with its starting-hand arrangement and base loophole. The player then conquers cards, applies [[v3/mechanics/replacement-grafts|replacement grafts]], finds rare relic possibilities, and responds to campaign pressure. The class biases which opportunities are attractive, while the actual build emerges from the cards and situations encountered. (sources: [[decisions/2026-06-18-v3-foundation|V3 foundation]], [[canon/v3/classes/overview|Classes]])
 
 ## Current design work
 
-Two competing models explain how the loophole might deepen. The **linear model** gives every class a fixed three-tier path. The **facet model** keeps one class verb but offers one mutually exclusive expression that develops after the player has seen part of the deck. Both are proposals; only the existence of a deepening loophole is confirmed. (sources: [[proposals/classes/README|Class workspace]], [[proposals/classes/four-core-classes|Four core classes]], [[proposals/classes/facets-and-pressure-permutations|Facets and pressures]])
+The progression **model is resolved** (2026-06-24): a **swappable Staff (passive enabler) × a kept linear ladder** keyed to the class's suit, with other suit ladders unlocking over the run. The older "linear three-tier *vs* facets" question is closed; see [[v3/classes/class-progression-model|class progression]] and [[v3/classes/facet-and-linear-candidates|the candidate pool]]. What remains is the **per-class Staff × ladder pairing** and exact numbers. (sources: [[decisions/2026-06-24-crystals-continents-and-equipment|Crystals decision]], [[proposals/classes/README|Class workspace]])
 
 The other five V2 classes—Commander, Exile, Gambler, Oracle, and Warden—are future design runway rather than current V3 specifications. They should return only if they express an irreducible identity not already covered by the four core classes. (sources: [[canon/v3/classes/overview|Classes]], [[decisions/2026-06-18-v3-foundation|V3 foundation]])
 
 ## Not yet decided
 
 - The exact starting cards and whether they change permanent starting ownership.
-- The base mechanical loophole available in Act 1.
-- Fixed linear progression versus mutually exclusive facets.
-- When and how the class deepens across the five acts.
+- The base Staff (passive enabler) available on Continent 1 for each class.
+- The per-class Staff × ladder pairing, and how the other suit ladders unlock over the run.
 - Exact numbers, limits, trigger timing, and UI presentation.
 - How class ownership and graft choices work in multiplayer.
 - Whether alternative starting-hand packages belong in initial scope. (sources: [[proposals/open-design-questions|Active design questions]], [[proposals/classes/README|Class workspace]])

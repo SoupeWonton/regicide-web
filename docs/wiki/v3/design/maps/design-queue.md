@@ -14,17 +14,17 @@ last_updated: 2026-06-20
 
 The first unresolved foundation is the complete [[v3/mechanics/deck-lifecycle|deck lifecycle]]: starting ownership, recruit recurrence, recovery, detailed graft behavior, and possible curation. Those choices determine expected deck sizes and constrain class hands, routes, balance, and onboarding. (sources: [[proposals/open-design-questions|Active design questions]], [[proposals/systems/deck-lifecycle|Deck lifecycle packet]])
 
-The second foundation is [[v3/classes/class-progression-model|class progression]]: fixed linear tiers versus an invariant loophole with one mutually exclusive facet. Only the four loop identities are accepted. (sources: [[canon/v3/classes/overview|Classes]], [[proposals/classes/README|Class workspace]])
+The second foundation is [[v3/classes/class-progression-model|class progression]]: the **model is resolved** (swappable Staff × kept ladder; 2026-06-24), leaving the per-class pairings and ladder values. Only the four loop identities are accepted. (sources: [[canon/v3/classes/overview|Classes]], [[proposals/classes/README|Class workspace]])
 
-After those foundations, the intended order is mutation vocabulary; five-act pressure, gates, and attrition; relics, Forge, landmarks, and overdraw; UI/tutorial; then alpha scope and coarse difficulty validation. Fine numerical balance should wait because upstream decisions change the deck, power vehicles, and recovery model. (source: [[proposals/open-design-questions|Active design questions]])
+After those foundations, the intended order is mutation vocabulary; five-continent pressure, gates, and attrition; equipment/relics, Forge, landmarks, and overdraw; UI/tutorial; then alpha scope and coarse difficulty validation. Fine numerical balance should wait because upstream decisions change the deck, power vehicles, and recovery model. (source: [[proposals/open-design-questions|Active design questions]])
 
 | Order | Decision family | What it unlocks |
 |---:|---|---|
 | 1 | Starting ownership, recurrence, recovery, curation | Enemy pools, deck-size targets, routes, class hands, balance assumptions |
-| 2 | Linear class paths or facets | Canonical kits, selection UI, pressure matrix, onboarding |
+| 2 | Class Staff × ladder pairings (model resolved) | Canonical kits, selection UI, pressure matrix, onboarding |
 | 3 | Mutation vocabulary beyond replacement | Card presentation, token retirement, graft interaction rules |
-| 4 | Acts, gates, attrition, difficulty | Encounter content, rests, fixtures, run pacing |
-| 5 | Relics, Forge, landmarks, overdraw | Supporting-content scope and route economy |
+| 4 | Continents, gates, attrition, difficulty | Encounter content, rests, fixtures, run pacing |
+| 5 | Equipment/relics, Forge (crystals), landmarks, overdraw | Supporting-content scope and route economy |
 | 6 | UI and tutorial | Trustworthy explanation of settled rules |
 | 7 | Alpha scope | External test boundary and validation bar |
 

@@ -19,15 +19,16 @@ last_updated: 2026-06-21
 
 | Landmark | Intended or historical role | V3 status |
 |---|---|---|
-| [[v3/landmarks/camp|Camp]] | Full rest, reshuffle, redraw, planning | Rest behavior confirmed; cadence open |
-| [[v3/landmarks/forge|Forge]] | Rearrange existing replacement grafts | Accepted direction; exact verb open |
-| [[v3/landmarks/lair|Lair]] | Elite risk for rare payoff | Historical/exploring |
-| [[v3/landmarks/abbey|Abbey / Sanctum]] | Recovery, rites, or spells | Historical; conflicts with spell removal |
-| [[v3/landmarks/market|Market / Caravan]] | Trade, value correction, or rare offer | Historical; V3 role unresolved |
+| [[v3/landmarks/v2/camp|Camp]] | Full rest, reshuffle, redraw, planning | Rest behavior confirmed; cadence open |
+| [[v3/landmarks/v2/forge|Forge]] | Rearrange existing replacement grafts | Accepted direction; exact verb open |
+| [[v3/landmarks/v2/lair|Lair]] | Elite risk for rare payoff | Historical/exploring |
+| [[v3/landmarks/v2/abbey|Abbey / Sanctum]] | Recovery, rites, or spells | Historical; conflicts with spell removal |
+| [[v3/landmarks/v2/market|Market / Caravan]] | Trade, value correction, or rare offer | Historical; V3 role unresolved |
 | [[archives/v2/landmarks/tower|Tower]] | Initiative or boss information | Historical; failed solo-value test |
-| [[v3/landmarks/shrine|Shrine]] | Partial recovery, cleanse, or blessing | Historical; role unresolved |
-| [[v3/landmarks/events|Events]] | Non-combat choice with run consequences | Test-grade catalog; final category open |
-| [[v3/landmarks/hunt|Hunt]] | Pursue a missed recruit through combat | Active proposal; not implemented |
+| [[v3/landmarks/v2/shrine|Shrine]] | Partial recovery, cleanse, or blessing | Historical; role unresolved |
+| [[v3/landmarks/v2/events|Events]] | Non-combat choice with run consequences | Test-grade catalog; final category open |
+| [[v3/landmarks/v2/hunt|Hunt]] | Pursue a missed recruit through combat | Active proposal; not implemented |
+| Fallen Heroes | Swap the class **Staff** (mix one class's ladder with another's staff) | Accepted direction; placement/cost open |
 
 ## How landmarks fit into the road
 
@@ -39,7 +40,10 @@ The current V3 design question is smaller than “which old landmarks do we keep
 
 - Every landmark needs one recognizable verb and a route opportunity cost.
 - Landmark rewards should affect the deck or an existing loop, not create another wallet.
-- The Forge cannot mint new graft power.
+- The Forge cannot mint new graft power. It also **assembles spell crystals** — combining
+  suit-specific fragments into a Half, and (once unlocked) a Half/fragments into a non-castable
+  Full. See [[v3/mechanics/items-and-power-vehicles|crystal spells]].
+- **Fallen Heroes** swaps the class Staff (the swappable passive enabler); the class ladder stays.
 - Explicit rests are the only normal reshuffle/redraw boundary.
 - CT values are backend design/debug information and never player-facing. (sources: [[canon/principles/content-bar|Content bar]], [[canon/v3/systems/deck-and-grafts|Deck and grafts]], [[canon/v3/constraints|V3 constraints]])
 

@@ -12,7 +12,7 @@ last_updated: 2026-06-20
 
 **Summary:** The active queue separates unresolved design from accepted-but-unimplemented delivery work.
 
-The dependency order begins with deck lifecycle and class progression, followed by mutation vocabulary, five-act pressure and attrition, supporting systems, player understanding, and alpha scope. (source: [[proposals/open-design-questions|Active design questions]])
+The dependency order begins with deck lifecycle and class progression (model now resolved — staff × ladder), followed by mutation vocabulary, five-continent pressure and attrition, supporting systems (relic + spell models now resolved), player understanding, and alpha scope. (source: [[proposals/open-design-questions|Active design questions]])
 
 Deck lifecycle and class progression are radius-five questions because they alter ownership, acquisition, recovery, card identity, class hands, encounter pressure, UI, saves, and the evidence baseline. (sources: [[proposals/open-design-questions|Active design questions]], [[research/assessments/canonical-drift-blast-radius|Blast radius]])
 
@@ -21,10 +21,10 @@ Supporting questions include relic cadence, Forge behavior, landmark verbs, over
 | Family | State | Questions still requiring consensus |
 |---|---|---|
 | Deck lifecycle | Exploring, radius 5 | Start, recurrence, recovery, curation |
-| Classes | Competing models, radius 5 | Base loopholes, hands, linear/facet timing |
+| Classes | **Model resolved 2026-06-24** (Staff × ladder) | Per-class pairings, base Staff, ladder values, unlock timing |
 | Mutation vocabulary | Exploring, radius 5 | Replacement-only versus a tiny keyword set |
-| Five-act content | Frame accepted, content exploring | Packages, gates, rests, difficulty, fixtures |
-| Supporting systems | Exploring | Relic cadence, Forge, landmarks, overdraw |
+| Five-continent content | Frame + lore overlay accepted; content exploring | Packages, gates, rests, difficulty, C4 loop, opt-in ending pacing, fixtures |
+| Supporting systems | **Relic + spell models resolved 2026-06-24** | Slot themes, relic roster, forge counts/drop rates, landmark cleanup (Sanctum), overdraw |
 | Player understanding | Exploring | Card presentation, preview, inspection, tutorial |
 | Product scope | Mixed/unexplored | Solo/multiplayer and alpha exit bar |
 

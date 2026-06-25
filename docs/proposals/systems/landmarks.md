@@ -25,15 +25,21 @@ rather than replace it.
 
 ## The map
 
+> **Updated 2026-06-24** ([crystals decision](../../decisions/2026-06-24-crystals-continents-and-equipment.md)):
+> spells are now **forged from combat-dropped fragments at the Forge** (not attuned), so **Sanctum's
+> "Attune" verb is superseded**; the **Forge** gains crystal assembly; **Caravan** sells **relics**
+> only; and a new **Fallen Heroes** landmark swaps the class Staff.
+
 | Landmark | Verb | Hands out | Notes |
 |---|---|---|---|
-| **Sanctum** | Attune | Acquire/upgrade one of the 4 suit spells (silver→gold→purple) | Not a random catalog — *choose which trump to awaken/deepen*. See [spell+relic decision](../../decisions/2026-06-22-spell-and-relic-models.md). |
-| **Lair** | Raid | Win a unique rule-bending relic through a dangerous fight | Advertise the relic (or its family) before commitment; victory grants it, retreat/defeat does not. Primary relic source. |
-| **Caravan** | Pay-from-hand | A costly relic/spell for a visible discard-total cost | No gold/fragments — you buy by entering the road with fewer cards. Costly alternative to Sanctum/Lair. |
+| **Forge** | Rearrange & assemble | Move existing grafts (no new power) **+ forge fragments → Half → Full crystals** | Preserves conquest permanence; assembles the crystal spells (Q12). Never grants relics. |
+| **Fallen Heroes** | Swap Staff | Trade your class **Staff** (passive enabler) | New 2026-06-24 — mix one class's ladder with another's staff. Placement/cost TBD. |
+| **Lair** | Raid | Win a unique rule-bending relic (equipment) through a dangerous fight | Advertise the relic before commitment; victory grants it. Primary relic source. |
+| **Caravan** | Pay-from-hand | A costly **relic** for a visible discard-total cost | No gold/wallet — you buy by entering the road with fewer cards. Spells are no longer sold here (forge them). |
 | **Camp** | Rest / prepare | Four-axis prep for the next encounter | ♦ redraw hand · ♥ reshuffle discard into Tavern · ♠ start with a shield · ♣ first play deals double. Tune whether you pick one or get a pair; do not make Camp mandatory. |
-| **Forge** | Rearrange | Move existing grafts, no new power | Preserves conquest permanence; never grants spells/relics (Q12). |
 | **Hunt** | Pursue | Target a missed/unowned recruit | You still must fight and exact-kill it. Turns route opportunity into authored recruitment. |
-| **Shrine** | **Consecrate** | **Permanently transmute one owned card's suit (or rank) — no kill required** | **New (2026-06-22) — resolves the open slot. See below.** |
+| **Shrine** | **Consecrate** | **Permanently transmute one owned card's suit (or rank) — no kill required** | New (2026-06-22). See below. |
+| **Sanctum** | ⚠️ Attune (**superseded**) | — | The spell-attune verb is obsolete under the crystal model; Sanctum needs a new role or removal. |
 | **Tower** | — (removed) | — | Roads too short for its scout/initiative identity to matter. No replacement reward. |
 | **Event** | Lore-driven | Exceptional only | Authored from lore later; not a baseline acquisition channel. |
 

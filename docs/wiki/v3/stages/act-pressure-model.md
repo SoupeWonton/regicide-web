@@ -25,7 +25,7 @@ The exploratory packages ask distinct questions through existing card state: **a
 
 The Long War emphasizes attrition and compression; The Rising Court emphasizes tempo and precision; The Shifting Crown emphasizes rotating suit pressure; The Broken Road reduces acquisition and tests recovery. These permutations demonstrate possible breadth, not canonical named campaigns. (source: [[proposals/classes/facets-and-pressure-permutations|Facets and pressures]])
 
-Pressure and [[v3/classes/class-progression-model|class expression]] must be evaluated together. Every class needs moments to exploit its engine and later moments requiring adaptation; Act 5 should sequence tests across time so mastery remains foresight rather than simultaneous bookkeeping. (sources: [[proposals/classes/facets-and-pressure-permutations|Facets and pressures]], [[canon/principles/depth-width-elegance|Depth vs. width]])
+Pressure and [[v3/classes/class-progression-model|class expression]] must be evaluated together. Every class needs moments to exploit its engine and later moments requiring adaptation; the Master beat (Continent 5, the opt-in God of Luck showdown) should sequence tests across time so mastery remains foresight rather than simultaneous bookkeeping. (sources: [[proposals/classes/facets-and-pressure-permutations|Facets and pressures]], [[canon/principles/depth-width-elegance|Depth vs. width]])
 
 ## Confirmed design
 

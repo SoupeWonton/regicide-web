@@ -2,29 +2,47 @@
 kind: canon
 edition: v3
 status: accepted
-last_reviewed: 2026-06-20
+last_reviewed: 2026-06-24
+amended_by: 2026-06-24-crystals-continents-and-equipment
 ---
 
-# Five-act expedition and meta progression
+# Five-beat expedition and meta progression
+
+> **Amended 2026-06-24.** The five-beat *pressure skeleton* below (Claim · Shape · Exploit ·
+> Adapt · Master) is retained, with a **continent lore layer** (Continents 1–5 + the God of Luck)
+> laid over it, and an **opt-in ending**. See
+> [`2026-06-24-crystals-continents-and-equipment.md`](../../../decisions/2026-06-24-crystals-continents-and-equipment.md)
+> and [`structure.md`](structure.md). Genre: all-in roguelike.
 
 ## One continuous run
 
-A V3 expedition is one continuous five-act run. The same conquered deck, grafts,
-class identity, hand, Tavern, discard, and expedition consequences travel through the
-journey. Saving and resuming may divide the run into several play sessions, but it does
-not create separate act runs.
+A V3 expedition is one continuous five-beat run, themed as **five continents**. The same
+conquered deck, grafts, class identity, hand, Tavern, discard, and expedition consequences travel
+through the journey. Saving and resuming may divide the run into several play sessions, but it does
+not create separate runs.
 
-Death ends the expedition. The next expedition starts again at Act 1. Players do not
-unlock later acts as alternative campaign starting points and do not construct an
-arbitrary deck to enter Act 5.
+Death ends the expedition. The next expedition starts again at the beginning (Continent 1).
+Players do not unlock later beats as alternative campaign starting points and do not construct an
+arbitrary deck to enter the finale.
 
-Acts may be launched independently with seeded, representative state fixtures for
+Beats may be launched independently with seeded, representative state fixtures for
 development, balance, and UI testing. Those fixtures are test infrastructure, not
 player progression.
 
-## The five-act journey
+## The continent lore layer
 
-Each act asks one dominant question using the same card engine:
+The player, wronged by a king, is recruited by the **God of Luck**. Continents 1–3 recruit and
+defeat successive kings; **Continent 4 is the loop** (you always lose the God of Luck wager and are
+sent onward — you have become the king, fighting versions of yourself), and it can be ridden
+indefinitely. **Finishing is opt-in:** the run ends only when the player forges all four
+[spell crystals](../systems/items.md) to **Full**, which strips their spells (difficulty rises by
+subtracting the player's power, not buffing enemies), changes the God of Luck wager animation, and
+opens the **Continent 5 showdown** against the God of Luck. The wager between continents is an
+animation only (the player may pick the top card but always "loses").
+
+## The five-beat journey (one beat per continent)
+
+Each beat/continent asks one dominant question using the same card engine:
 
 1. **Claim — Can you recruit deliberately?** Teach and test exact-kill precision while
    establishing the low-rank conquered deck.
@@ -39,13 +57,14 @@ Each act asks one dominant question using the same card engine:
    tests through telegraphed pressures sequenced across time. The finale tests foresight,
    not several new subsystems or unrelated calculations in one instant.
 
-The first two acts remain the acquisition acts. Acts 3–5 pressure the conquered deck
-and class loophole in increasingly demanding ways.
+The first two continents remain the acquisition beats. Continents 3–5 pressure the conquered
+deck and class loophole in increasingly demanding ways, with the **Master** beat realized as the
+opt-in **God of Luck showdown** (Continent 5).
 
 ## Duration targets
 
-- Budget approximately **one hour per act** for a first-time or deliberate playthrough.
-- Familiar acts may compress toward **35–45 minutes through mastery and riskier routes**,
+- Budget approximately **one hour per continent** for a first-time or deliberate playthrough.
+- Familiar continents may compress toward **35–45 minutes through mastery and riskier routes**,
   never by skipping the need to conquer the deck.
 - A successful expedition should take approximately **four to five hours**, playable
   across multiple sessions.
@@ -60,13 +79,15 @@ slow encounters or excessive content.
 
 ## Time-respect and death fairness
 
-- Act boundaries provide strong closure, a deck/run recap, and a safe resume point.
+- Continent boundaries provide strong closure, a deck/run recap, and a safe resume point.
 - A late death must be attributable to visible decisions and previously introduced
-  pressure; Act 5 does not reveal a surprise rule that invalidates the prior journey.
+  pressure; the finale does not reveal a surprise *mechanical* rule that invalidates the prior
+  journey. The God of Luck reveal is a **narrative** turn, and the endgame difficulty spike is
+  **player-triggered** (forging the four Fulls strips your own spells) — not an ambush rule.
 - A run that has become functionally unwinnable must resolve quickly or present a real
-  recovery plan. It must not consume another act before admitting failure.
+  recovery plan. It must not consume another continent before admitting failure.
 - Mastery should accelerate familiar decisions and may unlock faster, riskier routes,
-  but never direct access to a later act.
+  but never direct access to a later beat.
 
 ## Meta progression widens options
 

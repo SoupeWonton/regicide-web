@@ -1,17 +1,21 @@
 ---
 kind: decision
 edition: v3
-status: proposed
+status: superseded
+superseded_by: 2026-06-24-crystals-continents-and-equipment
 date: 2026-06-22
 questions: [Q11]
 ---
 
-# Design decision — spell and relic models *(proposed — ratify at next Landry↔Gab session)*
+# Design decision — spell and relic models *(superseded by 2026-06-24)*
 
-> **Status: proposed.** Landry's lean is strongly positive; this record is staged so it
-> can flip to `accepted` at the next consensus session, after which canon pages update and
-> the questions leave the [active queue](../proposals/open-design-questions.md). Source
-> brainstorm: [`../proposals/systems/relics-and-spell-cards.md`](../proposals/systems/relics-and-spell-cards.md).
+> **Status: superseded** by
+> [`2026-06-24-crystals-continents-and-equipment.md`](2026-06-24-crystals-continents-and-equipment.md).
+> The four-suit spell framing survives, but the **silver→gold→purple** tier is replaced by the
+> **fragment / half / full crystal** model (only two castable rungs; Full is a win token), and
+> the **slotless** relic model is replaced by **five equipment slots** (Staff + Cloak/Ring/Hat/
+> Amulet). This record is kept for history. Source brainstorm:
+> [`../proposals/systems/relics-and-spell-cards.md`](../proposals/systems/relics-and-spell-cards.md).
 
 ## Decision A — Spells are four fixed suit trump-cards with a vertical tier
 

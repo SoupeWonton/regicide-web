@@ -17,4 +17,8 @@ permanent rank-or-suit replacement grafts. Whether selective permanent removal b
 in that conquered deck is an open design axis, not a prohibition or an accepted feature.
 
 Depth comes from a single-threaded decision pipeline, not from managing several
-parallel currencies, inventories, and ability subsystems.
+parallel currencies, inventories, and ability subsystems. The power systems that do
+exist are deliberately **bounded and legible**: four suit **spell crystals** in a
+gauntlet (one per suit), and **five fixed equipment slots** (a class Staff plus four
+relics) — fixed positions read at a glance, not a managed inventory or open currency.
+(See the [2026-06-24 decision](../../decisions/2026-06-24-crystals-continents-and-equipment.md).)

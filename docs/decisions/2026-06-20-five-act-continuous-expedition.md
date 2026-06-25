@@ -4,9 +4,17 @@ edition: v3
 status: accepted
 date: 2026-06-20
 supersedes: [standalone-player-act-entry, three-act-campaign-shape]
+amended_by: 2026-06-24-crystals-continents-and-equipment
 ---
 
 # Design decision — five-act continuous expedition
+
+> **Amended 2026-06-24.** The five act *purposes* below are retained as the pressure
+> skeleton, but a **continent lore layer** (Continents 1–5 + the God of Luck) is now laid
+> over them, and **finishing is opt-in** (the run ends by forging all four spell crystals to
+> Full, not by clearing a fixed Act 5). See
+> [`2026-06-24-crystals-continents-and-equipment.md`](2026-06-24-crystals-continents-and-equipment.md)
+> and [`../canon/v3/campaign/structure.md`](../canon/v3/campaign/structure.md).
 
 ## Decision
 

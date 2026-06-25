@@ -10,9 +10,9 @@ last_updated: 2026-06-21
 
 # Stages
 
-**Summary:** V3 is one continuous five-act expedition; continent and province pages provide the requested navigation hierarchy while their exact V3 content remains unsettled.
+**Summary:** V3 is one continuous five-beat expedition themed as **five continents**; province pages provide the requested navigation hierarchy while their exact V3 content remains unsettled.
 
-Claim, Shape, Exploit, Adapt, and Master are accepted act purposes. The current canon does not yet define how those acts map to named continents and provinces, so the nested continent/province entries are structural placeholders rather than invented campaign rules. (sources: [[canon/v3/campaign/structure|Campaign structure]], [[canon/v3/campaign/run-and-progression|Run and progression]])
+Claim, Shape, Exploit, Adapt, and Master are accepted beat purposes, now mapped **1:1 to Continents 1–5** with a God of Luck lore layer and an opt-in ending (forge all four spell crystals to Full). Province content within each continent is still unsettled. (sources: [[canon/v3/campaign/structure|Campaign structure]], [[canon/v3/campaign/run-and-progression|Run and progression]], [[decisions/2026-06-24-crystals-continents-and-equipment|Crystals decision]])
 
 ## Expedition entries
 

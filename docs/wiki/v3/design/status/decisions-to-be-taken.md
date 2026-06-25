@@ -64,17 +64,34 @@ Deciding one card in a cluster without the others risks rework. Settle the clust
 
 ## Tier 1 — Decide now (🛋️), unblocks everything else
 
-### D1. Class progression model — *linear vs facets* ⭐ our focus
-**Question:** one fixed three-tier path per class, or one invariant loophole + a chosen facet?
-**Options:** [[proposals/classes/four-core-classes|Four core classes — linear]] vs
-[[proposals/classes/facets-and-pressure-permutations|Facets & pressure permutations]].
-Identities (Block/Kill/Combine/Persist) are already accepted: [[canon/v3/classes/overview|class overview]].
+### D1. Class progression model — *passive × ladder pairing* ⭐ (model ✅ ADOPTED 2026-06-24)
+**Adopted:** the **enabler-passive × payoff-ladder** model is the V3 direction — the **passive is
+the Staff** (swappable equipment), the **ladder is kept** and unlocks across continents. See
+[[decisions/2026-06-24-crystals-continents-and-equipment|crystals decision]] (Decision C).
+**Still open:** which passive × ladder pairing per class (Sentinel worked; others pending).
+**Original question (for history):** adopt the enabler-passive × payoff-ladder model — each
+class is one mild Continent-1 **passive** (flavor) *paired with* one **linear ladder** that rises
+and multiplies across Continents 2/3/4 — over the older pure-linear or pure-facet options? And
+then: which passive × ladder pairing per class?
+**Where we are now:** reframed from the old "linear vs facets" binary into this hybrid pairing.
+**Sentinel is fully worked** against the real engine (one royal at a time, Spade value = shield,
+survive by discarding, no banks); **Executioner / Quartermaster / Surgeon still need the same
+rework** (tagged "old model — pending" in the showcase).
+**Design rules locked this session:**
+- Passives are **mild / costed** Continent-1 flavor — they change *how/when* your key moment fires,
+  never hand you a scaling resource.
+- Ladders **rise C2 < C3 < C4** and are **multiplicative** — they scale with a *native quantity*
+  (shield built, Spade value, combo size, discard pile) or the across-run recruit/graft snowball,
+  **never "all enemies"** (single-enemy fights).
+- **No bank / wallet subsystem** (canon: no secondary wallet, no new station).
+**Options:** [[proposals/classes/four-core-classes|pure linear]] ·
+[[proposals/classes/facets-and-pressure-permutations|pure facets]] · **the pairing showcase**
+[[proposals/classes/facet-and-linear-candidates|passive × ladder candidates]] (current direction;
+Sentinel reworked, rest pending). Identities (Block/Kill/Combine/Persist) already accepted:
+[[canon/v3/classes/overview|class overview]].
 **How we decide:** 🛋️ legibility + identity judgment — "can each class be read with names &
-portraits hidden?" No sim can answer this. Couch call, confirm feel later in playtest.
-**Read first:** the two proposal docs above + the **elimination pool**:
-[[proposals/classes/facet-and-linear-candidates|facet & linear candidates]] (multiple
-ladders + facet sets per class, with a KEEP/CUT worksheet). A **hybrid** (fixed tier-1 +
-facet for tiers 2–3) is flagged there too.
+portraits hidden, and does a pairing feel multiplicative?" then 🎮 confirm feel in playtest.
+Numbers in the showcase are illustrative.
 **Cite:** Q5 in [[proposals/open-design-questions|open questions]].
 **Verdict:** _______________________
 
@@ -132,11 +149,12 @@ see [[v3/design/evidence/bot-reliability-and-architecture|reliability brief]].
 **Cite:** Q14 in [[proposals/open-design-questions|open questions]].
 **Verdict:** _______________________
 
-### D9. Relics ⭐ our focus, and D10. Landmarks
-**Question (relics):** how many per run? keep-or-sacrifice cadence? which relic tells a story
-without duplicating a class or graft? → **model proposed** in
-[[decisions/2026-06-22-spell-and-relic-models|spell+relic decision]] (ratify); roster TBD.
-**Question (landmarks):** which verbs deserve to exist? → **consolidated map proposed** in
+### D9. Relics ⭐ (model ✅ RESOLVED 2026-06-24), and D10. Landmarks
+**Resolved (relics model):** relics are **equipment** in four slots (Cloak/Ring/Hat/Amulet)
+alongside the **Staff** (class ability); the slotless model is superseded. See
+[[decisions/2026-06-24-crystals-continents-and-equipment|crystals decision]] (Decision C).
+**Still open (relics):** slot themes, which candidate lands in which slot, count per run, roster.
+**Question (landmarks):** which verbs deserve to exist (now incl. **Fallen Heroes** = staff swap)? → **consolidated map proposed** in
 [[proposals/systems/landmarks|landmarks]] (Shrine now = **Consecrate**, the no-kill reshape).
 **How we decide:** 🎮 design-first, human-validate. *Note:* relic power touches the card
 economy, so **don't trust a sim power-baseline** — judge by play.
@@ -145,14 +163,12 @@ economy, so **don't trust a sim power-baseline** — judge by play.
 **Verdict (relics):** _______________________
 **Verdict (landmarks):** _______________________
 
-### D11. Spells — confirm the model ⭐ our focus
-**Question:** four fixed suit spell-cards with vertical tiers (silver→gold→purple),
-ignoring enemy immunity? Acquisition at Sanctum vs Caravan?
-→ **model proposed** in [[decisions/2026-06-22-spell-and-relic-models|spell+relic decision]]
-(ratify with Gab); content roster authored separately.
-**How we decide:** 🎮 design consensus + human feel.
-**Read first:** [[proposals/systems/relics-and-spell-cards|relics & spell-cards brainstorm]] → "Spell cards".
-**Verdict:** _______________________
+### D11. Spells — confirm the model ⭐ ✅ RESOLVED 2026-06-24
+**Resolved:** spells are **crystals** — four suit identities in a gauntlet, **Fragment → Half**
+castable, **Full** a non-castable endgame/win token; forged from suit-specific fragments at the
+Forge; spells sit above matching immunity (lean). See
+[[decisions/2026-06-24-crystals-continents-and-equipment|crystals decision]] (Decision A).
+**Still open (content/tuning, not model):** Fragment/Half text & numbers, forge counts, drop rates.
 
 ### D12. Rest cadence, UI/UX contract, tutorial
 **Question:** where are rests guaranteed? the minimum trustworthy UI; what the tutorial teaches.
@@ -161,10 +177,60 @@ ignoring enemy immunity? Acquisition at Sanctum vs Caravan?
 **Verdict:** _______________________
 
 ### D13. Difficulty curve / duration target
-**Question:** ~1 hr/act, 4–5 hr/run, 15–25 hr to first win — does the real curve match?
+**Question:** ~1 hr/continent, 4–5 hr/run, 15–25 hr to first win — does the real curve match?
 **How we decide:** 🎮 **humans only.** This is the question sims are *least* able to answer.
 **Cite:** Q17 in [[proposals/open-design-questions|open questions]].
 **Verdict:** _______________________
+
+---
+
+## Tier 2½ — Follow-ups opened by the 2026-06-24 decision
+
+These came out of the crystal/continent/equipment decision; the *shapes* are set, these are the
+details + two design holes it surfaced. Full text: [[proposals/open-design-questions|open questions §8]].
+
+### D15. Crystal forge economy 🛋️→🎮
+**Question:** fragments per drop (~1 in 4 combats?), count for a **Half** (lean 2) and a **Full**
+("a lot" — 3? 6?), whether fragments can go **straight to Full** once unlocked, and **what unlocks
+creating a Full.**
+**How we decide:** 🛋️ set placeholders now, 🎮 tune by play. **Cite:** Q28.
+**Verdict:** _______________________
+
+### D16. Sandbox holes — Sanctum's fate & Fallen Heroes ⚠️ *(surfaced contradictions C3/C4)*
+**Question (Sanctum):** the "attune a spell" verb is **dead** (spells forge at the Forge). Give
+Sanctum a new one-verb role (fragment source? recovery rite?) or **remove it.**
+**Question (Fallen Heroes):** placement, cost, and which **staff↔ladder pairings** are legal/meaningful.
+**How we decide:** 🛋️ taste/structure. **Cite:** Q33, Q32.
+**Verdict (Sanctum):** _______________________
+**Verdict (Fallen Heroes):** _______________________
+
+### D17. Equipment slot identities 🛋️
+**Question:** confirm/replace **Cloak ≈ roads, Ring ≈ economy, Hat ≈ recruitment, Amulet ≈
+activated**, and map each existing relic candidate into a slot.
+**How we decide:** 🛋️ then 🎮. **Cite:** Q30.
+**Verdict:** _______________________
+
+### D18. Class ladder unlocks 🛋️ *(extends D1)*
+**Question:** how/when the **other three suit ladders** unlock over a run (the replayability lever),
+plus the per-class Staff × ladder pairings.
+**How we decide:** 🛋️ legibility + 🎮 feel. **Cite:** Q31.
+**Verdict:** _______________________
+
+### D19. C4 loop & the opt-in ending 🎮
+**Question:** how the loop scales/recycles each pass (not just bigger numbers), the "**You win?**"
+beat, and how the ending is **signposted as a findable-but-surprising puzzle** (not a 40-hour miss).
+**How we decide:** 🎮 humans — feel/discoverability. **Cite:** Q35, Q34.
+**Verdict:** _______________________
+
+### D20. Confirm: spells ignore matching immunity, and the gauntlet 🛋️
+**Question:** ratify spells sitting **above matching suit immunity** (lean yes) + its visual; name
+the **gauntlet** and decide whether holding all four (pre-Full) does anything.
+**How we decide:** 🛋️. **Cite:** Q36, Q29.
+**Verdict:** _______________________
+
+### C2 to ratify — vision wording
+The vision line ("no parallel inventories/subsystems") was reworded to admit the bounded equipment
+slots + crystal gauntlet. **Confirm the wording** at next session ([[canon/v3/vision]]).
 
 ---
 
@@ -183,7 +249,7 @@ and catching regressions when we ship a change. Nothing else.
 
 | Date | Decision | Outcome | Moves to |
 |---|---|---|---|
-| | | | |
+| 2026-06-24 | D11 spells, D9 relics model, class staff/ladder split (D1) | Crystals (Fragment/Half/Full), 5 equipment slots, 5-continent + God of Luck overlay, opt-in ending | [[decisions/2026-06-24-crystals-continents-and-equipment]] |
 
 ## Related pages
 

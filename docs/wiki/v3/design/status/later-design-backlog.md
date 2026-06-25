@@ -14,7 +14,7 @@ last_updated: 2026-06-20
 
 The five parked V2 classes should not be redesigned until the four core identities are distinct, deep, and fun. Exact unlock packages remain later work even though breadth-not-power is accepted. (source: [[proposals/later-design-backlog|Later backlog]])
 
-A large relic catalog should wait until graft, class, and landmark roles stabilize. Balance conclusions should be rebaselined after replacement grafts, deck lifecycle, classes, and five-act pressure settle. (source: [[proposals/later-design-backlog|Later backlog]])
+A large relic (equipment) catalog should wait until graft, class, and landmark roles stabilize. Balance conclusions should be rebaselined after replacement grafts, deck lifecycle, classes, and five-continent pressure settle. (source: [[proposals/later-design-backlog|Later backlog]])
 
 Broad narrative and final naming can follow stable mechanics, although terminology needed for UI comprehension may settle earlier. (source: [[proposals/later-design-backlog|Later backlog]])
 

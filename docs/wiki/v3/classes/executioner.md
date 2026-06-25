@@ -11,7 +11,9 @@ last_updated: 2026-06-21
 
 # Executioner
 
-**Summary:** Executioner is the proposed aggression class, defined by breaking exact-kill boundaries and converting precise kills into momentum.
+**Summary:** Executioner is the aggression class (♣), defined by breaking exact-kill boundaries and converting precise kills into momentum.
+
+> **Progression model resolved 2026-06-24.** Executioner is a **Staff** (swappable passive enabler) **× a kept ♣ Kill ladder**. The "Facet proposal" below is **historical**; the live menus are in [[v3/classes/facet-and-linear-candidates|the candidate pool]]. See [[decisions/2026-06-24-crystals-continents-and-equipment|crystals decision]].
 
 The **Executioner** is Kingfall's aggressive, exact-kill character. Its confirmed identity is **Kill**: it should create or exploit kill opportunities, especially the precise kills that recruit an enemy or provide a replacement graft. The exact size of its kill window and every named ability remain unconfirmed proposals. (sources: [[canon/v3/classes/overview|Classes]], [[canon/v3/core-loop|Core loop]])
 
@@ -49,12 +51,12 @@ Momentum emphasizes immediate tempo, Bounty connects the character to [[v3/mecha
 
 ## Not yet decided
 
-- Starting hand and Act 1 kill loophole.
+- Starting hand and the Continent-1 Staff (kill enabler).
 - Exact definition and numerical width of a kill window.
 - Whether window changes apply to roads, gates, or both.
 - Chain duration, draw timing, and reset conditions.
 - Royal payoff after royal recruitment was removed.
-- Linear versus facet progression and multiplayer ownership. (sources: [[proposals/open-design-questions|Active design questions]], [[proposals/classes/README|Class workspace]])
+- The specific Staff × ♣-ladder pairing, rung values, and multiplayer ownership (model itself is settled). (sources: [[proposals/open-design-questions|Active design questions]], [[proposals/classes/README|Class workspace]])
 
 ## Implementation status
 

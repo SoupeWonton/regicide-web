@@ -30,7 +30,7 @@ progression under another name.
 ## Long-run balance and high difficulty
 
 Do not preserve detailed balance conclusions across replacement grafts, the final deck
-lifecycle, new class kits, and five-act pressure content. Rebaseline once the alpha
+lifecycle, new class kits, and five-continent pressure content. Rebaseline once the alpha
 feature set stabilizes.
 
 ## Lore and final naming

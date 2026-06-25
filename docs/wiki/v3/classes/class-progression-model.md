@@ -11,22 +11,21 @@ last_updated: 2026-06-21
 
 # Class progression
 
-**Summary:** Class progression deepens each class's innate loophole across the expedition, but its exact linear or facet-based structure remains proposed.
+**Summary:** A class is a **swappable Staff (passive enabler)** + a **kept linear ladder** (payoff engine) keyed to its suit; the ladder unlocks across the continents and other suit ladders unlock over the run.
 
-Class progression is the unresolved system that determines how a character's innate loophole becomes deeper during a five-act expedition. Progression is confirmed to exist, but its exact structure is not canon: the project is comparing a fixed three-tier ladder with a model based on mutually exclusive facets. (sources: [[canon/v3/classes/overview|Classes]], [[proposals/classes/README|Class workspace]])
+> **Model resolved 2026-06-24.** The earlier "linear three-tier *vs* facets" question is settled: V3 adopts the **enabler-passive × payoff-ladder** model. The **passive enabler is the Staff** (held in the Staff equipment slot, **swappable** at the Fallen Heroes landmark); the **payoff ladder is kept** and rises across continents. See [[decisions/2026-06-24-crystals-continents-and-equipment|crystals decision]] (Decision C) and [[v3/classes/facet-and-linear-candidates|the candidate pool]]. The linear and facet proposals below are kept as history.
 
 | Quick fact | Current answer |
 |---|---|
-| Confirmed | Each class has one loophole that deepens during the expedition |
+| Confirmed | Staff (swappable passive enabler) + one kept linear ladder per class |
 | Separate points/tree currency | Rejected for V3 |
-| Model A | Fixed linear three-tier path |
-| Model B | One invariant loophole plus one mutually exclusive facet |
-| Current state | Exploring competing proposals |
-| Implementation | Not ready for delivery |
+| Diversification | Swap Staffs (Fallen Heroes) + unlock other suit ladders over the run |
+| Capstone | Ladder rises across Continents 2/3/4 |
+| Implementation | Model adopted; per-class pairings + numbers still open |
 
 ## Confirmed design
 
-Progression belongs to the character's innate loophole, not to relic slots, a Lair currency, or a separate skill-tree wallet. Every deepening should continue modifying the class's existing loop station rather than add another simultaneous subsystem. The class remains the verb—Block, Kill, Combine, or Persist—throughout the run. (sources: [[canon/v3/classes/overview|Classes]], [[decisions/2026-06-18-v3-foundation|V3 foundation]])
+Progression deepens the class's loophole through its **kept ladder** — never bought with a Lair currency or a separate skill-tree wallet. The class **ability itself is the Staff**, held in an equipment slot and swappable, but swapping a Staff is a *pairing* choice, not a purchasable power stack. Every deepening continues modifying the class's existing loop station rather than adding another simultaneous subsystem. The class remains the verb—Block, Kill, Combine, or Persist—throughout the run. (sources: [[canon/v3/classes/overview|Classes]], [[decisions/2026-06-24-crystals-continents-and-equipment|Crystals decision]])
 
 ## Linear progression proposal
 
@@ -53,12 +52,12 @@ The exploratory packet suggests four classes, two facets per class available ini
 
 ## Not yet decided
 
-- Which progression model is accepted.
-- The exact Act 1 loophole for each class.
-- When the player commits to a facet, if facets are used.
-- Whether a facet is chosen, discovered, seeded, or offered by faction.
-- Exact tier/facet effects, names, values, and unlock conditions.
-- Alternative starting hands and their relationship to facets.
+- The per-class **Staff × ladder pairing** (Sentinel worked; Executioner / Quartermaster / Surgeon pending).
+- The exact Continent-1 passive (Staff) for each class.
+- How and when the other suit ladders unlock over a run (elegance/replayability target).
+- Which Staff↔ladder pairings are legal/meaningful at Fallen Heroes.
+- Exact ladder effects, names, values, and unlock conditions.
+- Alternative starting hands.
 - How progression is shared or owned in multiplayer. (sources: [[proposals/classes/README|Class workspace]], [[proposals/open-design-questions|Active design questions]])
 
 ## Implementation status

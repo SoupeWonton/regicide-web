@@ -11,7 +11,9 @@ last_updated: 2026-06-21
 
 # Quartermaster
 
-**Summary:** Quartermaster is the proposed combination and tempo class, using expanded hand and combination access to create decisive turns.
+**Summary:** Quartermaster is the combination / tempo class (♦), using expanded hand and combination access to create decisive turns.
+
+> **Progression model resolved 2026-06-24.** Quartermaster is a **Staff** (swappable passive enabler) **× a kept ♦ Combine ladder**. The "Facet proposal" below is **historical**; the live menus are in [[v3/classes/facet-and-linear-candidates|the candidate pool]]. See [[decisions/2026-06-24-crystals-continents-and-equipment|crystals decision]].
 
 The **Quartermaster** is Kingfall's tempo and card-combination character. Its confirmed identity is to break or relax the normal **Combine** rules, allowing the player to hold, arrange, or play cards in ways other characters cannot. “Quartermaster gets extra draw” describes one current proposal and older implementation idea, but the exact draw bonus and full kit are not yet canon. (sources: [[canon/v3/classes/overview|Classes]], [[proposals/classes/four-core-classes|Four core classes]])
 
@@ -80,10 +82,10 @@ Resource-compression pressure attacks the Quartermaster by hiding useful pieces 
 ## Not yet decided
 
 - Exact starting hand and whether those cards change permanent starting ownership.
-- The base Combine loophole available in Act 1.
+- The base Combine Staff (passive enabler) available on Continent 1.
 - Whether extra draw occurs once per enemy, once per round, or through another trigger.
 - Hand-cap and combination-limit values.
-- Linear progression versus facets.
+- The specific Staff × ♦-ladder pairing and rung values (model itself is settled).
 - Whether refill can repeat and how it interacts with an empty Tavern.
 - How Aces, same-rank combinations, replacement ranks, and effective suits are validated.
 - How a Quartermaster is owned or shared in multiplayer. (sources: [[proposals/open-design-questions|Active design questions]], [[proposals/classes/README|Class workspace]])

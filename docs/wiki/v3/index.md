@@ -12,7 +12,7 @@ last_updated: 2026-06-21
 
 **Summary:** This is the current Kingfall V3 encyclopedia, organized by player-facing subject rather than repository source type.
 
-V3 is the active design edition. Its accepted direction is conquest-first deck growth, exact-kill recruitment and replacement grafting, four loop-defined classes, rare relics, and one continuous five-act expedition. Proposed details remain visibly separated from canon. (sources: [[canon/README|Canon index]], [[canon/v3/vision|V3 vision]])
+V3 is the active design edition. Its accepted direction is conquest-first deck growth, exact-kill recruitment and replacement grafting, four loop-defined classes (a swappable **Staff** + a kept linear ladder), **five equipment slots** + **four crystal spells**, and one continuous **five-continent** expedition (Claim→Master) with a God of Luck lore layer and an opt-in ending. Proposed details remain visibly separated from canon. (sources: [[canon/README|Canon index]], [[canon/v3/vision|V3 vision]], [[decisions/2026-06-24-crystals-continents-and-equipment|2026-06-24 decision]])
 
 ## Browse V3
 

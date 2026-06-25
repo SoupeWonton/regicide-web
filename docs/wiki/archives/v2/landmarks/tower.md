@@ -44,6 +44,6 @@ Tower overlaps [[v3/design/product/ui-ux-contract|information fairness]], [[v3/s
 
 ## Related pages
 
-- [[v3/landmarks/events]]
+- [[v3/landmarks/v2/events]]
 - [[v3/stages/act-pressure-model]]
 - [[v3/design/product/ui-ux-contract]]

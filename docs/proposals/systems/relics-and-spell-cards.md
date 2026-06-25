@@ -6,15 +6,20 @@ last_reviewed: 2026-06-21
 questions: [Q11, Q13]
 ---
 
-# V3 relics and spell cards — active brainstorm
+# V3 relics and spell cards — brainstorm (historical)
 
-This document captures the current Landry–Codex design conversation so it can be
+> **Superseded by the 2026-06-24 decision.** This brainstorm seeded the spell/relic work but its
+> conclusions are now replaced: relics are **equipment in five slots** (not slotless), and spells
+> are **fragment/half/full crystals** in a gauntlet (not silver/gold/purple tiers). Kept as the
+> origin record. See [`../../decisions/2026-06-24-crystals-continents-and-equipment.md`](../../decisions/2026-06-24-crystals-continents-and-equipment.md).
+
+This document captures the original Landry–Codex design conversation so it can be
 continued with Gab. It is not canon, an implementation brief, or an approved content
-list. Names, values, tiers, acquisition rules, and interactions remain open until the
-design is reviewed and accepted.
+list. Names, values, tiers, acquisition rules, and interactions were open at the time of
+writing.
 
-The current direction keeps relics as rare, slotless run-defining exceptions. It
-reopens one part of the V3 item decision for exploration: spell effects may survive as
+The original direction kept relics as rare, slotless run-defining exceptions. It
+reopened one part of the V3 item decision for exploration: spell effects may survive as
 special one-use cards rather than as a currency, conventional inventory, or arbitrary
 effects attached to ordinary conquered cards.
 

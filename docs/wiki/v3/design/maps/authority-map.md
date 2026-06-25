@@ -38,7 +38,7 @@ This order answers different questions rather than ranking every file on a singl
 | Decision record differs from newer canon | Use current canon and retain the record as rationale/history. |
 | Archive contains a fuller mechanic | Use it only to explain lineage unless explicitly reaccepted. |
 
-For example, additive grafts are real shipped behavior but not intended V3 behavior; [[v3/mechanics/replacement-grafts|replacement grafts]] remain canon and the mismatch belongs in delivery. Likewise, the slotted relic-tree assessment remains useful evidence about synergy and width, but [[v3/mechanics/items-and-power-vehicles|rare slotless relics]] are the accepted direction. (sources: [[delivery/current-state|Current state]], [[research/assessments/golden-rules-2026-06-18|Golden Rules assessment]], [[canon/v3/systems/items|Items]])
+For example, additive grafts are real shipped behavior but not intended V3 behavior; [[v3/mechanics/replacement-grafts|replacement grafts]] remain canon and the mismatch belongs in delivery. For items, the accepted direction is now [[v3/mechanics/items-and-power-vehicles|five equipment slots (Staff + Cloak/Ring/Hat/Amulet) plus four crystal spells]] ([[decisions/2026-06-24-crystals-continents-and-equipment|2026-06-24 decision]], superseding the earlier slotless-relic model); older slotted relic-tree assessments remain useful evidence about synergy and width but are not the model. (sources: [[delivery/current-state|Current state]], [[research/assessments/golden-rules-2026-06-18|Golden Rules assessment]], [[canon/v3/systems/items|Items]])
 
 ## Related pages
 

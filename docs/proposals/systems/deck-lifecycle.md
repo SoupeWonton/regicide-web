@@ -97,7 +97,13 @@ one recognizable verb?
 
 ## Four open axes and one accepted graft rule
 
-### Axis A — Recruitment boundary and opportunity
+### Axis A — Recruitment boundary and opportunity — **RESOLVED 2026-06-25**
+
+**Resolved** ([`../../decisions/2026-06-25-acquisition-cadence-and-royal-gates.md`](../../decisions/2026-06-25-acquisition-cadence-and-royal-gates.md)):
+a **closing funnel**. C1 = number recruits 6–10 with hunting (pursued recurrence) available
+*only here*; C2 = royal recruits via the 3/2/1 gate pyramid; acquisition **closes at the C2
+seam**. The poles below are retained as the reasoning that led here. Missed-recovery (Axis D)
+is now front-loaded into opening stability + seam rests rather than late hunts.
 
 This axis answers Q1 without reopening conquest-first acquisition.
 
