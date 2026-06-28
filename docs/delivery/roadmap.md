@@ -36,7 +36,7 @@ last_reviewed: 2026-06-28
 **B. Build gates still to do** (delivery, mostly downstream of A):
 
 - Migrate redundant-exact-kill from additive Hone to **rank-or-suit replacement graft**.
-- Remove the fragment wallet/shop; repurpose Forge around grafts.
+- Remove the fragment wallet/shop; **Forge forges spell crystals** (graft rearranging → **Sanctum**).
 - **C1 content:** recruit numbers 6–10 by exact kill; hunting; chapter backfill; full A–10 by C1 end.
 - **C2 content:** graft-on-kill on roads; the **3/2/1 royal gate pyramid** (Jack/Queen/King gates, the crown decision).
 - **No-comeback permadeath** + the **C1→C2 seam reset**.

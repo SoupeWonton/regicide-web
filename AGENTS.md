@@ -90,7 +90,9 @@ docs/archive/           frozen V0/V2 and removed mechanics
 - A redundant exact kill targets one card in hand and permanently replaces either its
   rank with the defeated rank or its suit with the defeated suit. It never grants flat
   `+1` value or an additional suit; current additive behavior is delivery drift.
-- The campaign is one continuous five-act expedition. Death restarts at Act 1; later
+- The campaign is one continuous five-act expedition (the full design). **V3.0 implements only
+  Continents 1–2** (the Claim + Shape beats; victory = clear C2); Continents 3–5, the opt-in
+  forge-to-Full ending, and multi-session resume are **V3.5**. Death restarts at Act 1; later
   acts are never player-selectable starts. Direct act entry is internal seeded test
   infrastructure only, and meta progression unlocks breadth rather than required stats.
 - Campaign mutations flow through `sessions.dispatchCampaignAction` and persist after

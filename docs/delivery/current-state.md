@@ -31,7 +31,7 @@ older implementation and require migration.
 | Equipment / Fallen Heroes | Five slots (Staff + **four relics, one per type, equipped from a bag**); Staff swapped at the Fallen Heroes landmark; equip via the between-encounter screen | Not built |
 | Campaign rank bands | Two acquisition continents, then pressure | Pending |
 | Full run structure | **V3.0 = Continent 1 + 2 only** (victory = complete C2); C3–C5 + forge-to-Full ending deferred to **V3.5** ([`../decisions/2026-06-25-v3-scope-c1-c2.md`](../decisions/2026-06-25-v3-scope-c1-c2.md)) | Developed campaign still uses the older chapter/Province arc |
-| Continent duration/session flow | About one hour per continent with boundary recap and resume | Pending |
+| Continent duration/session flow | ~1 hour per continent with a boundary recap (**V3.0 is single-session — no mid-run resume; multi-session resume is V3.5**) | Pending |
 | Meta progression | Death/milestones unlock breadth, not required stat power | Existing unlock behavior requires audit |
 | Independent continent testing | Seeded representative fixtures; never player continent starts | Pending |
 | Permanent card removal | Open design axis; no accepted mechanic | No implementation scope |
