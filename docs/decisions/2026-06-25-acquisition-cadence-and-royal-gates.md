@@ -9,7 +9,8 @@ amends: [2026-06-24-crystals-continents-and-equipment, 2026-06-20-five-act-conti
 
 # Design decision — acquisition cadence and the C2 royal gates
 
-> **Status: accepted (Landry direction; pending Gab ratification).** Resolves the
+> **Status: accepted.** **Decision B (the 3/2/1 royal-gate pyramid) is Gab-approved (2026-06-27).**
+> Decision A (the acquisition cadence) remains Landry-direction pending Gab ratification. Resolves the
 > end-to-end acquisition curve and the royal-recruitment rules. **Amends**
 > [`2026-06-24-crystals-continents-and-equipment.md`](2026-06-24-crystals-continents-and-equipment.md)
 > (adds C1/C2 acquisition detail and the graft-from-C2 rule, consistent with its continent

@@ -20,6 +20,13 @@ This is a *discussion aid*, not canon. Authority is our consensus per
 [[decisions/README|a dated decision record]] and canon, and leaves the
 [[proposals/open-design-questions|active queue]].
 
+> **Mostly resolved 2026-06-27** (Landry pass — see [[decisions/2026-06-27-v3.0-question-sweep|the
+> sweep decision]]). Closed or directional: **D1** (class = home-suit path + selectable Staff),
+> **D2/D16** (Forge = spells only, **Sanctum = deck modification**, Fallen Heroes = Staff swap after
+> C1 / 1-of-3 random), **D9** (relic slots Amulet/Ring/Cloak/Hat confirmed; mapping open), **D11/D20**
+> (spells above immunity, gauntlet named), **D18** (start home path, C2 unlocks all). Still needs a
+> human playtest: **D6 gate feel, D7 floor, D12 rests, D13 difficulty** (magnitudes only).
+
 **Read once before we start:** [[v3/design/evidence/bot-reliability-and-architecture|Why the simulator is a floor, not a forecast]].
 The sim cannot answer difficulty, card-economy, or feel — most of what's below. So "how we
 decide" is almost always **us + a human playtest**, not a bot number.
@@ -93,7 +100,13 @@ Sentinel reworked, rest pending). Identities (Block/Kill/Combine/Persist) alread
 portraits hidden, and does a pairing feel multiplicative?" then 🎮 confirm feel in playtest.
 Numbers in the showcase are illustrative.
 **Cite:** Q5 in [[proposals/open-design-questions|open questions]].
-**Verdict:** _______________________
+**Verdict (2026-06-27):** Path and Staff are **decoupled.** Class starts on its **home-suit path**
+(Sentinel ♠ / Executioner ♣ / Quartermaster ♦ / Surgeon ♥); **V3.0 lights only the C2 rung — a single
+ability, the ladder's first rung** (animated reveal, not laddered within C2); clearing C2 **unlocks all
+three other paths.** The **Staff is a separate passive — each class has four; you pick one of your
+class's four at class-select** (menu choice), swapped at **Fallen Heroes** (after C1; the swap offers
+one random Staff from each of the 4 classes).
+The 16 suit-path ladders are drafted in [[proposals/classes/facet-and-linear-candidates|the showcase]].
 
 ### D2. Forge behavior
 **Question:** does the Forge move rank grafts, suit grafts, or both — transfer, swap, or overwrite?
@@ -149,11 +162,14 @@ see [[v3/design/evidence/bot-reliability-and-architecture|reliability brief]].
 **Cite:** Q14 in [[proposals/open-design-questions|open questions]].
 **Verdict:** _______________________
 
-### D9. Relics ⭐ (model ✅ RESOLVED 2026-06-24), and D10. Landmarks
+### D9. Relics ⭐ (model ✅ RESOLVED 2026-06-24; roster ✅ RESOLVED 2026-06-28), and D10. Landmarks
 **Resolved (relics model):** relics are **equipment** in four slots (Cloak/Ring/Hat/Amulet)
 alongside the **Staff** (class ability); the slotless model is superseded. See
 [[decisions/2026-06-24-crystals-continents-and-equipment|crystals decision]] (Decision C).
-**Still open (relics):** slot themes, which candidate lands in which slot, count per run, roster.
+**Resolved (relics roster, 2026-06-28):** themes locked (**Cloak=roads · Ring=economy · Hat=recruitment ·
+Amulet=activated**) and the pool authored — **`relic_v1_design_3.0`**, 29 relics, in
+[[canon/v3/systems/relics|relics catalog]] ([[decisions/2026-06-28-relic-v1-design-3.0|decision]]).
+**Still open (relics):** per-run count; the held candidates (Transmute/Ebb/Spoils/Waystone); fragment-touching relics.
 **Question (landmarks):** which verbs deserve to exist (now incl. **Fallen Heroes** = staff swap)? → **consolidated map proposed** in
 [[proposals/systems/landmarks|landmarks]] (Shrine now = **Consecrate**, the no-kill reshape).
 **How we decide:** 🎮 design-first, human-validate. *Note:* relic power touches the card
@@ -204,11 +220,12 @@ Sanctum a new one-verb role (fragment source? recovery rite?) or **remove it.**
 **Verdict (Sanctum):** _______________________
 **Verdict (Fallen Heroes):** _______________________
 
-### D17. Equipment slot identities 🛋️
-**Question:** confirm/replace **Cloak ≈ roads, Ring ≈ economy, Hat ≈ recruitment, Amulet ≈
-activated**, and map each existing relic candidate into a slot.
-**How we decide:** 🛋️ then 🎮. **Cite:** Q30.
-**Verdict:** _______________________
+### D17. Equipment slot identities ✅ RESOLVED 2026-06-28
+**Resolved:** themes locked — **Cloak = roads · Ring = economy · Hat = recruitment · Amulet = activated** —
+and the pool authored as **`relic_v1_design_3.0`** (29 relics, each slotted), in
+[[canon/v3/systems/relics|relics catalog]] ([[decisions/2026-06-28-relic-v1-design-3.0|decision]]).
+**Cite:** Q30. **Still open:** per-run relic count; held candidates; fragment-touching relics.
+**Verdict:** **`relic_v1_design_3.0`** — themes + 29-relic roster accepted (Landry 2026-06-28).
 
 ### D18. Class ladder unlocks 🛋️ *(extends D1)*
 **Question:** how/when the **other three suit ladders** unlock over a run (the replayability lever),

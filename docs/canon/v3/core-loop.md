@@ -24,4 +24,10 @@ Example: after exact-killing an already-owned `7♠`, choose one card in hand an
 replace its rank with `7` or replace its current suit with `♠`. The graft replaces a
 property; it does not add `+1` and does not add a second suit.
 
+A graft fires only on an exact kill of an **already-recruited** card and replaces the
+**suit OR the value (rank)** of one held card — never both. **Royal grafts cap the value at
+10:** exact-killing a Jack/Queen/King (e.g. at a C2 gate) triggers a graft, but a royal
+cannot push a card's value above 10. (Source:
+[`../../decisions/2026-06-27-v3.0-question-sweep.md`](../../decisions/2026-06-27-v3.0-question-sweep.md).)
+
 The Ace remains a low-rank starting companion and contributes `+1` to a play.

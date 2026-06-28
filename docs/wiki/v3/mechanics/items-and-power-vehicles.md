@@ -29,7 +29,7 @@ Kingfall concentrates lasting power in the conquered deck and replacement grafts
 V3 has five equipment slots, **and only these five**:
 
 - **Staff** — the class ability. Exactly one per character. It is the **swappable passive enabler** (the class's payoff **ladder stays separate and is not swapped**). Swapped at the **Fallen Heroes** landmark, mixing one class's ladder with another's staff. (see [[v3/classes/facet-and-linear-candidates|enabler × ladder]])
-- **Cloak · Ring · Hat · Amulet** — up to four **relics**, now held as equipment rather than slotless. Slot themes are intuitive placeholders only (Cloak ≈ roads, Ring ≈ economy, Hat ≈ recruitment, Amulet ≈ activated), open to brainstorming.
+- **Cloak · Ring · Hat · Amulet** — up to four **relics**, held as equipment rather than slotless. **Slot themes locked (2026-06-28):** Cloak = roads, Ring = economy, Hat = recruitment, Amulet = activated. The authored pool is **[[canon/v3/systems/relics|`relic_v1_design_3.0`]]** (29 relics).
 
 Relics remain rare, run-defining rule-benders that must change an attributable decision, not provide invisible decoration. (sources: [[canon/v3/systems/items|Items]], [[canon/principles/content-bar|Content bar]])
 

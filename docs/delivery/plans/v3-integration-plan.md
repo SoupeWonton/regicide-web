@@ -1,12 +1,18 @@
 ---
 kind: delivery
 edition: v3
-status: active
-last_reviewed: 2026-06-25
+status: superseded
+superseded_by: v3.0-integration.md
+last_reviewed: 2026-06-28
 code_baseline: Design_V3
 ---
 
-# V3 integration plan — execution handoff
+# V3 integration plan — execution handoff *(SUPERSEDED)*
+
+> **⛔ SUPERSEDED 2026-06-28 by [`v3.0-integration.md`](v3.0-integration.md) — the sole V3.0
+> implementation plan.** This older plan is **`code_baseline: Design_V3`**, which is wrong: V3 code must
+> be built from the **deployed live commit `91d3677`**, not `Design_V3` (whose code predates the live
+> deployment — see the new plan's "Branch reality"). Kept only as history; do **not** implement from it.
 
 This is the **file-pointed engineering plan** for upgrading the currently-playable
 campaign to V3. It is the execution companion to the design migration narrative

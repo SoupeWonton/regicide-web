@@ -21,7 +21,7 @@ A relic is a **rare, run-defining exception** held as **equipment** in one of fo
 stat boost. Each relic **bends exactly one rule of the core loop** in a legible, narratable way
 (e.g. *Split Seal*: a graft may target any owned card; *Doorstop*: an exact block bounces the Spade
 back to hand; *Crown of First Claim*: a fresh recruit enters hand immediately). Slot themes
-(Cloak ≈ roads, Ring ≈ economy, Hat ≈ recruitment, Amulet ≈ activated) are placeholders, not fixed.
+(Cloak = roads, Ring = economy, Hat = recruitment, Amulet = activated) are **locked (2026-06-28)**.
 
 ## The bar every relic must clear
 
@@ -46,7 +46,15 @@ For each relic, pressure-test:
    differentiate or cut.
 3. **Narratability** — can a player explain what it does *and why it's cool* in a breath?
 
-## The relic pool (authored candidates)
+## Slot-themed candidates (2026-06-28 brainstorm)
+Themes locked: **Cloak = roads · Ring = economy · Hat = recruitment · Amulet = activated.** ~10 per slot,
+checked against the [[v3/classes/facet-and-linear-candidates|class collision map]]:
+- [[v3/relics/proposed-design/cloak-roads-candidates|Cloak · roads]]
+- [[v3/relics/proposed-design/ring-economy-candidates|Ring · economy]]
+- [[v3/relics/proposed-design/hat-recruitment-candidates|Hat · recruitment]]
+- [[v3/relics/proposed-design/amulet-activated-candidates|Amulet · activated]]
+
+## The relic pool (earlier candidates)
 - [[v3/relics/proposed-design/split-seal|Split Seal]]
 - [[v3/relics/proposed-design/doorstop|Doorstop]]
 - [[v3/relics/proposed-design/crown-of-first-claim|Crown of First Claim]]

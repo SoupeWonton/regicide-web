@@ -16,10 +16,14 @@ amended_by: 2026-06-24-crystals-continents-and-equipment
 
 ## One continuous run
 
-A V3 expedition is one continuous five-beat run, themed as **five continents**. The same
-conquered deck, grafts, class identity, hand, Tavern, discard, and expedition consequences travel
-through the journey. Saving and resuming may divide the run into several play sessions, but it does
-not create separate runs.
+A V3 expedition is one continuous five-beat run, themed as **five continents**, each divided into
+**three provinces** (sub-continents; one boss-tier each). The same conquered deck, grafts, class
+identity, hand, Tavern, discard, and expedition consequences travel through the journey.
+
+**V3.0 has no mid-run save/resume — a run is single-session; only the lineage meta persists between
+runs** (see [`2026-06-27-v3.0-question-sweep.md`](../../../decisions/2026-06-27-v3.0-question-sweep.md),
+Decision 11). Multi-session save/resume — dividing one run across sessions — is a V3.5+ concern; the
+multi-session duration targets below apply to the full five-continent run, not the C1+C2 V3.0 slice.
 
 Death ends the expedition. The next expedition starts again at the beginning (Continent 1).
 Players do not unlock later beats as alternative campaign starting points and do not construct an

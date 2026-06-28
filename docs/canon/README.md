@@ -27,6 +27,7 @@ context, evidence, proposals, delivery notes, or history—not competing rules.
 - [`v3/classes/overview.md`](v3/classes/overview.md)
 - [`v3/systems/deck-and-grafts.md`](v3/systems/deck-and-grafts.md)
 - [`v3/systems/items.md`](v3/systems/items.md)
+- [`v3/systems/relics.md`](v3/systems/relics.md)
 
 Detailed class kits and the V3 tutorial remain proposals until accepted. The V2 campaign bible and
 Ascending Deck specifications are preserved under [`../archive/`](../archive/) and

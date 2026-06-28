@@ -1,7 +1,16 @@
 # Regicide Web — AI engineering guide
 
 This repository contains base Regicide plus a persistent, seeded campaign built with
-Vue 3, TypeScript, and Socket.IO. Active development is on `Design_V3`.
+Vue 3, TypeScript, and Socket.IO.
+
+> **Branch model (read before coding).** `Design_V3` is the **design-of-record** branch — canon,
+> decisions, and delivery docs. **V3 game code is NOT implemented on `Design_V3`:** its code predates
+> the live deployment, so building V3 on it would **regress the tutorial, graft, UI, and campaign work
+> already running on llgames.ca.** V3 **implementation** happens on a separate **`v3-integration`**
+> branch cut from the **deployed live commit `91d3677`**, bringing the docs across but **never merging
+> `Design_V3` code into live.** The sole implementation plan is
+> [`docs/delivery/plans/v3.0-integration.md`](docs/delivery/plans/v3.0-integration.md)
+> (the older `v3-integration-plan.md` is **superseded**).
 
 ## Documentation authority
 
@@ -63,7 +72,8 @@ docs/archive/           frozen V0/V2 and removed mechanics
 
 ## Git workflow
 
-- Work on `Design_V3`; `master` remains read-only.
+- **Design/docs** commit to `Design_V3`. **V3 code** goes on `v3-integration` (cut from live
+  `91d3677`) — never merge `Design_V3`'s older code into live. `master` remains read-only.
 - Never bypass hooks with `--no-verify`.
 - Pull, commit, and push only when the human explicitly asks.
 - Push only the current design branch and never push `master`.

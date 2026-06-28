@@ -1,25 +1,29 @@
 ---
 type: note
-status: brainstorming
+status: accepted-direction
 authority: derived
 topics: [v3, classes, facets, linear, progression, personality, q5]
 sources: [proposals/classes/facet-and-linear-candidates.md, proposals/classes/four-core-classes.md, proposals/classes/facets-and-pressure-permutations.md]
 aliases: [Facet and linear candidates, Class candidate pool, Class personality pool]
-last_updated: 2026-06-22
+last_updated: 2026-06-27
 ---
 
-# Class progression — enabler passives × payoff ladders (for pairing)
+# Class progression — suit paths × selectable Staff
 
-**Showcase for the Q5 session.** Two **orthogonal** menus per class — a pool of **Passive
-enablers** and a pool of **Linear payoff ladders** — meant to be **paired** live (e.g.
-*Ironclad × Counter*). Over-generated; cut hard. **The Rule is the thing to vote on.** Source:
+**Locked content (2026-06-27).** Two **orthogonal** menus per class — four **Passive signatures**
+(the Staffs) and four **Linear payoff ladders** (the suit paths). Both menus ship in full: 16 Staffs
+and 16 ladders, all approved. Source:
 [[proposals/classes/facet-and-linear-candidates|candidate pool (source)]].
 
-> **Mapped to equipment ([[decisions/2026-06-24-crystals-continents-and-equipment|2026-06-24 decision]]):**
-> the **Passive enabler is the Staff** — held in the Staff equipment slot and **swappable** at the
-> **Fallen Heroes** landmark. The **Linear payoff ladder is kept, not swapped**; a class starts
-> with the ladder matching its suit and **unlocks the other suit ladders over the run**. So a
-> pairing like *Quartermaster ladder × Executioner staff* is reachable mid-run.
+> **Mapped to the model ([[decisions/2026-06-27-v3.0-question-sweep|2026-06-27 sweep]], clarifying
+> [[decisions/2026-06-24-crystals-continents-and-equipment|2026-06-24]]):** the four ladders below per
+> class are its **four suit paths**; a class **starts on its home-suit path** (Sentinel ♠ / Executioner
+> ♣ / Quartermaster ♦ / Surgeon ♥). **V3.0 lights only the C2 rung — a single ability, the ladder's
+> first rung** (not laddered within C2); clearing C2 **unlocks all three other paths.** The **Staff is
+> a separate passive — each class has four; you pick one of your class's four at class-select**
+> (menu choice), **swapped at the Fallen Heroes shrine** (unlocked after C1; the swap offers one
+> randomly-drawn Staff from each of the four classes). Path and Staff are **decoupled** — any
+> Staff pairs with any class.
 
 ## What the classes are meant to be — and how they fail today
 
@@ -50,6 +54,18 @@ Discipline for adding options: if a passive hands you draw/damage/recruit/recove
 a ladder — rewrite it as an *enabler*. If a ladder rung reads like a flat always-on rule, it's
 secretly a passive.
 
+## The four ladders per class — one per suit axis (♠ ♥ ♦ ♣)
+
+Every class now carries a **full suit set** of four payoff ladders. The suit names the **resource
+the key moment is converted into** — not the trigger:
+
+- **♠ survival** — the key moment hardens you (shield / payment efficiency).
+- **♥ recycle** — it feeds the discard ⇄ library loop (Hearts, recovery, anti-deckout).
+- **♦ cards** — it draws / grows the hand.
+- **♣ damage** — it converts into killing power.
+
+A class starts with the ladder matching **its own suit** and unlocks the other three over the run.
+
 ## The power rule — multiplicative, rising, power-fantasy
 
 Continents 2/3/4 **rise in difficulty**, so the ladder must **rise in power** to stay ahead:
@@ -67,8 +83,18 @@ low-power) Continent-1 passive.
 
 ## How to use this
 
-For each class pick **one Passive** and **pair one Ladder**, e.g.
-*Sentinel = Phalanx × Thornline*. Drop the rest. 🪜 = floor-relevant (eases card-starvation).
+**Model confirmed (2026-06-27) — nothing is dropped.** Both menus ship in full:
+
+- **All four ladders per class are kept** — they are the class's four **suit paths** (♠ ♥ ♦ ♣). A class
+  starts on its home-suit ladder (only the **C2 rung** is live in V3.0); clearing C2 unlocks the other
+  three. (The old "pair one ladder, drop the rest" framing is retired.)
+- **All four passives per class are kept** — they are the class's four **Staffs**. At class-select you
+  **pick one of your class's four**; **Fallen Heroes** later offers **one randomly-drawn Staff per
+  other class** to swap into. 🪜 = floor-relevant (eases card-starvation).
+
+† marked six ladders as proposed this pass (Bloodward, Harvest, Rationing, Munitions, Convalescence,
+Lifeline); they are now **approved (2026-06-27)** — **all 16 ladders are locked.** All six are
+*non-home* paths, so they affect only the post-C2 unlock layer, not a first V3.0 run.
 
 **Engine grounding (why the old draft broke):** fights are **one royal at a time** (the 12-card
 castle J→Q→K), so *no* board-wide effects. A **Spade's value is its shield** (a 2♠ = 2 shield),
@@ -101,19 +127,19 @@ you discard nothing. The resource you're protecting is your hand. Outlasts where
 
 | Passive | Rule | Why it stays light |
 |---|---|---|
-| **Hold the Line** | Once per enemy, replay one Spade from your discard **for shield only** (no combo, no draw). | One card, once per enemy, shield only — not recovery (doesn't refill the Tavern like Hearts). |
-| **Reinforce** | Your Spades still grant their shield when played **alongside one non-Spade card**. | Just relaxes a combo restriction — grants no extra value. |
+| **Hold the Line** | Once per enemy, replay one Spade from your discard **for shield only** (no combo, no draw). That card doesn't do any damage | One card, once per enemy, shield only — not recovery (doesn't refill the Tavern like Hearts). |
+| **Reinforce** | Combo but with +/-1 but one card and that card needs to be spade | Just relaxes a combo restriction — grants no extra value. |
 | **Footwork** 🪜 | Once per enemy, **bury a Spade** from hand to the Tavern bottom and **draw 1**. | Net-zero cards — unclogs a bricked hand, once per enemy. |
 | **Parry** | Once per enemy, play a Spade from hand as **emergency shield during the enemy's attack** (react instead of pre-committing). | Pure timing flexibility — the card is still spent. |
 
-### Linear payoff ladders — *what blocking gives, rising C2→C4* (pair one)
-**Confirmed** — each converts defense into one resource and ramps small → full:
+### Linear payoff ladders — *what blocking gives, one per suit axis, rising C2→C4*
 
-| Ladder                                 | Continent 2                                                                                     | Continent 3                                                                     | Continent 4                                                                                                          |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| **A · Fortress** *(defense → cards)*   | Fully block (net 0) → draw 1.                                                                   | Draw **1 per 5 excess shield** beyond the attack.                               | Start of turn, draw **1 per 5 shield active — defense is a deck engine.                                              |
-| **B · Thornline** *(defense → damage)* | Fully block → deal **3**.                                                                       | Fully block → deal **half your shield value**.                                  | **Every card of Spade deals double damage** to the enemy.                                                            |
-| **C · Vigil** *(defense → library)* 🪜 | Once per enemy, **reclaim a Spade you blocked with** to hand (it can't block again this fight). | Cover a block shortfall from the **Tavern top** (up to 5) instead of your hand. | You **never discard from hand to block** — all shortfall comes off the Tavern top. Your deck size *is* your defense. |
+| Ladder | Continent 2 | Continent 3 | Continent 4 |
+|---|---|---|---|
+| **♠ · Bastion** *(block → survival)* | **Excess** Spade shield (beyond the enemy's attack) carries to the next enemy: **1 shield per excess Spade card**. | **3 shield** per excess Spade card carried forward. | Carry forward **half each excess Spade's value** — over-block is never wasted; the wall spills fight to fight (still resets its accrual — never compounds into immortality). |
+| **♥ · Vigil** *(block → recycle)* 🪜 | Once per enemy, **reclaim a Spade you blocked with** to hand (it can't block again this fight). | Cover a block shortfall from the **Tavern top** (up to 5) instead of your hand. | You **never discard from hand to block** — all shortfall comes off the Tavern top. Your deck size *is* your defense. |
+| **♦ · Fortress** *(block → cards)* | Fully block (net 0) → draw 1. | Draw **1 per 5 excess shield** beyond the attack. | Start of turn, draw **1 per 5 shield active** — defense is a deck engine. |
+| **♣ · Thornline** *(block → damage)* | Fully block → deal **3**. | Fully block → deal **half your shield value**. | **Every card of Spade deals double damage** to the enemy. |
 
 ---
 
@@ -121,7 +147,8 @@ you discard nothing. The resource you're protecting is your hand. Outlasts where
 *Key moment: an **exact kill** — damage exactly equal to the enemy's remaining HP. A new card is
 recruited; an owned card grafts (replace one card's rank or suit). Overkill loses the card to
 discard. The skill is hitting the number; the multiplier is the **deck getting better across all
-12 enemies**.*
+12 enemies**. The ♠/♥ ladders deliberately read off **overkill** and **Clubs** so the kit isn't
+"exact kill does X" four times over.*
 
 ### Passive signatures — *featherweight: how you land the exact* (pick one)
 
@@ -132,19 +159,21 @@ discard. The skill is hitting the number; the multiplier is the **deck getting b
 | **Bloodletting** 🪜 | Once per enemy, discard a card to add **half its value** (round down) to an attack. | Costs a card; halved so a big discard isn't a free nuke. |
 | **Field Promotion** | A card you recruit enters your **hand** instead of the Tavern bottom. | You'd draw it soon anyway (deck churns) — just faster, no extra card. |
 
-### Linear payoff ladders — *what an exact kill gives, rising C2→C4* (pair one)
+### Linear payoff ladders — *what the kill gives, one per suit axis, rising C2→C4*
 
-| Ladder                                     | Continent 2                                                                                     | Continent 3                                                              | Continent 4                                                                                            |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| **A · Conscript** *(kill → deck snowball)* | An exact kill on a **new** card recruits it to **hand**; on an **owned** card, graft as normal. | When you graft an owned card, apply that graft to **two** of your cards. | Every exact kill **both recruits the card and grafts** one of yours — the deck deepens with each head. |
-| **B · Reaper** *(kill → cards)*            | An exact kill draws 1.                                                                          | An exact kill draws **2** and your next attack this turn deals **+2**.   | An exact kill **returns the cards you spent on it to your hand** — the kill pays for itself.           |
-| **C · Warpath** *(kill → damage snowball)* | Each exact kill: **+1 damage** to all your attacks for the rest of the act.                     | **+2** per exact kill; an overkill still gives **+1**.                   | The accumulated bonus **doubles at each gate** — you reach every boss already overwhelming.            |
+| Ladder | Continent 2 | Continent 3 | Continent 4 |
+|---|---|---|---|
+| **♠ · Bloodward** *(overkill → survival)* † | An **overkill** grants shield equal to the overkill amount (max **5**) against the next enemy — wasted force becomes armor. | The overkill shield is **uncapped**. | The overkill shield is **doubled** — even your sloppy kills wall you completely. |
+| **♥ · Harvest** *(Clubs → recycle)* † | Each **Club** you play also shuffles **1 card** from your discard into the Tavern. | **2 cards** per Club. | Cards equal to **half the Club's value** — your damage suit is also your engine of return. |
+| **♦ · Reaper** *(kill → cards)* | An exact kill **draws 1**. | An exact kill lets you **look at the top 5 and draw 2**. | **Bounce-back** — an exact kill returns its card to your **hand**, plus look at the top 5 and draw 2. |
+| **♣ · Conscript** *(kill → deck-quality)* | An exact kill recruits the card straight to your **hand**. | …and the graft applies **both** properties (rank **and** suit), not just one. | …and you may graft **any** card — in hand **or** the Tavern — applying both properties. The deck deepens with every head. |
 
 ---
 
 ## **QUARTERMASTER** — Combine
 *Key moment: a **big combine** — one turn that dumps a large total (same-rank combos cap at 10,
-Aces pair). The native quantity is **how much you play in a single turn**.*
+Aces pair). The native quantity is **how much you play in a single turn**. The ♠/♣ ladders read off
+**hand size** and **payment**, not combos, so the kit isn't "play a combo, get X" four times over.*
 
 ### Passive signatures — *featherweight: how you assemble the turn* (pick one)
 
@@ -155,13 +184,14 @@ Aces pair). The native quantity is **how much you play in a single turn**.*
 | **Stockpile** | Once per enemy, **exempt one card** from the forced discard-to-hand-size. | Keeps a single key card — not the infinite hand. |
 | **Provisioner** 🪜 | Once per enemy, **draw 1 then discard 1** (dig one card deep). | Net-zero — unclogs a hand, once per enemy. |
 
-### Linear payoff ladders — *what a big combine gives, rising C2→C4* (pair one)
+### Linear payoff ladders — *what a big combine gives, one per suit axis, rising C2→C4*
 
-| Ladder                                            | Continent 2                                  | Continent 3                                                             | Continent 4                                                                                                         |
-| ------------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **A · Arsenal** *(combine → damage ceiling)*      | Combos may total up to **12** instead of 10. | A combo of 4+ cards deals **+half its value again** (a 12 hits for 18). | **No combo cap** — your whole hand is one combo; emptying it **draws you back to full once per fight**.             |
-| **B · Depot** *(combine → cards)*                 | Hand size **+1**.                            | Playing a combo of 3+ cards **draws 1**.                                | Start each turn by **drawing until your hand is full** — always at max (drains the library → deckbuilding tension). |
-| **C · Double Issue** *(combine → action economy)* | Once per turn, play a **second** combo.      | **No limit** on combos per turn (each 2+ cards).                        | Play your **entire hand** in one turn as any number of combos; emptying it draws you back to full.                  |
+| Ladder | Continent 2 | Continent 3 | Continent 4 |
+|---|---|---|---|
+| **♠ · Rationing** *(payment → survival)* † | When you pay an attack, the **first card** discarded counts as **double** its value (pay more with fewer cards). | The **first two** cards discarded count double. | You may pay attacks from the **top of the Tavern** instead of your hand — your supply line absorbs the hits. |
+| **♥ · Requisition** *(combine → recycle)* | When you play a combo, **one of its cards** goes to the **top of the library** instead of the discard. | A combo (or same-value cards) you discard goes to the **top of the Tavern** instead of the discard. | Once per enemy, **search the discard or library** for cards that complete a combo and take them. |
+| **♦ · Depot** *(combine → cards)* | **Hand size +2.** | Hand size +2; **playing a combo draws 1**. | Hand size +2; playing a combo lets you **look at the top 5 and draw 2** (on top of the above). |
+| **♣ · Munitions** *(hand size → damage)* † | Your **first attack each turn** deals **+1 per 3 cards in hand**. | **+1 per 2 cards** in hand. | Add your **full hand size** to your first attack's damage — a stocked hold is a lethal one. |
 
 ---
 
@@ -180,13 +210,14 @@ quantity is the **discard pile** (a second deck). Distinct from Sentinel: Surgeo
 | **Transfuse** | Once per enemy, play a Heart for its **shield or damage value** instead of recovering. | Just uses the card's value flexibly; costs the recovery. |
 | **Field Dressing** 🪜 | Once per enemy, recover **1 extra** card. | One extra, once per enemy. |
 
-### Linear payoff ladders — *what a recovery gives, rising C2→C4* (pair one)
+### Linear payoff ladders — *what a recovery gives, one per suit axis, rising C2→C4*
 
 | Ladder | Continent 2 | Continent 3 | Continent 4 |
 |---|---|---|---|
-| **A · Perpetuum** *(recovery → volume / anti-deckout)* | Each Heart recovers **+1** card. | Hearts recover on **every** Heart played (not once per enemy), recycling continuously. | When your Tavern empties, **return your entire discard — once per act**. You reset the well, but only once. |
-| **B · Reanimator** *(recovery → quality / replay your best)* | You may recover your **recruited / high-value** cards specifically. | Recovered cards return **to hand**, replayable the same turn. | Once per fight, **resurrect up to 3 chosen cards** from discard straight to hand. |
-| **C · Contagion** *(recovery → damage)* | Each card you recover deals **1 damage** to the enemy. | Recovery deals **2**; recovering on a turn you also attacked adds **+2** to that attack. | Recovery damage **scales with your discard pile size** — the longer the game runs, the harder it bites. |
+| **♠ · Convalescence** *(recover → survival)* † | Each card you **recover** also grants **1 shield** this fight. | **3 shield** per recovered card. | Shield equal to **half each recovered card's value** — scales with the discard pile (your second deck). |
+| **♥ · Renewal** *(discard → recycle)* | When you discard **3+ cards** to pay an attack, **recover 1**. | …and your **first attack each fight** sends its paid cards to the **Tavern** instead of the discard. | **Every** attack sends paid cards to the **bottom of the library** instead of the discard — you never truly lose a card. |
+| **♦ · Lifeline** *(recover → cards)* † | When you recover, also **draw 1**. | Recovering lets you **look at the top 5 and draw 2**. | Recovery becomes direct refill — cards you recover go **straight to your hand** instead of the Tavern. |
+| **♣ · Sterilize** *(empty discard → damage)* | Before the enemy attacks, if your **discard is empty**, deal **2**. | If your discard holds **1 or fewer**, deal **3**. | Deal **5 − X**, where X = cards in your discard — a clean discard is a scalpel. |
 
 ---
 
@@ -195,7 +226,7 @@ quantity is the **discard pile** (a second deck). Distinct from Sentinel: Surgeo
   reads as a flat rule, it's a mislabeled passive. Re-file before voting.
 - **Elegance check:** each survivor bends an *existing* rule, never adds a screen/subsystem.
 - **Collisions to resolve in pairing:** Sentinel-**Vigil** (hand-preservation) vs Surgeon (persist);
-  Sentinel-**Fortress** (block→draw) vs Surgeon/QM draw; QM-**Logistician** vs Surgeon's draw.
+  Sentinel-**Fortress** (block→draw) vs Surgeon/QM draw; QM-**Depot** draw vs Surgeon-**Lifeline**.
 - **Floor coverage:** keep ≥1 🪜 option per class if the card-starvation fix lands at the class layer.
 
 ## Related pages

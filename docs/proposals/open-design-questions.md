@@ -28,53 +28,102 @@ the question from this queue.
 > [`../decisions/2026-06-25-v3-scope-c1-c2.md`](../decisions/2026-06-25-v3-scope-c1-c2.md).
 > The live ship-gap checklist is in [`../delivery/roadmap.md`](../delivery/roadmap.md).
 
+> **Sweep resolved (2026-06-27):** a Landry pass closed **Q5, Q6, Q7, Q12, Q13, Q14, Q15, Q16, Q17,
+> Q18, Q29, Q30, Q31, Q32, Q33, Q36** (UI/visual items deferred to Gab). **Q1/Q3/Q4/Q27** (deck
+> lifecycle leftovers) are **paused for human playtest**; **Q0** awaits a build-confirm; **Q34/Q35**
+> and the C3–C5 half of **Q7** stay **V3.5**. See
+> [`../decisions/2026-06-27-v3.0-question-sweep.md`](../decisions/2026-06-27-v3.0-question-sweep.md).
+
 ## Queue at a glance
 
 | Order | Question | State | Decision packet or dependency |
 |---:|---|---|---|
-| 0 | Delete-vs-upgrade inventory: which V2 systems are deleted, upgraded, or kept | **Proposed; awaiting confirm** | Gates Slice 0 cutover — see integration plan |
+| 0 | Delete-vs-upgrade inventory: which live systems are deleted, upgraded, or kept | **Code-grounded 2026-06-27; awaiting build-confirm — mostly UPGRADE, only 4 true deletes** | Gates Slice 0 cutover — see integration plan |
 | 1 | Deck lifecycle: recruitment, recovery, starting deck, curation | **Acquisition cadence resolved 2026-06-25; forgiveness-detail + removal open** | [`../decisions/2026-06-25-acquisition-cadence-and-royal-gates.md`](../decisions/2026-06-25-acquisition-cadence-and-royal-gates.md) · [`systems/deck-lifecycle.md`](systems/deck-lifecycle.md) |
-| 2 | Four class kits and progression model | **Model resolved 2026-06-24 (staff×ladder); kits/pairings open** | [`../decisions/2026-06-24-crystals-continents-and-equipment.md`](../decisions/2026-06-24-crystals-continents-and-equipment.md) |
-| 3 | Card-mutation vocabulary beyond replacement grafts | **Exploring** | Depends on deck and class models |
-| 4 | Five-beat (five-continent) pressure content | **C1–C2 = V3.0; C3–C5 deferred → V3.5** | [`../decisions/2026-06-25-v3-scope-c1-c2.md`](../decisions/2026-06-25-v3-scope-c1-c2.md) |
-| 5 | Royals, gates, and attrition cadence | **Royal gates resolved 2026-06-25; attrition/rest cadence open** | [`../decisions/2026-06-25-acquisition-cadence-and-royal-gates.md`](../decisions/2026-06-25-acquisition-cadence-and-royal-gates.md) |
-| 6 | Relics/equipment, spells/crystals, Forge, landmarks, overdraw | **Relic + spell models resolved 2026-06-24; details open** | [`../decisions/2026-06-24-crystals-continents-and-equipment.md`](../decisions/2026-06-24-crystals-continents-and-equipment.md) |
-| 7 | UI/UX and tutorial contract | **Exploring** | Depends on settled mechanics |
-| 8 | Alpha product scope and difficulty target | **Exploring / unexplored** | Depends on the complete run shape |
+| 2 | Four class kits and progression model | **Resolved 2026-06-27 — path/Staff decoupled; start home path; C2 rung live; unlock-all on C2** | [`../decisions/2026-06-27-v3.0-question-sweep.md`](../decisions/2026-06-27-v3.0-question-sweep.md) |
+| 3 | Card-mutation vocabulary beyond replacement grafts | **Resolved 2026-06-27 — grafts only (suit OR value)** | [`../decisions/2026-06-27-v3.0-question-sweep.md`](../decisions/2026-06-27-v3.0-question-sweep.md) |
+| 4 | Five-beat (five-continent) pressure content | **C1–C2 = V3.0 (1:1 lore↔pressure); C3–C5 deferred → V3.5** | [`../decisions/2026-06-25-v3-scope-c1-c2.md`](../decisions/2026-06-25-v3-scope-c1-c2.md) |
+| 5 | Royals, gates, and attrition cadence | **Gates + royal graft-cap-10 resolved; forgiveness floor + Camp resolved 2026-06-27; magnitudes need playtest** | [`../decisions/2026-06-27-v3.0-question-sweep.md`](../decisions/2026-06-27-v3.0-question-sweep.md) |
+| 6 | Relics/equipment, spells/crystals, Forge, landmarks, overdraw | **All resolved by 2026-06-28** — Sanctum/landmarks/overdraw/immunity/slots; relics roster + count + bag; fragments agnostic/50-50/bracelet; gauntlet=holder; **Forge = forge**. Numbers + UI calls remain | [`../decisions/2026-06-28-relic-slots-fragments-and-ui.md`](../decisions/2026-06-28-relic-slots-fragments-and-ui.md) |
+| 7 | UI/UX and tutorial contract | **Tutorial done; UI/UX = Gab (2026-06-27)** | [`../decisions/2026-06-27-v3.0-question-sweep.md`](../decisions/2026-06-27-v3.0-question-sweep.md) |
+| 8 | Alpha product scope and difficulty target | **Solo-only + overdraw kept (2026-06-27); alpha contents to discuss with Gab** | [`../decisions/2026-06-27-v3.0-question-sweep.md`](../decisions/2026-06-27-v3.0-question-sweep.md) |
 | 9 | Crystal/continent/equipment **details + surfaced contradictions** (Q28–Q36) | **Opened 2026-06-24** | [`§8`](#8-opened-by-the-2026-06-24-crystalcontinentequipment-decision) |
 
 ---
 
 # 0. Delete-vs-upgrade inventory
 
-## Q0 — Which V2 systems are deleted, upgraded, or kept? **PROPOSED; AWAITING CONFIRM**
+## Q0 — Which live systems are deleted, upgraded, or kept? **PROPOSED; AWAITING BUILD-CONFIRM (code-grounded 2026-06-27)**
 
-This is the implementation prerequisite for Slice 0 (cutover scaffolding). Tag each system:
-**delete / upgrade / keep**.
+> **This is mostly an UPGRADE, not a rebuild.** The live `ascendingDeck` path (in the
+> [`regicide-live`](../delivery/plans/v3.0-integration.md) worktree, commit `91d3677`) **already
+> implements most of the V3 reward layer** behind the flag: Forge token-stamping, Sanctum rites,
+> Caravan, Lair, Shrine, relic slots, spell tiers, the token/graft engine, and continent-mapped
+> chapter roads. **The bias is preserve-and-repurpose; genuine deletes are few, and several have
+> shared machinery that must be kept.** Build only after this is confirmed.
 
-Systems to rule on:
+### What's actually in the live code (verified 2026-06-27)
 
-| System | Proposed answer |
-|---|---|
-| `provinceMode` scaffolding (`experiments.ts`) | **Delete** |
-| Fragment wallet + graduation shop (`campaign.ts`) | **Delete** |
-| `ascendingDeck` arc (the live, most-evolved path) | **Upgrade** → becomes the five-continent shape |
-| `EXPERIMENTS` flags (`ascendingDeck` + `provinceMode`) | **Collapse** into a single V3 default |
-| Token engine + catalog (`tokens.ts`, `TOKEN_DEFS`) | **Keep** (pruning deferred to token session) |
-| Base quick-game (`game.ts`, `rooms.ts`) | **Keep** untouched |
-| V2 chapter arc nodes | **Delete** (replaced by continent maps) |
-| Tower landmark | **Rule on** |
-| Abbey / Market landmarks | **Rule on** |
-| Sanctum landmark | **Rule on** (verb is dead — see Q33) |
-| Shrine landmark | **Rule on** |
+- `experiments.ts` → `EXPERIMENTS` flags: `ascendingDeck:true` (the live mode), `provinceMode:false`,
+  `replacementGrafts:false`, plus sim toggles (`killReplenish`, `preBossReshuffle`, `castleHearts`,
+  `shortCastle`, `autoMarchAfterGates`) and `CURATION_CUT` (province class curation).
+- `campaign.ts` → the ascending-deck landmark handlers already exist: `offerForge` (stamps **tokens**
+  from a `tokenBudget`), `offerSanctum` (rites: Foresight / Blessing / Cleanse), `offerCaravan`
+  (mythic relic, paid by a curse), `applyLairToken`, `offerShrine` (cleanse). Plus a **fragment track**:
+  `tokenFragments` + `FRAGMENTS_PER_TOKEN = 6` + `presentFragmentShop` (the "graduation shop").
+  **Note (2026-06-27): curses are removed from V3**, so the curse code (`undercut` tokens,
+  `cursedCardIds`, the Cleanse rites, the Caravan curse-payment) is **dead** and gets cleaned up.
+- `maps.ts` → `continentOf(chapter)` (ch1–3 → C1, ch4–6 → C2); node kinds
+  `forge · market · abbey · tower · shrine · lair · camp · boss · recruit · draft · veteran · elite · council`;
+  ascending `CONT1_CH1–3` chapter specs (the Gates/Courtyard/Throne roads) **alongside** the older
+  `CHAPTER_1/2` province specs.
+- `tokens.ts` / `content.ts` → the token (graft) engine, `RELIC_SLOTS`, `MYTHIC_RELIC_IDS`,
+  `SPELL_UNLOCK_ORDER`, `HAILMARY_SPELL_IDS`, etc.
 
-**Output:** a checklist Slice 0 + Slice 2 execute against. When confirmed, add a dated decision record and update the integration plan's Slice 0 from "pending Decision 1" to ✅.
+### Disposition — keep / upgrade / collapse / delete
+
+| Live system (file) | Action | Careful note / dependency |
+|---|---|---|
+| `ascendingDeck` path | **Upgrade → the single V3 default** | This *is* the V3 base; do not rebuild |
+| `EXPERIMENTS.ascendingDeck` / `provinceMode` flags | **Collapse** to one default | Remove the *branch*, not the machinery behind it |
+| `replacementGrafts` flag + additive Hone path | **Collapse** → replacement is canon | Delete the additive `+1` branch only after replacement is the default (Q6) |
+| Token/graft engine (`tokens.ts`) | **Keep** | It **is** the graft substrate (Reforge/Hone/temper/graft). Pruning the catalog = later token session |
+| Forge handler (`offerForge`, token-stamp) | **Upgrade → spell forging** | Repurpose to fragments → Half; graft-rearrange moves to Sanctum (Q12) |
+| Sanctum handler (`offerSanctum` rites) | **Upgrade → deck modification** (Q33) | Drop **Foresight** (scry) and **Cleanse** (curses gone); Blessing folds into Camp |
+| **Curse system** (`undercut`, `cursedCardIds`, Cleanse, Caravan curse-payment) | **Delete** | Curses are **not a V3 mechanic** (Landry 2026-06-27) — dead code |
+| Caravan / Lair / Shrine / Camp handlers | **Keep → tune to V3 verbs** | Already wired. **Caravan's curse-payment → replace with pay-from-hand discard-total**; Shrine → Consecrate; Camp → 4-axis |
+| Relic slots / spell tiers (`RELIC_SLOTS`, `SPELL_UNLOCK_ORDER`, mythic) | **Upgrade** | → 5 equipment slots + crystal spells; map rosters later (Q30) |
+| `maps.ts` chapter specs | **Upgrade** | Keep `CONT1_CH*`; retune; **remove Tower** node; **add Fallen Heroes** node |
+| Base quick-game (`game.ts`, `rooms.ts`, `deck.ts`, `rules.ts`) | **Keep untouched** | Regicide quick-play is unrelated |
+| **Fragment wallet + graduation shop** (`tokenFragments`, `presentFragmentShop`, `FRAGMENTS_PER_TOKEN`) | **Delete the spend-on-C-tier-tokens shop**; **upgrade the fragment *concept*** | Fragments survive as **spell** fragments (pooled by encounter count, forge → Half). Only the *buy-tokens-at-a-shop wallet* is removed |
+| Standalone `provinceMode` arc (`CHAPTER_1/2`, `CURATION_CUT`, the `else` non-ascending offer branches) | **HOLD — under discussion (Q37)** | ⚠️ **Provinces are being redefined as sub-continents** (3 per continent). The province *machinery* (Gates/Courtyard/Throne 3-boss arc, `autoAdvanceAfterGate`) is likely **upgrade, not delete**. `CURATION_CUT` (class deck-curation at setup) is superseded by the path model and can go. Resolve **before** any removal. |
+| Tower node/landmark | **Delete** (Q13) | No replacement reward |
+| `tokenBudget` (forge budget for grafts) | **Delete** (resolved 2026-06-27) | **No forge/graft budget in V3.** Grafts come from kills (C1) + Sanctum transfers (C2); the Forge spends fragments, not a budget. Remove it. |
+
+### The true deletes (everything else is upgrade/keep)
+1. The **fragment graduation shop** (`presentFragmentShop` + spending fragments on C-tier tokens) — the fragment *concept* is kept and re-pointed at spells.
+2. The **curse system** (`undercut`, `cursedCardIds`, Cleanse rites, Caravan curse-payment) — curses are not a V3 mechanic.
+3. The **additive Hone graft** branch (once `replacementGrafts` is canon).
+4. **Tower** node, the **Foresight** + **Cleanse** Sanctum rites, and `CURATION_CUT`.
+
+**Held for discussion (Q37):** the **standalone province arc** — *not* a confirmed delete. Provinces
+become **sub-continents** (3 in C1, 3 in C2); the province machinery is the substrate, so this is
+expected to be an **upgrade**. See Q37.
+
+**Output:** when Landry confirms this disposition (and Q37 lands), add it to the
+[`2026-06-27 sweep`](../decisions/2026-06-27-v3.0-question-sweep.md) (or a dedicated Slice-0 record),
+flip the integration plan's Q0 row to ✅, and treat the four "true deletes" as the only removal work —
+everything else is a flag-collapse, rename, or repurpose.
 
 ---
 
 # 1. Deck lifecycle
 
-## Q1/Q3/Q4/Q27 — What is the complete deck lifecycle? **ACQUISITION RESOLVED 2026-06-25; remainder EXPLORING**
+## Q1/Q3/Q4/Q27 — What is the complete deck lifecycle? **ACQUISITION RESOLVED 2026-06-25; remainder PAUSED for playtest (2026-06-27)**
+
+> **Paused 2026-06-27:** the leftover deck-lifecycle calls (starting-deck fine detail, recovery
+> magnitudes, curation/removal) can only be settled with **human playtesting** — on hold for now.
+> (Mutation vocabulary itself is closed: replacement grafts only, Q6.)
 
 Detailed foundations, axes, and alternatives live in
 [`systems/deck-lifecycle.md`](systems/deck-lifecycle.md).
@@ -148,7 +197,11 @@ deck, pressure matrix, and alpha balance scope.
 
 # 3. Card-mutation vocabulary
 
-## Q6 — Do any developed token families belong in V3? **EXPLORING — radius 5**
+## Q6 — Do any developed token families belong in V3? **RESOLVED 2026-06-27 — replacement grafts only**
+
+> **Resolved:** a graft fires on an exact kill of an already-recruited card and replaces the **suit
+> OR the value (rank)** of one held card — never both. The broader token catalog is retired until a
+> playtest names a gap. See [`../decisions/2026-06-27-v3.0-question-sweep.md`](../decisions/2026-06-27-v3.0-question-sweep.md).
 
 Replacement rank/suit grafts are accepted. The developed build also contains value,
 hold-value, split, suit-lever, Scry, Mark, Banner, Bloodprice, and other tokens.
@@ -171,7 +224,10 @@ Decision test:
 
 # 4. Five-act content
 
-## Q7 — What content realizes the accepted journey? **C1–C2 in V3.0; C3–C5 DEFERRED → V3.5**
+## Q7 — What content realizes the accepted journey? **C1–C2 = 1:1 lore↔pressure (closed); C3–C5 DEFERRED → V3.5**
+
+> **Clarified 2026-06-27:** for V3.0 the lore↔pressure mapping is **1:1** (Claim = C1, Shape = C2) and
+> needs no further design. The open part is the **C3–C5 pressure packages / loop scaling** → V3.5.
 
 The continuous five-beat frame is accepted, mapped **1:1 to five continents** with a God of Luck
 lore layer and an **opt-in ending** (forge all four spell crystals to Full → Continent 5 showdown):
@@ -195,7 +251,10 @@ Decisions required:
 6. Which seeded internal fixtures represent weak, median, strong, narrow, and
    attrition-damaged entry states?
 
-## Q15 — What are the royal and gate rules? **RESOLVED 2026-06-25 (immunity/info detail open)**
+## Q15 — What are the royal and gate rules? **RESOLVED 2026-06-25 + 2026-06-27 (immunity/info detail open)**
+
+> **Added 2026-06-27:** exact-killing a Jack/Queen/King at a gate **triggers a graft, value capped at
+> 10** — this also settles the skipped-royal question (gate kills graft regardless of the keep choice).
 
 **Resolved** ([`../decisions/2026-06-25-acquisition-cadence-and-royal-gates.md`](../decisions/2026-06-25-acquisition-cadence-and-royal-gates.md)):
 C2 is a **court sequence of three gates** — Jack Gate, Queen Gate, King Gate — each a
@@ -210,7 +269,12 @@ Decisions still required:
 - Are royal immunities the main adaptation pressure or one package among several?
 - What information about later gate phases is visible before commitment?
 
-## Q16 — What is the attrition and rest cadence? **EXPLORING — radius 5**
+## Q16 — What is the attrition and rest cadence? **DIRECTION RESOLVED 2026-06-27; magnitudes need playtest**
+
+> **Resolved (direction):** opening hand **always holds at least one Diamond**; road recovery is
+> **Camp = a fixed three-part rest** — reshuffle discard → Tavern, redraw a fresh hand to **max hand
+> size 5**, and **first attack deals double** (the whole bundle fires; not a pick-one menu). Updated
+> 2026-06-27 from the earlier four-axis framing. Magnitudes/cadence numbers still want a human playtest.
 
 Persistent hands, Tavern, and discard are accepted. Only explicit rests reshuffle and
 redraw.
@@ -222,7 +286,7 @@ Decisions required:
 - How much recovery belongs to Hearts versus routes and landmarks?
 - How quickly should a functionally lost expedition resolve?
 
-## Q17 — What difficulty curve produces the duration target? **EXPLORING — radius 3**
+## Q17 — What difficulty curve produces the duration target? **PARKED 2026-06-27 — fine for now**
 
 Accepted product target: approximately one hour per act, four to five hours for a
 successful run, and 15–25 cumulative hours to a first victory.
@@ -248,25 +312,25 @@ Full = non-castable win token) in a gauntlet, forged from combat-dropped fragmen
 Still open:
 
 - How many relic opportunities/awards occur in a complete expedition.
-- Which existing relic candidate lands in which slot; the slot themes.
+- ✅ *Resolved 2026-06-28:* slot themes + the relic roster — **`relic_v1_design_3.0`** (29 relics,
+  slotted, story-not-stats, non-overlapping with class paths). See Q30 / [`canon/v3/systems/relics`](../canon/v3/systems/relics.md).
 - Spell forge counts (fragments → Half / Full) and drop rates.
-- Which relic creates a story without duplicating class or graft identity.
 
 **Working lean:** a small authored pool; most runs see one or two relics.
 
-## Q12 — What does the Forge do? **EXPLORING DETAIL — radius 4**
+## Q12 — What does the Forge do? **RESOLVED 2026-06-27 — Forge = spells only**
 
-Canon: the Forge rearranges existing grafts and creates no new graft power. **It now also assembles
-spell crystals** (fragments → Half → Full; completing a Full is unlock-gated) — see the 2026-06-24
-decision.
+> **Resolved (2026-06-27):** the **Forge's only verb is spell forging** (fragments → Half; fragments
+> **pooled by encounter count**). **Graft rearranging moves to the Sanctum** (Q33). The road map
+> needs retuning for the re-scoped pair.
 
-Decisions required:
+Still open (now a **Sanctum** question): can graft-rearrange move rank, suit, or both — transfer,
+swap, or overwrite? And the spell forge counts / encounter-pool numbers.
 
-- Can it move rank grafts, suit grafts, or both? Transfer, swap, restoration, or overwrite?
-- Does rearrangement undermine the permanence of earlier conquest decisions?
-- Spell side: exact forge counts, and when "create a Full" unlocks.
+## Q13 — Which landmarks deserve to exist? **RESOLVED 2026-06-27 — roster ratified**
 
-## Q13 — Which landmarks deserve to exist? **EXPLORING — radius 4**
+> **Resolved:** the [`landmarks`](systems/landmarks.md) roster is accepted, with **Forge = spells**
+> and **Sanctum = deck modification** (Q12/Q33). Residuals: Fallen Heroes cost (Q32), Camp tuning.
 
 Candidate minimal verbs:
 
@@ -281,7 +345,7 @@ Every landmark must answer:
 
 > Why would this deck route here now, and what competing opportunity is surrendered?
 
-## Q14 — Should overdraw-and-select remain? **PROPOSED; EVIDENCE REQUIRED — radius 4**
+## Q14 — Should overdraw-and-select remain? **RESOLVED 2026-06-27 — kept as-is**
 
 Working direction: retain the campaign Diamonds rule, show the current hand during
 selection, and validate whether its planning depth justifies modal interruption and
@@ -297,7 +361,7 @@ Evidence required:
 
 # 6. Player understanding
 
-## Q8 — What is the minimum trustworthy UI/UX contract? **EXPLORING — radius 4**
+## Q8 — What is the minimum trustworthy UI/UX contract? **DEFERRED TO GAB (2026-06-27)**
 
 Decisions required:
 
@@ -313,7 +377,7 @@ Exit test:
 > An unfamiliar player completes a run segment and explains why cards, class effects,
 > rewards, and failure behaved as they did without designer narration.
 
-## Q9 — What does the tutorial teach? **EXPLORING — radius 4**
+## Q9 — What does the tutorial teach? **RESOLVED 2026-06-27 — tutorial is done**
 
 The existing [`player-experience/tutorial.md`](player-experience/tutorial.md) requires
 V3 revision.
@@ -335,7 +399,7 @@ Claim and Shape?
 
 # 7. Product and alpha scope
 
-## Q18 — Is alpha solo-first or multiplayer-complete? **UNEXPLORED — radius 4**
+## Q18 — Is alpha solo-first or multiplayer-complete? **RESOLVED 2026-06-27 — solo only for V3.0**
 
 Alternatives must address:
 
@@ -345,7 +409,7 @@ Alternatives must address:
 - Owner-only versus party-wide loopholes.
 - Reconnection requirements for external tests.
 
-## Q21 — What constitutes an alpha-complete run? **EXPLORING — radius 4**
+## Q21 — What constitutes an alpha-complete run? **DEFERRED 2026-06-27 — discuss with Gab; may be this version**
 
 Decisions required:
 
@@ -376,58 +440,95 @@ questions and surfaced two design holes. These are tracked here so they don't ge
 
 | # | Contradiction | Status | Resolution / where it lives |
 |---|---|---|---|
-| C1 | `constraints.md` "no secondary wallet — redundant kills produce no **fragments**" vs. the new **spell-crystal fragments** | **Resolved** | Constraint reworded: no *generic spendable* currency; spell fragments are the one bounded, suit-specific, Forge-only exception. ([[canon/v3/constraints]]) |
+| C1 | `constraints.md` "no secondary wallet — redundant kills produce no **fragments**" vs. the new **spell fragments** | **Resolved (re-check wording)** | No *generic spendable* currency; spell fragments are the one bounded, **single-purpose** exception — now **agnostic + bracelet-armed** (2026-06-28), so confirm the "suit-specific, Forge-only" phrasing. ([[canon/v3/constraints]]) |
 | C2 | `vision.md` "depth not from parallel currencies, inventories, ability subsystems" vs. **5 equipment slots + a crystal gauntlet** | **Resolved (ratify wording)** | Vision now frames them as *bounded, legible* fixed positions, not managed inventory. Edits the core vision line — **confirm the wording at next session.** ([[canon/v3/vision]]) |
 | C3 | **Sanctum's** verb was "Attune a spell"; spells now forge from fragments | **Open → Q33** | Sanctum's role is obsolete; needs a new verb or removal. |
 | C4 | **Fallen Heroes** landmark introduced but undefined | **Open → Q32** | No placement, cost, or legal staff↔ladder pairing rules yet; no detail page. |
 | C5 | Migration spec used "Continent 1/2" in the *old* two-chapter sense | **Resolved** | Annotated to disambiguate from continents = the five beats. ([`../delivery/migration-v2-to-v3.md`](../delivery/migration-v2-to-v3.md)) |
 
-## Q28 — Spell-crystal forge economy **EXPLORING — radius 4**
+## Q28 — Spell fragment economy **RESOLVED 2026-06-28 (model + Forge); numbers to tune**
 
-The model is set (Fragment → Half castable; Full = non-castable win token; fragments are
-suit-specific). Numbers and gating are open:
+> **Resolved 2026-06-28** ([decision](../decisions/2026-06-28-relic-slots-fragments-and-ui.md)):
+> **fragments are agnostic** (generic, not suit-typed) and **drop 50/50 after each encounter.** The
+> **bracelet** is the between-encounter UI where the player places fragments into the **gauntlet's** four
+> suit holes; **tiers coexist and fragments accumulate** — **equip** to use a suit's spell now or
+> **sandbag** to build **Fragment → Half → Full**. The **Forge landmark keeps its verb — forge** — it
+> forges accumulated fragments into the next tier. *(Replaces "suit-specific fragments pooled by encounter
+> count.")* The code's generic `tokenFragments` are **closer to this** than the old suit-specific model.
 
-- Fragments per drop, and the drop trigger (lean: ~1 in 4 combats yields fragments).
-- Count to forge a **Half** (lean: 2) and a **Full** ("a lot" — placeholder 3 or 6).
-- Does the Full unlock allow **fragments → Full directly**, or must a Half exist first?
-- What **unlocks the ability to create a Full** at all (endgame-gated — by what trigger)?
-- Does forging happen only at the **Forge**, or is there a second source?
+**Still open (numbers + one small call):**
 
-## Q29 — The gauntlet **EXPLORING — radius 3**
+- Numbers: **fragments per Half** (lean ~2), effect values, the 50/50 drop, Full counts/unlock (**V3.5**).
+- **Grafts vs. fragments:** does a redundant kill (the graft trigger, Q6) *also* drop a fragment, or
+  are these separated?
 
-- Final name for the four-crystal holder (working: "gauntlet/bracelet").
-- Does **holding all four** crystals (before any Full) do anything, or is it purely storage?
-- How the gauntlet, tiers, and "a Full is set aside" read in the UI.
+## Q29 — The gauntlet **RESOLVED 2026-06-28 — gauntlet = holder, bracelet = its UI**
 
-## Q30 — Equipment slot identities **EXPLORING — radius 4**
+- **Resolved:** the **gauntlet** is the four-suit-crystal holder (name confirmed); the **bracelet** is the
+  between-encounter UI/UX screen where fragments are placed into it.
+- Does **holding all four** (before any Full) do anything, or is it purely storage? *(open, not a blocker)*
+- How the holder, tiers, and "a Full is set aside" read in the UI ([`ui-ux-v3.0`](../delivery/plans/ui-ux-v3.0.md)).
 
-- Confirm/replace the placeholder themes: **Cloak ≈ roads, Ring ≈ economy, Hat ≈ recruitment,
-  Amulet ≈ activated.**
-- Which existing relic candidate (Split Seal, Doorstop, Crown of First Claim, Black Standard,
-  Sainted Scalpel, Combat Cache, Warhorn, Hoard) is re-standardized into which slot.
-- How many relic slots a normal run actually fills (lean: one or two).
+## Q30 — Equipment slot identities + relic roster **RESOLVED 2026-06-28 (themes, roster, count)**
 
-## Q31 — Class ladder unlocks **EXPLORING — radius 4** *(extends Q5)*
+> **Slots + themes locked:** the four relic slots are **Amulet · Ring · Cloak · Hat**, themes
+> **Cloak = roads · Ring = economy · Hat = recruitment · Amulet = activated** (Amulet = a button slot).
+>
+> **Roster resolved (2026-06-28):** the authored pool is **`relic_v1_design_3.0`** — 29 relics
+> (Cloak 6 · Ring 8 · Hat 8 · Amulet 7), catalogued in [`canon/v3/systems/relics`](../canon/v3/systems/relics.md)
+> ([decision](../decisions/2026-06-28-relic-v1-design-3.0.md)). Every relic was checked against the class
+> paths to avoid re-skinning a class ability.
+>
+> **Per-run count resolved (2026-06-28):** **one relic per slot** (up to four), equipped from a **bag**
+> of collected relics via the between-encounter screen — supersedes `RELIC_SLOTS = 2`.
+> ([decision](../decisions/2026-06-28-relic-slots-fragments-and-ui.md) · UI: [`ui-ux-v3.0`](../delivery/plans/ui-ux-v3.0.md).)
+>
+> **Code reality:** live relics carry `slot: arms | armor | trinket` with **`RELIC_SLOTS = 2`** and a
+> **13-relic `ITEMS` roster** — superseded; only **Hoard** (→ Ring) and **Sainted Scalpel** (→ Amulet)
+> carry forward.
 
-The model is resolved (Staff = swappable passive enabler; one kept linear ladder per class). Open:
+**Still open:**
 
-- How and when the **other three suit ladders** unlock over a run (the elegance/replayability lever).
-- The per-class **Staff × ladder pairing** and rung values (Sentinel worked; others pending).
+- **Held candidates** not yet in the pool: Transmute, Ebb (Amulet), Spoils (Hat), Waystone (Cloak).
+- **Fragment-touching relics** (Requisition Writ, Caravan Coin, the held Prospector) — reconcile with
+  the **fragments** decision (next session).
+- **Caravan payment:** the live Caravan buys a mythic by **cursing your 2s/3s** — curses are removed,
+  so its payment becomes **pay-from-hand discard-total** (see [`systems/landmarks`](systems/landmarks.md)).
 
-## Q32 — Fallen Heroes landmark **UNEXPLORED — radius 3** *(was C4)*
+## Q31 — Class ladder unlocks **RESOLVED 2026-06-27** *(extends Q5)*
 
-- Placement and cadence on the road; cost to swap a Staff.
-- Which **staff ↔ ladder pairings** are legal and meaningful (e.g. Quartermaster ladder +
-  Executioner staff) — and which are nonsense to forbid.
-- Whether a swapped-out Staff is recoverable.
+> **Resolved (2026-06-27):** path and Staff are **decoupled**. A class **starts on its home-suit
+> path** (Sentinel ♠, Executioner ♣, Quartermaster ♦, Surgeon ♥); **V3.0 lights only the C2 rung —
+> a single ability, the ladder's first rung** (granted/revealed by an animation on entering C2; it
+> does **not** rung up within C2). **Completing C2 unlocks all three other paths**, open and
+> selectable on entering C2. The **Staff is a separate passive — each class has four; you pick one of
+> your class's four at class-select** (menu choice), swapped at **Fallen Heroes** (unlocked after C1;
+> the swap offers one randomly-drawn Staff from each of the four classes). See
+> [`../decisions/2026-06-27-v3.0-question-sweep.md`](../decisions/2026-06-27-v3.0-question-sweep.md).
+> This supersedes 2026-06-25 Decision C ("Staff = home suit") and D ("one player-chosen tree").
+>
+> **Staff roster confirmed (2026-06-28):** the four Staffs per class **are the passive signatures**
+> already authored in [`facet-and-linear-candidates`](../wiki/v3/classes/facet-and-linear-candidates.md)
+> (16 total) — build against those; only numeric tuning remains.
 
-## Q33 — Sanctum's fate **UNEXPLORED — radius 3** *(was C3)*
+## Q32 — Fallen Heroes landmark **RESOLVED 2026-06-27 (via Q31)**
 
-The "Attune a spell" verb is dead (spells forge from fragments). Decide:
+> **Resolved:** verb = **swap your Staff**; **unlocked after C1**, sits mid-C2; the swap offers **one
+> randomly-drawn Staff from each of the four classes** (each class has four signatures; one is drawn
+> at random per faction, your own class included). Because Staff is decoupled from the suit path, *any* Staff pairs
+> with *any* class — no pairing legality table needed. **It is just a swap — no cost, repeatable**
+> (resolved 2026-06-27); a swapped-out Staff is recoverable by swapping back on a later visit.
 
-- A **new one-verb decision** that doesn't duplicate the Forge (crystals), Camp (rest), Lair
-  (relics), or Shrine (consecrate) — e.g. a fragment source, a recovery/blessing rite — **or remove
-  Sanctum** from the roster.
+## Q33 — Sanctum's fate **RESOLVED 2026-06-27 — Sanctum = "Rearrange" (deck modification)**
+
+> **Resolved:** the Forge is now spells-only, so **Sanctum inherits the old Forge verb.** Sanctum's
+> verb is **Rearrange** — **up to two transfers per visit**, each moving a **suit or a value** between
+> two owned cards (three legal shapes: two suit transfers, two value transfers, or one of each). **No
+> new power** — pure redistribution of properties the deck already earned. Distinct from
+> Shrine/Consecrate (which *authors a new* reshape). The budget (two moves) settles the earlier
+> one-vs-budget tuning question. Full spec in
+> [`systems/landmarks`](systems/landmarks.md#sanctum--rearrange-deck-modification--resolves-q33-inherits-the-old-forge-verb-q12).
+> **Build note:** repurpose the live `offerForge` token-stamp machinery to *move* a token, not stamp.
 
 ## Q34 — The God of Luck showdown (Continent 5) **DEFERRED → V3.5**
 
@@ -444,10 +545,28 @@ The "Attune a spell" verb is dead (spells forge from fragments). Decide:
   find it, hidden enough to preserve the surprise/betrayal — without it being a feel-bad "I missed
   the real ending for 40 hours."
 
-## Q36 — Spell immunity exception **PROPOSED; CONFIRM — radius 3**
+## Q36 — Spell immunity exception **RESOLVED 2026-06-27 — above immunity; visual = Gab**
 
-Current lean: a spell sits **above matching suit immunity** (a ♦ spell is castable against a
-♦-immune enemy), shown explicitly. Ratify or reject, and define the visual treatment.
+> **Resolved:** a spell sits **above matching suit immunity** (a ♦ spell is castable against a
+> ♦-immune enemy). The visual treatment that signals it is Gab's call.
+
+## Q37 — Provinces as sub-continents **RESOLVED 2026-06-27**
+
+> **Resolved:** a **province is a sub-continent**; each continent contains **three provinces**, and
+> **each province is one boss-tier** (Continent → Province ×3 → road → one boss). See
+> [`../decisions/2026-06-27-v3.0-question-sweep.md`](../decisions/2026-06-27-v3.0-question-sweep.md) Decision 11.
+>
+> - **C1 — Claim:** Province 1 = recruit **6s+7s** · Province 2 = **8s+9s** · Province 3 = **10s / Council of Tens**.
+> - **C2 — Shape:** Province 1 = **Jack** tier → Jack Gate (keep 3/4) · Province 2 = **Queen** tier →
+>   Queen Gate (keep 2/4) · Province 3 = **King** tier → King Gate (crown, keep 1/4). The 3/2/1 pyramid
+>   spreads one royal tier per province.
+> - **Seams:** a rest/reshuffle at **every province boundary** (not just continent boundaries).
+> - **Save/resume:** **none in V3.0** — a run is single-session; only the **lineage meta** persists
+>   between runs. (Multi-session save/resume is a later concern.)
+> - **C2 path ability** reveals on **entering C2 = start of C2 Province 1**; **Fallen Heroes** sits at
+>   the **start of C2 Province 2**.
+> - **Code:** keep the province/gate machinery + `CONT1_CH*` maps; retire only the `provinceMode`
+>   *flag*, `CURATION_CUT`, and the non-ascending `else` branches (closes the Q0 hold).
 
 ---
 

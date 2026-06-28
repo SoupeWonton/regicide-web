@@ -2,7 +2,7 @@
 kind: delivery
 edition: v3
 status: active
-last_reviewed: 2026-06-25
+last_reviewed: 2026-06-28
 ---
 
 # V3 roadmap
@@ -20,18 +20,18 @@ last_reviewed: 2026-06-25
 
 | # | Open design item | Question | Status |
 |---|---|---|---|
-| 1 | Tree-unlock count on C2 completion — one (player-chosen) / several / all | Q31 / Decision C | Active brainstorm; lean = one, player-chosen |
-| 2 | Each class's base **Staff** + **starting ladder** + rung values for C1/C2 | Q5 / Q31 | Open (broadening deferred; *starting* kit is not) |
-| 3 | **Forgiveness numbers** — opening ♦/♥ floor; C1→C2 seam reset (clean vs. partial) | Q1 | Direction agreed; numbers open |
-| 4 | **Road structure / rest cadence** — combat-gated landmarks vs. skirmish→event; guaranteed rests | Q16 | Open |
-| 5 | **Fallen Heroes** detail — swap cost, legal cross-class pairings, recoverability | Q32 | Placement (mid-C2) set; rest open |
-| 6 | **Crystal/spell layer in V3.0** — do castable Fragment/Half spells appear, given Full/win is deferred? | Q28 | Open (new, from scope cut) |
-| 7 | **Overdraw-and-select** — keep or cut | Q14 | Proposed; evidence required |
-| 8 | **Landmark roster for C1/C2** incl. Sanctum's fate | Q13 / Q33 | Open |
-| 9 | **Token scope** — grafts-only vs. wider | Q6 | Lean = grafts only |
-| 10 | **Equipment slots + relic roster** | Q30 / Q11 | Deferred to dedicated session (may ship minimal/empty) |
-| 11 | **UI/UX contract** + **revised tutorial** | Q8 / Q9 | Open |
-| 12 | **Solo vs. multiplayer** for V3.0 | Q18 | Lean = solo-first |
+| 1 | Path unlocks on C2 completion | Q31 | ✅ **Decided 2026-06-27** — clearing C2 unlocks **all** other suit paths |
+| 2 | Class = **home-suit path (C2 rung in V3.0) + a separate selectable Staff** | Q5 / Q31 | ✅ **Decided 2026-06-27** — path/Staff decoupled; siege retired; **C2 rung = a single ability**; **Staff = pick 1 of class's 4 passive signatures (16 total)**; ladder/staff content in the candidates doc |
+| 3 | **Forgiveness floor** — guaranteed opening **Diamond** | Q16 | ✅ **Decided 2026-06-27**; seam-reset shape + numbers → playtest |
+| 4 | **Road recovery / rest cadence** — **Camp = fixed three-part rest** | Q16 | ✅ **Camp resolved 2026-06-27** (reshuffle + redraw-to-5 + double first attack); magnitudes → playtest |
+| 5 | **Fallen Heroes** detail — swap, after C1, to **one random Staff from each of the 4 classes** | Q32 | ✅ **Decided 2026-06-27** — just a swap, no cost, repeatable |
+| 6 | **Crystal/spell layer in V3.0** | Q28 | ✅ **Decided (revised 2026-06-28)** — gauntlet holds 4 suit crystals (Fragment→Half→Full); **fragments agnostic, 50/50 drop after each encounter**, placed via the **bracelet** (between-encounter UI); **Forge = forge** (tier-up); Full → V3.5. Numbers → playtest |
+| 7 | **Overdraw-and-select** — keep or cut | Q14 | ✅ **Decided 2026-06-27** — kept as-is |
+| 8 | **Landmark roster for C1/C2** | Q13 / Q33 | ✅ **Ratified 2026-06-27** — Forge=spells, **Sanctum=deck modification**; map needs retuning |
+| 9 | **Token scope** — grafts-only vs. wider | Q6 | ✅ **Decided 2026-06-27** — grafts only (suit OR value); royal grafts cap at 10 |
+| 10 | **Equipment slots + relic roster** | Q30 / Q11 | ✅ **Decided 2026-06-28** — **4 slots, one per type** (Amulet/Ring/Cloak/Hat), equipped from a **bag**; pool = **`relic_v1_design_3.0`** (29). Many relics still need exact implementation contracts |
+| 11 | **UI/UX contract** + **revised tutorial** | Q8 / Q9 | ✅ Tutorial **done**; UI/UX = **Gab** (2026-06-27) |
+| 12 | **Solo vs. multiplayer** for V3.0 | Q18 | ✅ **Decided 2026-06-27** — solo only |
 
 **B. Build gates still to do** (delivery, mostly downstream of A):
 
@@ -42,13 +42,15 @@ last_reviewed: 2026-06-25
 - **No-comeback permadeath** + the **C1→C2 seam reset**.
 - **Tree-unlock meta** on C2 completion.
 - Four-class scaffold (Staff + starting ladder).
-- Save/resume across the two continents; boundary recap.
+- **No mid-run save/resume** (single-session run; lineage meta persists); continent/province boundary recap.
 - Evidence capture; no progression-blocking defects.
 
 ## Now
 
-1. Migrate the redundant-exact-kill slice from additive Hone/added-suit behavior to
-   accepted rank-or-suit replacement grafts, including state, UI, tests, and saves.
+1. **Build the versioned card-state model first** (stable physical IDs + printed-vs-effective
+   rank/suit + graft provenance), then migrate the redundant-exact-kill slice from additive
+   Hone/added-suit to **rank-or-suit replacement grafts** — including state, UI, tests, and saves.
+   **Replacement grafting is not on live; build it (audit `91d3677` first), don't enable a flag.**
 2. Audit and accept or revise the V3 foundation decision and four-class proposal.
 3. Remove the fragment wallet/shop and repurpose Forge around existing grafts.
 4. Keep smoke coverage green while separating V3 behavior from quick-game Regicide.

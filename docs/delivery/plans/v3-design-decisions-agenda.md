@@ -144,14 +144,13 @@ immunity (♦ spell hits a ♦-immune enemy) — ratify + define the explicit vi
 
 *Unblocks Slice 6 · canon Q30/Q13/Q32/Q33.*
 
-Five-slot model set (Staff + Cloak/Ring/Hat/Amulet). Open: **slot themes** (placeholder:
-Cloak ≈ roads, Ring ≈ economy, Hat ≈ recruitment, Amulet ≈ activated); **which existing
-relic** (Split Seal, Doorstop, Crown of First Claim, Black Standard, Sainted Scalpel,
-Combat Cache, Warhorn, Hoard) lands in **which slot**; **how many relic opportunities** a
-run actually offers; **Fallen Heroes** placement/cost + legal staff↔ladder pairings +
-whether a swapped-out Staff is recoverable; **Sanctum's fate** (its "attune a spell" verb
-is dead — give it a new one-verb role that doesn't duplicate Forge/Camp/Lair/Shrine, or
-remove it).
+Five-slot model set (Staff + Cloak/Ring/Hat/Amulet). **Resolved 2026-06-28:** slot themes locked
+(Cloak = roads, Ring = economy, Hat = recruitment, Amulet = activated) and the relic roster authored as
+**[[../../canon/v3/systems/relics|`relic_v1_design_3.0`]]** (29 relics, slotted). Open: **how many relic
+opportunities** a run actually offers (per-run count); the held candidates + fragment-touching relics;
+**Fallen Heroes** placement/cost + legal staff↔ladder pairings + whether a swapped-out Staff is
+recoverable; **Sanctum's fate** (its "attune a spell" verb is dead — give it a new one-verb role that
+doesn't duplicate Forge/Camp/Lair/Shrine, or remove it).
 
 **Proposed:** a **small authored relic pool**, most runs see **one or two**; Sanctum is
 **removed** unless a non-duplicative verb is found; Fallen Heroes is a relatively early
