@@ -52,7 +52,8 @@ last_reviewed: 2026-06-28
    Hone/added-suit to **rank-or-suit replacement grafts** — including state, UI, tests, and saves.
    **Replacement grafting is not on live; build it (audit `91d3677` first), don't enable a flag.**
 2. Audit and accept or revise the V3 foundation decision and four-class proposal.
-3. Remove the fragment wallet/shop and repurpose Forge around existing grafts.
+3. Remove the fragment wallet/shop; the **Forge forges spell crystals** (graft rearranging is the
+   **Sanctum's** verb), and fragments become **agnostic, 50/50-drop**, placed via the bracelet.
 4. Keep smoke coverage green while separating V3 behavior from quick-game Regicide.
 
 Design exploration is not inferred from this implementation sequence. In particular,
@@ -62,11 +63,12 @@ and Landry and Gab reach consensus.
 ## Next
 
 1. Implement the four-class scaffold: a swappable **Staff** (passive enabler) + a kept linear ladder, and starting hands.
-2. Replace V2 relic slots and spell inventory with the V3 item model — **five equipment slots**
-   (Staff + Cloak/Ring/Hat/Amulet) and **four crystal spells** (fragment/half/full, forged at the Forge).
-3. Build the **five-continent** journey (Claim→Master) with the God of Luck overlay, the **opt-in
-   forge-to-Full ending**, two acquisition continents, boundary recap/resume, full-reset death, and
-   internal seeded fixtures.
+2. Replace V2 relic slots and spell inventory with the V3 item model — **5 equipment slots** (Staff +
+   **one relic per slot** Cloak/Ring/Hat/Amulet, from a bag) and the **gauntlet** of four crystal spells
+   (Fragment/Half castable; Full → V3.5), armed via the **bracelet** with agnostic fragments.
+3. Build the **V3.0 slice = Continent 1 + 2 only** (Claim + Shape), victory = clear C2, **no-comeback
+   death**, **no mid-run resume** (single-session); + internal seeded fixtures. *(The full five-continent
+   journey, God-of-Luck opt-in ending, and multi-session resume are **V3.5**.)*
 4. Update onboarding around the accepted journey and replacement graft.
 
 ## Later

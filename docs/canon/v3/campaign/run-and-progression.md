@@ -83,7 +83,8 @@ slow encounters or excessive content.
 
 ## Time-respect and death fairness
 
-- Continent boundaries provide strong closure, a deck/run recap, and a safe resume point.
+- Continent boundaries provide strong closure, a deck/run recap, and a safe resume point
+  **(V3.5 multi-session only; V3.0 runs are single-session — no mid-run resume, per "One continuous run" above)**.
 - A late death must be attributable to visible decisions and previously introduced
   pressure; the finale does not reveal a surprise *mechanical* rule that invalidates the prior
   journey. The God of Luck reveal is a **narrative** turn, and the endgame difficulty spike is
