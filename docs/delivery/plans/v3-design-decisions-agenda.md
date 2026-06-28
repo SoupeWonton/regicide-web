@@ -1,11 +1,18 @@
 ---
 kind: delivery
 edition: v3
-status: active
-last_reviewed: 2026-06-25
+status: superseded
+superseded_by: ../../decisions/
+last_reviewed: 2026-06-28
 ---
 
-# V3 design-decisions agenda — what to settle before building
+# V3 design-decisions agenda — what to settle before building *(SUPERSEDED)*
+
+> **⛔ SUPERSEDED 2026-06-28.** The decisions this agenda tracked are **closed** — see the dated records
+> in [`../../decisions/`](../../decisions/) (notably the 2026-06-27 sweep and the 2026-06-28 relic/fragment
+> records), now reflected in canon and in the sole plan [`v3.0-integration.md`](v3.0-integration.md).
+> This agenda referenced the superseded `v3-integration-plan.md` and claimed live flags that **do not
+> exist** (e.g. `EXPERIMENTS.replacementGrafts`). Kept only as history; do **not** plan from it.
 
 The [integration plan](v3-integration-plan.md) marks several slices ⛔ **blocked**: they
 need a design decision closed before code starts. This doc is the **agenda for the

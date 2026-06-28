@@ -60,4 +60,4 @@ visual is Gab's. **V3.0 ships the Fragment + Half castable rungs only.**
 accumulated fragments into the next crystal tier** (Fragment → Half; Full is V3.5). The **bracelet** is
 the between-encounter UI for *placing / equipping / sandbagging* fragments and previewing the next
 spell; the **Forge** is the landmark stop where the tier-up actually happens. Only **numbers** remain
-open: spell effect values, fragments-per-Half, and the drop rate.
+open: spell effect values and fragments-per-Half. *(The drop is **decided**: agnostic, 50/50 after each encounter.)*

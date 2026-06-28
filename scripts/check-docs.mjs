@@ -43,7 +43,8 @@ const frontMatterRoots = [
 for (const directory of frontMatterRoots) {
   for (const file of markdownFiles(directory)) {
     if (file.endsWith("README.md")) continue;
-    if (!readFileSync(file, "utf8").startsWith("---\n")) {
+    // Accept both LF and CRLF line endings (Windows checkouts convert via autocrlf).
+    if (!/^---\r?\n/.test(readFileSync(file, "utf8"))) {
       failures.push(`${file}: maintained document is missing front matter`);
     }
   }

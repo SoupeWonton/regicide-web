@@ -2,8 +2,8 @@
 kind: delivery
 edition: v3
 status: active
-last_verified: 2026-06-18
-verified_at_commit: 7334a4b
+last_verified: 2026-06-28
+verified_at_commit: 91d3677
 ---
 
 # V3 implementation state
@@ -12,10 +12,12 @@ This page records delivery facts only. It is not the design agenda: accepted but
 unimplemented behavior belongs here, while unexplored axes and proposals remain design
 work until Landry and Gab reach consensus.
 
-The repository is on `Design_V3`. The first redundant-exact-kill vertical slice is
-built with the wrong additive interpretation (`+1` or an added suit). Accepted V3
-instead replaces the chosen hand card's rank or suit with the defeated card's matching
-property. Most surrounding systems still carry V2 implementation and require migration.
+**Branch model:** `Design_V3` holds the **design-of-record** (docs only). **V3 is implemented on
+`v3-integration`, cut from the deployed live commit `91d3677`** — the baseline for this table. The live
+game grafts **additively** (`+1` / added suit); **replacement grafting is NOT built.** Accepted V3
+replaces the chosen hand card's rank or suit with the defeated card's matching property, and must be
+**built on the new card-state model** (it is not a flag-flip). Most surrounding systems still carry the
+older implementation and require migration.
 
 | Area | Intended V3 state | Delivery state |
 |---|---|---|
