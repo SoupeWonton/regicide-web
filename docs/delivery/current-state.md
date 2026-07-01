@@ -21,7 +21,7 @@ older implementation and require migration.
 
 | Area | Intended V3 state | Delivery state |
 |---|---|---|
-| Redundant exact kill | Replace one hand card's rank or suit with the defeated rank or suit | Additive slice built; replacement migration pending |
+| Redundant exact kill | Replace one hand card's rank or suit with the defeated rank or suit | Additive slice built; replacement migration pending. **Audited 2026-07-01** ([audit](live-code-audit-91d3677.md)): `transmute` (suit-replace) committed; `reforge` (value-replace) prototype preserved on `experiments/reforge-replenish` |
 | Generic fragment currency/shop | Removed (no spendable wallet) | Migration pending |
 | Spell-crystal fragments | **agnostic; 50/50 drop after each encounter (2026-06-28)**; armed between encounters on a **bracelet** (4 suit holes) to set the next encounter's spell | Not built |
 | Forge | **Spell forging only (2026-06-27)** — fragments → Half; graft rearrange moves to the **Sanctum** | Migration pending |

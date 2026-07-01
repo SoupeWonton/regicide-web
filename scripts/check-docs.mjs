@@ -8,7 +8,7 @@ function markdownFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
-      if ([".git", ".claude", ".codex", "node_modules"].includes(entry.name)) return [];
+      if ([".git", ".claude", ".codex", "node_modules", "graphify", "graphify-out"].includes(entry.name)) return [];
       return markdownFiles(path);
     }
     return /\.md$/i.test(entry.name) ? [path] : [];

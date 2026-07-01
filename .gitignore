@@ -3,3 +3,10 @@ dist
 .env
 *.local
 server/data
+
+# Local Obsidian vault app state (not content) — at any level
+.obsidian/
+
+# graphify knowledge-graph tool (own git repo) + its generated output
+graphify/
+graphify-out/

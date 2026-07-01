@@ -1,6 +1,7 @@
 # Delivery
 
 - [`current-state.md`](current-state.md) — concise code-versus-canon status.
+- [`live-code-audit-91d3677.md`](live-code-audit-91d3677.md) — symbol-by-symbol audit of the live branch (answers the integration plan's §Q #2) + the V3.0 fate map for all live content.
 - [`roadmap.md`](roadmap.md) — current work only.
 - [`migration-v2-to-v3.md`](migration-v2-to-v3.md) — detailed V2→V3 migration and rationale.
 - `plans/` — implementation plans.

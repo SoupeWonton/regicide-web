@@ -1,0 +1,6 @@
+# cloned graphify tool itself — not part of this project's code
+graphify/
+# run artifacts / dumps
+sim-results/
+tmp/
+graphify-out/
