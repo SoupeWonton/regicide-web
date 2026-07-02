@@ -14,7 +14,7 @@ acceptance gate passes (smoke ✅ + typecheck ✅ + slice smoke case + commit). 
 
 | # | Slice | Status | Commit | Notes |
 |---|---|---|---|---|
-| 1 | §F card-state model (`physicalId`, printed/effective, provenance, schema ver) | ☐ not started | — | first; blocks 2, 7, Sanctum, UI |
+| 1 | §F card-state model (`physicalId`, printed/effective, provenance, schema ver) | ☑ done | `fca06cb` | `cards.ts` registry; deck built from it (Card.id = physicalId); royal cap structural; legacy saves migrate |
 | 2 | Replacement grafts (rank-OR-suit, C1 too, royal cap 10; retire additive offer) | ☐ not started | — | reference: `experiments/reforge-replenish` |
 | 3 | C2 royal gates — 3/2/1 pyramid + crown; victory = King Gate | ☐ not started | — | |
 | 4 | Classes — A–5×4 start deck; Staff pick (16); C2 home rung; siege retired | ☐ not started | — | contracts → `contracts/staffs-and-ladders.md` |
@@ -31,6 +31,15 @@ collected for Landry's playtest.
 
 ## Session log
 
+- **2026-07-01 (b)** — **slice 1 landed** (`fca06cb`): §F card-state model.
+  New `server/campaign/cards.ts` — stable `physicalId` + immutable printed face +
+  ordered `GraftRecord` provenance; effective face derived. Ascending chapter deck now
+  builds FROM the registry (`Card.id = physicalId` — identity survives rebuilds); all
+  four recruit sites register identities; `schemaVersion: 2` + legacy-save migration in
+  `loadCampaign`; `physicalCards` client projection + join helpers. Compat shim keeps
+  `ownedCards`/`cardTokens` logical-id-keyed until slice 9. Smoke Test H added
+  (replacement identity, royal cap, provenance move, round-trip, migration). Gates:
+  smoke ✅ · vue-tsc ✅. **Next: slice 2 (replacement grafts).**
 - **2026-07-01** — build unblocked: audit landed, all §Q decisions closed
   ([decision](../decisions/2026-07-01-v3.0-build-decisions.md)), execution plan written,
   branch CLAUDE.md rewritten for build sessions. No code yet.
