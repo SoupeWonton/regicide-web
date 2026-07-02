@@ -16,7 +16,7 @@ acceptance gate passes (smoke ✅ + typecheck ✅ + slice smoke case + commit). 
 |---|---|---|---|---|
 | 1 | §F card-state model (`physicalId`, printed/effective, provenance, schema ver) | ☑ done | `fca06cb` | `cards.ts` registry; deck built from it (Card.id = physicalId); royal cap structural; legacy saves migrate |
 | 2 | Replacement grafts (rank-OR-suit, C1 too, royal cap 10; retire additive offer) | ☑ done | `adde34d` | kill trigger rewrites a held card to the slain face; no fragment (D3); tutorial guarded; additive stamps off the offer (deletion = slice 9) |
-| 3 | C2 royal gates — 3/2/1 pyramid + crown; victory = King Gate | ☐ not started | — | |
+| 3 | C2 royal gates — 3/2/1 pyramid + crown; victory = King Gate | ☑ done | `08816ad` | full-rank gates; royal kills graft @10, bodies banished; crown pick = won; ⚑ pins → [`contracts/royal-gates.md`](contracts/royal-gates.md) |
 | 4 | Classes — A–5×4 start deck; Staff pick (16); C2 home rung; siege retired | ☐ not started | — | contracts → `contracts/staffs-and-ladders.md` |
 | 5 | Forgiveness — opening ♦ guarantee; 4-part Camp (incl. block 10); auto seam reset | ☐ not started | — | |
 | 6 | Spells — gauntlet + bracelet; agnostic 50/50 fragments; consume-to-empty; Forge tier-up | ☐ not started | — | contracts → `contracts/spells.md`; frags/Half = 2 |
@@ -31,6 +31,15 @@ collected for Landry's playtest.
 
 ## Session log
 
+- **2026-07-02 (b)** — **slice 3 landed** (`08816ad`): C2 royal gates. Gates field the
+  full rank (4 royals, solo too); post-gate keep-decision (`royal_keep` PendingChoice:
+  J = leave 1, Q = 2 sequential keeps, K = crown); kept royals = §F-minted real deck
+  cards; C2 royal exact kills → replacement graft fixed at 10, bodies banished (no
+  discard fuel); crown pick → `campaign_won`. Spoils flow extracted to
+  `presentGateSpoils`, chains after intermediate keeps. ⚑ pins in
+  [`contracts/royal-gates.md`](contracts/royal-gates.md). Smoke Test I added; full-arc
+  Test D now drives the pyramid. Gates: smoke ✅ · vue-tsc ✅. **Next: slice 4
+  (classes — path + Staff).**
 - **2026-07-02** — **slice 2 landed** (`adde34d`): replacement grafts. The redundant
   exact-kill trigger carries the slain face (rank royal-capped at 10 in `pendingGraft`);
   `applyGraftSelect` rewrites one held card's rank OR suit as §F provenance (live hand
