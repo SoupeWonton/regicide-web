@@ -11,7 +11,7 @@ import { CAMPAIGN_SCHEMA_VERSION, registerLogicalCard, projectPhysicalCards } fr
 import { staffsOf, getStaff, getLadder, homeLadder } from './paths'
 import { buildMap } from './maps'
 import {
-  startEncounter, maxHandSize, setupChapterDeck, campRest, dealReplacementHand,
+  startEncounter, maxHandSize, setupChapterDeck, campRest, campBundle, dealReplacementHand,
   computeBoosts, RECRUIT_RANKS_BY_CHAPTER,
 } from './encounter'
 import { buildTutorialDeck, tutorialBeatProjection, tutorialDiscardHints } from './tutorial'
@@ -254,7 +254,9 @@ function resolveNode(c: CampaignState, nodeId: string, kind: NodeKind) {
     }
     case 'camp':
       c.phase = 'camp'
-      campRest(c)   // reset canon: rests reshuffle the deck and redraw hands
+      // V3 Camp (slice 5): the fixed four-part bundle; legacy full rest otherwise
+      if (EXPERIMENTS.ascendingDeck) campBundle(c)
+      else campRest(c)   // reset canon: rests reshuffle the deck and redraw hands
       clog(c, '🏕 The party makes camp. Plan, prepare, recover.')
       break
     case 'draft': offerDraft(c); break
@@ -1657,7 +1659,9 @@ export function applyContinueChapter(c: CampaignState, playerId: string, hostId:
 function finishChapterTransition(c: CampaignState) {
   // entering a new continent (ch1, ch4, ch7…): the mythic 3/continent cap resets
   if (((c.chapter - 1) % 3) === 0) c.mythicThisContinent = 0
-  setupChapterDeck(c)
+  // V3 seam reset (slice 5): a chapter/province boundary carries hands + tops
+  // up to 5 — the automatic, lighter cousin of the Camp bundle (Decision 4).
+  setupChapterDeck(c, { seam: true })
   c.phase = 'road'
   if (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2)
     clog(c, `🗺 CONTINENT 2 — Chapter ${c.chapter}: the province awaits. Your complete deck marches with you.`)

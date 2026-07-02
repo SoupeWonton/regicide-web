@@ -100,8 +100,11 @@ function buildCampaignDeck(c: CampaignState, shuffler: <T>(a: T[]) => T[]): Card
   return shuffler(cards)
 }
 
-/** Chapter start: fresh full deck, full hands. */
-export function setupChapterDeck(c: CampaignState) {
+/** Chapter start: fresh full deck, full hands. `seam: true` = the V3 province-
+ * seam reset (slice 5, Decision 4): hands CARRY through the rebuild (§F ids
+ * keep identity; jesters return to the pool), the rest reshuffles, and heroes
+ * top up to 5 — no block, no double (those are Camp's). */
+export function setupChapterDeck(c: CampaignState, opts?: { seam?: boolean }) {
   const { r, done } = rng(c)
 
   // ── Ascending-deck (Continent 1): start-small 20-card deck ────────────────
@@ -117,8 +120,22 @@ export function setupChapterDeck(c: CampaignState) {
     // its physicalId as Card.id, so identity survives deck rebuilds (the old
     // per-setup uid() ids did not) and rank/suit replacement (slice 2).
     syncCardRegistry(c)
+    // V3 seam reset (slice 5): hands carry through the rebuild by physical id.
+    const held: Card[][] = c.heroes.map(() => [])
+    if (opts?.seam && c.deck) {
+      for (let hi = 0; hi < c.heroes.length; hi++)
+        for (const cd of c.deck.hands[hi] ?? []) {
+          const pc = c.cards?.[cd.id]
+          if (pc) {
+            const f = effectiveFace(pc)
+            held[hi]!.push({ suit: f.suit as Suit, rank: f.rank as Card['rank'], id: pc.physicalId })
+          }
+        }
+    }
+    const heldIds = new Set(held.flat().map(cd => cd.id))
     const cards: Card[] = []
     for (const pc of Object.values(c.cards ?? {})) {
+      if (heldIds.has(pc.physicalId)) continue
       const f = effectiveFace(pc)
       cards.push({ suit: f.suit as Suit, rank: f.rank as Card['rank'], id: pc.physicalId })
     }
@@ -126,12 +143,32 @@ export function setupChapterDeck(c: CampaignState) {
     for (let i = 0; i < jesters; i++) cards.push({ suit: 'C', rank: 'Jo', id: uid() })
     const recruited = (c.ownedCards ?? []).length
     const tavern = r.shuffle(cards)
-    c.deck = { tavern, discard: [], hands: c.heroes.map(() => []) }
-    for (const hi of aliveIndices(c))
-      for (let i = 0; i < maxHandSize(c, hi); i++)
-        if (c.deck.tavern.length) c.deck.hands[hi]!.push(c.deck.tavern.pop()!)
+    c.deck = { tavern, discard: [], hands: held }
+    // seam = top up to 5 (keep the hand); a fresh run deals full hands
+    for (const hi of aliveIndices(c)) {
+      const target = opts?.seam ? Math.min(5, maxHandSize(c, hi)) : maxHandSize(c, hi)
+      while (c.deck.hands[hi]!.length < target && c.deck.tavern.length)
+        c.deck.hands[hi]!.push(c.deck.tavern.pop()!)
+    }
+    // V3 forgiveness (slice 5): every dealt hand holds ≥1 Diamond — no start
+    // can soft-lock the draw engine. Swap the lowest non-♦, non-jester hand
+    // card for the first ♦ in the Tavern when needed.
+    for (const hi of aliveIndices(c)) {
+      const hand = c.deck.hands[hi]!
+      if (hand.some(cd => cd.suit === 'D' && cd.rank !== 'Jo')) continue
+      const dIdx = c.deck.tavern.findIndex(cd => cd.suit === 'D' && cd.rank !== 'Jo')
+      const swappable = hand.map((cd, i) => ({ cd, i })).filter(x => x.cd.rank !== 'Jo')
+      if (dIdx < 0 || swappable.length === 0) continue
+      const low = swappable.reduce((a, b) => (cardValue(b.cd.rank) < cardValue(a.cd.rank) ? b : a))
+      const dia = c.deck.tavern[dIdx]!
+      c.deck.tavern[dIdx] = hand[low.i]!
+      hand[low.i] = dia
+      clog(c, `   ♦ Opening guarantee: ${c.heroes[hi]!.playerName}'s hand holds a Diamond.`)
+    }
     done()
-    clog(c, `🃏 Ascending Deck: ${cards.length - jesters} cards (A–5 + ${recruited} recruited). Hands drawn.`)
+    clog(c, opts?.seam
+      ? `♻ Province seam: the deck reshuffles — hands carry and top up to 5.`
+      : `🃏 Ascending Deck: ${cards.length - jesters + heldIds.size} cards (A–5 + ${recruited} recruited). Hands drawn.`)
     return
   }
 
@@ -160,6 +197,26 @@ export function setupChapterDeck(c: CampaignState) {
       if (c.deck.tavern.length) c.deck.hands[hi]!.push(c.deck.tavern.pop()!)
   done()
   clog(c, '🃏 The expedition deck is assembled and hands are drawn.')
+}
+
+/** V3 Camp (slice 5, Decision 4) — the fixed four-part rest: reshuffle the
+ * discard into the Tavern (hands KEPT) · draw up to 5 (top-up) · the next
+ * fight opens with a doubled first attack · and 10 starting block. The whole
+ * bundle fires (not a pick-one menu). Magnitudes are placeholders (plan §A). */
+export const CAMP_BLOCK = 10
+export const CAMP_HAND_TARGET = 5
+export function campBundle(c: CampaignState) {
+  const deck = c.deck
+  if (!deck) return
+  const { r, done } = rng(c)
+  deck.tavern = r.shuffle([...deck.tavern, ...deck.discard.splice(0)])
+  for (const hi of aliveIndices(c))
+    while (deck.hands[hi]!.length < Math.min(CAMP_HAND_TARGET, maxHandSize(c, hi)) && deck.tavern.length)
+      deck.hands[hi]!.push(deck.tavern.pop()!)
+  done()
+  c.campDoubleNext = true
+  c.campBlockNext = CAMP_BLOCK
+  clog(c, `⛺ Camp: the discard reshuffles in · hands top up to ${CAMP_HAND_TARGET} · the next fight opens with ${CAMP_BLOCK} block and a doubled first strike.`)
 }
 
 /** Camp/interlude rest: shuffle discard + hands into the Tavern, redraw full. */
@@ -475,6 +532,12 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
   s.hands = deck.hands
   c.deck = null   // live state belongs to the encounter until it ends
 
+  // V3 Camp (slice 5): the rested party opens this fight braced + doubled.
+  if (EXPERIMENTS.ascendingDeck && !c.tutorial) {
+    if (c.campBlockNext) { s.flags['campBlock'] = c.campBlockNext; c.campBlockNext = undefined }
+    if (c.campDoubleNext) { s.flags['campDouble'] = true; c.campDoubleNext = undefined }
+  }
+
   // Shrine blessing: hand cap +1 for this encounter, each hero draws 1 now
   if (s.flags['shrineBlessing']) {
     for (const hi of heroesAlive) drawForHero(c, s, hi, 1)
@@ -634,6 +697,16 @@ function revealNextEnemy(c: CampaignState, s: EncounterState) {
     s.flags['bastionCarry'] = 0
     clog(c, `   🏰 Bastion: ${bastionCarry} shield carries forward.`)
     ev(s, 'proc', `🏰 Bastion +${bastionCarry} shield`, 'gold')
+  }
+
+  // V3 Camp (slice 5): the fight opens with the Camp's starting block —
+  // first enemy only (the flag is consumed here).
+  const campBlock = (s.flags['campBlock'] as number) ?? 0
+  if (EXPERIMENTS.ascendingDeck && campBlock > 0) {
+    enemy.shield += campBlock
+    s.flags['campBlock'] = 0
+    clog(c, `   ⛺ Rested and braced: ${campBlock} starting block.`)
+    ev(s, 'proc', `⛺ +${campBlock} block`, 'gold')
   }
 
   clog(c, `⚔️ New enemy: ${cardLabel(card)} — ${enemy.hp} HP / ${enemy.attack} ATK${s.flags['enemy.guard'] ? ' / Guard 3' : ''}`)
@@ -1047,6 +1120,13 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   }
   if (s.flags[flagKey('keenEdge', pi)]) { damage *= 2; s.flags[flagKey('keenEdge', pi)] = false; clog(c, `   ✨ Keen Edge: damage doubled → ${damage}.`); ev(s, 'proc', `✨ Keen Edge ×2 → ${damage}`, 'gold', true) }
   if (s.flags[flagKey('crownbreaker', pi)]) { damage *= 3; s.flags[flagKey('crownbreaker', pi)] = false; clog(c, `   👑 Crownbreaker: damage tripled → ${damage}.`); ev(s, 'proc', `👑 Crownbreaker ×3 → ${damage}`, 'gold', true) }
+  // V3 Camp (slice 5): the rested party's FIRST attack of the fight deals double.
+  if (tok && s.flags['campDouble'] && damage > 0) {
+    damage *= 2
+    s.flags['campDouble'] = false
+    clog(c, `   ⛺ Rested: first strike doubled → ${damage}.`)
+    ev(s, 'proc', `⛺ First strike ×2 → ${damage}`, 'gold', true)
+  }
 
   if (activeSuits.has('S')) resolveSpades(c, s, pi, base, plateB)
   if (activeSuits.has('H')) resolveHearts(c, s, pi, base, mendB)

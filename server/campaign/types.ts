@@ -374,6 +374,10 @@ export interface CampaignState {
 
   nextStarterIndex: number | null // Tower / Brace Command
   shrineBlessing: boolean         // +1 hand size next encounter
+  // V3 Camp bundle (slice 5, Decision 4): armed at a Camp visit, consumed by
+  // the next fight — doubled first attack + starting block.
+  campDoubleNext?: boolean
+  campBlockNext?: number
   foresightNext?: boolean         // Sanctum Foresight rite: reveal the next encounter's enemy lineup
 
   pendingChoice: PendingChoice | null

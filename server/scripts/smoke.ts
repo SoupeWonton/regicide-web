@@ -1277,6 +1277,71 @@ console.log('Test J: classes — Staff pick, identical start, Staff effects, C2 
   EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
+// ── Test K: V3 §5 — forgiveness: opening ♦, Camp bundle, seam reset ──────────
+console.log('Test K: forgiveness — opening Diamond, four-part Camp, province-seam reset')
+{
+  EXPERIMENTS.ascendingDeck = true
+  EXPERIMENTS.provinceMode = false
+  const { campBundle, startEncounter, CAMP_BLOCK } = await import('../campaign/encounter')
+
+  // (a) opening guarantee: every dealt hand holds ≥1 Diamond (several seeds)
+  for (const seed of ['fg-1', 'fg-2', 'fg-3', 'fg-4']) {
+    const cf = createCampaign([{ id: P1, name: 'Gab' }], 1, seed, kingdom).campaign!
+    applyClassPick(cf, P1, 'sentinel', 'footwork')
+    const hasD = (cf.deck?.hands[0] ?? []).some(cd => cd.suit === 'D' && cd.rank !== 'Jo')
+    assert(hasD, `opening hand holds a Diamond (seed ${seed})`)
+  }
+  ok('forgiveness: opening hand always contains ≥1 Diamond')
+
+  // (b) Camp bundle: reshuffle-in + top-up-5 + armed double/block
+  const c = createCampaign([{ id: P1, name: 'Gab' }], 1, 'fg-camp', kingdom).campaign!
+  applyClassPick(c, P1, 'sentinel', 'footwork')
+  const deck = c.deck!
+  // simulate a worn state: 3 cards in hand, some discard
+  deck.tavern.push(...deck.hands[0]!.splice(3))
+  deck.discard.push(deck.tavern.pop()!, deck.tavern.pop()!)
+  campBundle(c)
+  assert(deck.discard.length === 0, 'Camp: the discard reshuffles into the Tavern')
+  assert(deck.hands[0]!.length === 5, `Camp: hand topped up to 5 (got ${deck.hands[0]!.length})`)
+  assert(c.campDoubleNext === true && c.campBlockNext === CAMP_BLOCK, 'Camp: double + block armed for the next fight')
+  // the next fight consumes the bundle: first enemy opens with block, first strike doubles
+  const node = c.map!.nodes.find(n => n.kind === 'skirmish' || n.kind === 'veteran')!
+  startEncounter(c, node.id, node.kind as 'skirmish' | 'veteran')
+  c.phase = 'encounter'
+  const s = c.encounter!
+  while (s.turnPhase === 'setup') applySetupReorder(c, s.setupPeek!.playerId, s.setupPeek!.cards.map((_, i) => i))
+  assert(c.campBlockNext === undefined && c.campDoubleNext === undefined, 'the bundle is consumed by the fight')
+  assert((s.currentEnemy?.shield ?? 0) >= CAMP_BLOCK, `first enemy opens with ${CAMP_BLOCK} block (got ${s.currentEnemy?.shield})`)
+  const en = s.currentEnemy!
+  en.hp = 50
+  s.turnPhase = 'play'
+  s.currentPlayerIndex = 0
+  s.hands[0] = [{ suit: 'H', rank: '3', id: 'fg-h3' }]
+  const before = en.hp
+  const rp = applyEncounterPlay(c, P1, [0])
+  assert(!rp.error, `camp-double play: ${rp.error}`)
+  assert(before - en.hp === 6, `first strike doubled: 3♥ deals 6 (dealt ${before - en.hp})`)
+  ok('forgiveness: Camp four-part bundle — reshuffle · top-up 5 · 10 block · doubled first strike')
+
+  // (c) seam reset: hands CARRY by physical id + top up to 5; no block/double
+  const cs = createCampaign([{ id: P1, name: 'Gab' }], 1, 'fg-seam', kingdom).campaign!
+  applyClassPick(cs, P1, 'sentinel', 'footwork')
+  // shrink the hand to 2 so the seam top-up is visible
+  cs.deck!.tavern.push(...cs.deck!.hands[0]!.splice(2))
+  const keptIds = cs.deck!.hands[0]!.map(cd => cd.id)
+  cs.phase = 'chapter_complete'
+  step(cs, P1, () => applyContinueChapter(cs, P1, P1), 'seam transition')
+  assert(cs.chapter === 2, `seam advanced the chapter (got ${cs.chapter})`)
+  const seamHand = cs.deck!.hands[0]!
+  assert(keptIds.every(id => seamHand.some(cd => cd.id === id)), 'hands CARRY through the seam (§F physical ids)')
+  assert(seamHand.length === 5, `seam tops the hand up to 5 (got ${seamHand.length})`)
+  assert(cs.campDoubleNext === undefined && cs.campBlockNext === undefined, 'seam reset arms NO block, NO double (Camp only)')
+  ok('forgiveness: automatic province-seam reset — hands carry, top up to 5, nothing else')
+
+  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
+  EXPERIMENTS.provinceMode = LIVE_PROVINCE
+}
+
 // Test T1 — onboarding tutorial launches a scripted Sentinel encounter
 {
   const wasAsc = EXPERIMENTS.ascendingDeck
