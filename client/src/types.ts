@@ -204,13 +204,11 @@ export interface ClientCampaignState {
   pendingChoice: PendingChoiceView | null
   rewardDraw: { seq: number; options: { id: string; label: string; detail?: string }[]; winnerId: string; tie: boolean } | null
   deathVote: { deadHeroName: string; options: string[]; votes: Record<string, string>; myVote: string | null; isBoss: boolean } | null
-  kingdom: { unlockedChapters: number[]; unlockedClasses: string[]; specializationsUnlocked: boolean }
+  kingdom: { unlockedChapters: number[]; unlockedClasses: string[]; specializationsUnlocked: boolean; pathsUnlocked?: boolean }
   log: string[]
   // ascending-deck: tokens stamped on cards, keyed by logical id (`${suit}${rank}`)
   cardTokens?: Record<string, ClientToken[]>
-  // ascending-deck: unspent forge budget
-  tokenBudget?: number
-  // fragment track: token fragments held (2 → apply a C-tier token on the road)
+  // V3 §6: the agnostic fragment pool (placed via the bracelet)
   tokenFragments?: number
   // ascending-deck mode active (drives token UI: class-select stamps, card badges)
   ascendingDeck?: boolean

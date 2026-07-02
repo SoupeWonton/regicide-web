@@ -13,13 +13,8 @@ import { cardValue } from '../deck'
 import { EXPERIMENTS } from '../campaign/experiments'
 import type { CampaignState } from '../campaign/types'
 
-// Tests 1-8 assert CANON rules regardless of the live experiment toggles;
-// Test 9 covers province mode; Tests A-E cover ascending-deck mode. Both flags
-// are pinned off here and restored per-test so canon tests are flag-agnostic.
-const LIVE_PROVINCE = EXPERIMENTS.provinceMode
-EXPERIMENTS.provinceMode = false
-const LIVE_ASCENDING = EXPERIMENTS.ascendingDeck
-EXPERIMENTS.ascendingDeck = false
+// V3.0 cutover (slice 9): ascendingDeck IS the game — the provinceMode flag
+// and the non-ascending branches are deleted. Every test runs the V3 rules.
 
 let failures = 0
 function assert(cond: unknown, msg: string) {
@@ -287,8 +282,9 @@ console.log('Test 7: deck persistence (attrition canon)')
   drive(c, { cheatKill: true, stopAt: ['encounter'], budget: 20 })
   assert(c.phase === 'encounter' && c.deck === null, 'encounter adopts the deck (campaign.deck is null while fighting)')
   const s1 = c.encounter!
+  // V3: the start deck is 20 cards + 1 jester (duo) — most must carry over
   const inFight = [...s1.tavern, ...s1.hands.flat()].filter(card => idsBefore.has(card.id)).length
-  assert(inFight > 30, `encounter uses the same physical cards (${inFight} matched)`)
+  assert(inFight > 14, `encounter uses the same physical cards (${inFight} matched)`)
 
   // finish this encounter, then reach the next one without passing a camp
   drive(c, { cheatKill: true, stopAt: ['road'], budget: 60 })
@@ -298,15 +294,15 @@ console.log('Test 7: deck persistence (attrition canon)')
   const sameHands = s2.hands.every((h, i) => h.length === handsAfterFight[i])
   assert(sameHands, 'hands carry over between road encounters (no redraw)')
   const carried = [...s2.tavern, ...s2.hands.flat()].filter(card => idsBefore.has(card.id)).length
-  assert(carried > 20, `second encounter still uses the chapter deck (${carried} original cards present)`)
+  assert(carried > 8, `second encounter still uses the chapter deck (${carried} original cards present)`)
 
-  // drive to a camp and confirm the rest redraws everyone to full
+  // drive to a camp: the V3 bundle shuffles the discard in and tops hands to 5
   drive(c, { cheatKill: true, stopAt: ['camp'], budget: 400 })
   if (c.phase === 'camp') {
-    const full = c.deck!.hands.every((h, i) => !c.heroes[i]!.alive || h.length === 6) // 2 players → hand size 7? see PLAYER_SETUP
-    assert(c.deck!.discard.length === 0, 'camp rest shuffles the discard away')
-    assert(c.deck!.hands.filter((_, i) => c.heroes[i]!.alive).every(h => h.length === 7), 'camp rest redraws hands to full (7 for 2 players)')
-    void full
+    assert(c.deck!.discard.length === 0, 'Camp reshuffles the discard into the Tavern')
+    assert(c.deck!.hands.filter((_, i) => c.heroes[i]!.alive).every(h => h.length >= 5) || c.deck!.tavern.length === 0,
+      'Camp tops every hand up to 5 (Decision 6)')
+    assert(c.campDoubleNext === true && (c.campBlockNext ?? 0) > 0, 'Camp arms the double + block bundle')
   } else {
     assert(false, `expected to reach a camp (got ${c.phase})`)
   }
@@ -367,68 +363,15 @@ console.log('Test 8: player-count scaling')
   }
   d.phase = 'road'
   step(d, 'host', () => applyRoadChoose(d, P1, 'm1', P1), 'duo market')
-  assert((d.pendingChoice?.options.length ?? 0) === 4, `duo market shows 4 options (got ${d.pendingChoice?.options.length})`)
+  // V3: the Caravan offers 2 pay-from-hand relics + the skip
+  assert((d.pendingChoice?.options.length ?? 0) === 3, `duo Caravan shows 2 relics + skip (got ${d.pendingChoice?.options.length})`)
 }
 
-// ── Test 9: province mode (Gates → Courtyard → Throne) ──────────────────────
-console.log('Test 9: province mode')
-{
-  EXPERIMENTS.provinceMode = true
-  // structural asserts on a single representative seed
-  const c = createCampaign(players, 1, 'prov-probe-2', kingdom).campaign!
-  applyClassPick(c, P1, 'sentinel')
-  applyClassPick(c, P2, 'surgeon')
-  const bosses = c.map!.nodes.filter(n => n.kind === 'boss')
-  assert(bosses.length === 3, `province map has 3 rank gates (got ${bosses.length})`)
-  assert(c.map!.variant.startsWith('prov'), `province map variant (${c.map!.variant})`)
-
-  // curation: suited classes cut their lowest own-suit cards at deck build
-  const all = [...c.deck!.tavern, ...c.deck!.hands.flat()]
-  const spades = all.filter(card => card.suit === 'S' && card.rank !== 'Jo').length
-  assert(spades < 10, `sentinel curated spades (${spades}/10 remain)`)
-
-  // Reachability, RNG-robust: province cheat-kill runs can legitimately die at a
-  // gate (no rests), and any economy change shifts the deterministic stream — so
-  // assert the Throne is winnable across a seed sample rather than pinning one
-  // knife's-edge seed. Most should win; we require a healthy majority.
-  let wins = 0
-  const SAMPLE = 12
-  for (let i = 1; i <= SAMPLE; i++) {
-    const r = createCampaign(players, 1, `prov-probe-${i}`, kingdom).campaign!
-    applyClassPick(r, P1, 'sentinel')
-    applyClassPick(r, P2, 'surgeon')
-    if (drive(r, { cheatKill: true, budget: 4000 }) === 'campaign_won' && r.chapter === 1) wins++
-  }
-  // floor only catches "throne became unreachable"; the win-rate itself is a
-  // balance signal owned by the sims, surfaced here for eyeballing.
-  assert(wins >= 3, `province throne reachable across seeds (${wins}/${SAMPLE} won)`)
-  ok(`province: 3 rank gates, curation, throne win (${wins}/${SAMPLE} seeds)`)
-
-  // dead is dead (canon 2026-06-11): any province death is a full run reset
-  const d = createCampaign(players, 1, 'prov-wind', kingdom).campaign!
-  applyClassPick(d, P1, 'sentinel')
-  applyClassPick(d, P2, 'surgeon')
-  drive(d, { cheatKill: true, stopAt: ['encounter'], budget: 50 })
-  const s = d.encounter!
-  while (s.turnPhase === 'setup') applySetupReorder(d, s.setupPeek!.playerId, s.setupPeek!.cards.map((_, i) => i))
-  const pi = s.currentPlayerIndex
-  s.hands[pi] = [{ suit: 'C', rank: '2', id: 'doom-p' }]
-  s.currentEnemy!.attack = 99
-  s.currentEnemy!.shield = 0
-  const pid = d.heroes[pi]!.playerId
-  const r = applyEncounterYield(d, pid)
-  assert(!r.error, `province doom yield: ${r.error}`)
-  assert(!d.heroes[pi]!.alive, 'dead is dead: the hero stays down')
-  assert(d.phase === 'campaign_lost', `road death wipes the run (got ${d.phase})`)
-  ok('province: dead is dead — road death ends the run')
-  EXPERIMENTS.provinceMode = LIVE_PROVINCE
-}
+// (Test 9 — province mode — DELETED at the V3.0 cutover with the provinceMode flag.)
 
 // ── Test A: ascending-deck flag-on — overdraw-and-select (Step 1) ───────────
 console.log('Test A: ascending-deck flag-on — overdraw-and-select')
 {
-  EXPERIMENTS.ascendingDeck = true
-  EXPERIMENTS.provinceMode = false
 
   const c = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-step1', kingdom).campaign!
   applyClassPick(c, P1, 'sentinel')
@@ -471,15 +414,11 @@ console.log('Test A: ascending-deck flag-on — overdraw-and-select')
   assert(loaded!.chapter === c.chapter, 'chapter preserved across save')
   ok('ascending-deck: save/load round-trip (optional fields guard)')
 
-  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
-  EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
 // ── Test A2: replacement graft (V3 §1) — redundant exact-kill rewrites a card ─
 console.log('Test A2: replacement graft — redundant exact-kill rewrites a held card')
 {
-  EXPERIMENTS.ascendingDeck = true
-  EXPERIMENTS.provinceMode = false
   const { physicalByPrinted, physicalById, effectiveFace } = await import('../campaign/cards')
 
   const c = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-graft', kingdom).campaign!
@@ -540,15 +479,11 @@ console.log('Test A2: replacement graft — redundant exact-kill rewrites a held
   assert(s.pendingGraft === undefined, 'pendingGraft cleared after selection')
   ok('replacement graft: exact kill on an owned card rewrites a held card (suit → ♦)')
 
-  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
-  EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
 // ── Test B: ascending-deck flag-on — number-enemies + recruit (Step 2) ───────
 console.log('Test B: ascending-deck flag-on — number-enemies + recruit')
 {
-  EXPERIMENTS.ascendingDeck = true
-  EXPERIMENTS.provinceMode = false
 
   // build a fake recruit encounter directly and drive it
   const { startEncounter } = await import('../campaign/encounter')
@@ -609,15 +544,11 @@ console.log('Test B: ascending-deck flag-on — number-enemies + recruit')
     ok('ascending-deck Step 2: recruit encounter active (no kill needed for this test)')
   }
 
-  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
-  EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
 // ── Test B2: ascending-deck flag-on — drafts (Step 6) ───────────────────────
 console.log('Test B2: ascending-deck flag-on — drafts')
 {
-  EXPERIMENTS.ascendingDeck = true
-  EXPERIMENTS.provinceMode = false
 
   const cd = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-step6', kingdom).campaign!
   applyClassPick(cd, P1, 'sentinel')
@@ -669,15 +600,11 @@ console.log('Test B2: ascending-deck flag-on — drafts')
   assert((tavernAfter + handAfter) === (tavernBefore + handBefore + 1), 'card conservation: +1 recruited, rest moved hand↔tavern')
   ok(`ascending-deck Step 6: pick recruited ${recruited} + tempo drew ${handAfter - handBefore} (deck grows, no leaks)`)
 
-  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
-  EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
 // ── Test C: ascending-deck flag-on — start-small deck + backfill (Step 3) ───
 console.log('Test C: ascending-deck flag-on — start-small deck + backfill')
 {
-  EXPERIMENTS.ascendingDeck = true
-  EXPERIMENTS.provinceMode = false
 
   const { backfillAct } = await import('../campaign/campaign')
 
@@ -725,15 +652,11 @@ console.log('Test C: ascending-deck flag-on — start-small deck + backfill')
   assert(sixAndSeven.length === 2, `setup injects owned cards into deck (got ${sixAndSeven.length}: ${sixAndSeven.map(cd => cd.rank+cd.suit).join(',')})`)
   ok(`setupChapterDeck injects ownedCards (C6 + D7 present in deck)`)
 
-  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
-  EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
 // ── Test D: ascending-deck flag-on — full arc ch1→ch2→ch3→Council→ch4→win ───
 console.log('Test D: ascending-deck flag-on — full arc (ch1 → ch2 → ch3 → Council of Tens → ch4 province → win)')
 {
-  EXPERIMENTS.ascendingDeck = true
-  EXPERIMENTS.provinceMode = false
 
   const { backfillAct: bfAct, continentOf: cOf } = await import('../campaign/campaign')
 
@@ -823,15 +746,11 @@ console.log('Test D: ascending-deck flag-on — full arc (ch1 → ch2 → ch3 �
   assert(arc.chapter === 6, `won at the ch6 King Gate (got ch${arc.chapter})`)
   ok(`ascending-deck: full arc ch1→ch2→ch3→Council→C2 provinces→CROWN WINS! (${arcEnd})`)
 
-  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
-  EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
 // ── Test E: ascending-deck flag-on — tokens (Step 5) ─────────────────────────
 console.log('Test E: ascending-deck flag-on — tokens (signatures, spend/hold, forge)')
 {
-  EXPERIMENTS.ascendingDeck = true
-  EXPERIMENTS.provinceMode = false
   const { spendDelta, holdDelta, stampToken, MAX_TOKENS_PER_CARD } = await import('../campaign/tokens')
 
   const c = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-step5', kingdom).campaign!
@@ -877,8 +796,6 @@ console.log('Test E: ascending-deck flag-on — tokens (signatures, spend/hold, 
     ok('ascending-deck: +1 spend token raised damage by exactly 1')
   }
 
-  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
-  EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
 // ── Test F: ascending-deck — item economy (relics/spells pools) ──────────────
@@ -902,85 +819,19 @@ console.log('Test F: ascending-deck — item economy (retired relics, unlock poo
   ok(`item economy: pools compose (${allR.length} relics, ${allS.length} spells; start ${STARTING_RELICS.length}/${STARTING_SPELLS.length})`)
 
   // a fresh run snapshots the Kingdom's unlocked pools
-  EXPERIMENTS.ascendingDeck = true
-  EXPERIMENTS.provinceMode = false
   const c = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-items', kingdom).campaign!
   assert((c.unlockedRelics ?? []).length === (kingdom.unlockedRelics ?? []).length, 'run snapshots the Kingdom relic pool')
   assert((c.unlockedSpells ?? []).length === (kingdom.unlockedSpells ?? []).length, 'run snapshots the Kingdom spell pool')
   assert((c.unlockedRelics ?? []).every(id => RELIC_UNLOCK_ORDER.includes(id) || STARTING_RELICS.includes(id)), 'snapshot relics are real pool ids')
   ok('item economy: run snapshots the unlocked pools')
 
-  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
-  EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
-// ── Test G: ascending-deck — Sanctum Rites (Phase 4) ─────────────────────────
-console.log('Test G: ascending-deck — Sanctum Rites (Foresight / Blessing / Cleanse; no Exile)')
-{
-  EXPERIMENTS.ascendingDeck = true
-  EXPERIMENTS.provinceMode = false
-  const { stampToken } = await import('../campaign/tokens')
-
-  // helper: stage a Sanctum rite menu and pick a rite (solo → resolves immediately)
-  const pickRite = (c: CampaignState, riteId: string) => {
-    c.phase = 'landmark'
-    c.pendingChoice = { kind: 'landmark_reward', forPlayerId: null, prompt: '✨ Sanctum', options: [{ id: riteId, label: riteId }] }
-    return applyChoice(c, P1, riteId, P1)
-  }
-
-  // (a) Blessing rite → shrineBlessing armed, back on the road
-  const cB = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-sanctum-b', kingdom).campaign!
-  applyClassPick(cB, P1, 'sentinel')
-  assert(!cB.shrineBlessing, 'no blessing before the rite')
-  assert(!pickRite(cB, 'sanctum:blessing').error, 'blessing rite resolves')
-  assert(cB.shrineBlessing && cB.phase === 'road', 'Blessing rite arms shrineBlessing + returns to road')
-  ok('Sanctum: Blessing rite arms the next-fight boon')
-
-  // (b) Foresight rite → flag armed, then revealed in the next encounter + projected
-  const cF = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-sanctum-f', kingdom).campaign!
-  applyClassPick(cF, P1, 'sentinel')
-  assert(!pickRite(cF, 'sanctum:foresight').error, 'foresight rite resolves')
-  assert(cF.foresightNext === true, 'Foresight rite arms foresightNext')
-  drive(cF, { cheatKill: false, stopAt: ['encounter'], budget: 80 })
-  assert(cF.phase === 'encounter', `Foresight: reached an encounter (${cF.phase})`)
-  assert(cF.encounter!.flags['foreseen'] === true, 'Foresight: enemy lineup laid bare this fight')
-  assert(cF.foresightNext === false, 'Foresight: flag consumed at the encounter')
-  const proj = buildClientCampaign(cF, P1, P1, kingdom)
-  assert(Array.isArray(proj.encounter?.foreseen), 'Foresight: upcoming lineup projected to the client')
-  ok('Sanctum: Foresight rite reveals the next fight (server flag + client projection)')
-
-  // (c) Exile is GONE — the Sanctum never offers a card-removal rite (the deck only grows)
-  const cE = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-sanctum-e', kingdom).campaign!
-  applyClassPick(cE, P1, 'sentinel')
-  cE.phase = 'landmark'
-  // drive offerSanctum indirectly by exercising the rite handler surface: the menu
-  // must contain no exile option, and the (removed) rite id must be a no-op.
-  const rExile = pickRite(cE, 'sanctum:exile')   // unknown rite id → falls through to road
-  assert(!rExile.error && cE.phase === 'road' && cE.pendingChoice === null, 'no Exile rite: unknown id is an inert no-op')
-  assert(cE.exiledCards.length === 0, 'no card was exiled (deck only grows)')
-  ok('Sanctum: Exile rite removed — no mechanic thins the deck')
-
-  // (d) Cleanse rite → lifts a curse (folds the Shrine in)
-  const cC = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-sanctum-c', kingdom).campaign!
-  applyClassPick(cC, P1, 'sentinel')
-  stampToken(cC, 'D2', { defId: 'undercut' })   // a −1 curse on 2♦
-  assert((cC.cardTokens?.['D2'] ?? []).length === 1, 'curse stamped before cleanse')
-  assert(!pickRite(cC, 'sanctum:cleanse').error, 'cleanse rite resolves')
-  const cpc = cC.pendingChoice!
-  assert(cpc.options.some(o => o.id === 'shrine:cleanse:D2'), 'Cleanse offers the cursed 2♦')
-  assert(!applyChoice(cC, P1, 'shrine:cleanse:D2', P1).error, 'cleanse pick resolves')
-  assert((cC.cardTokens?.['D2'] ?? []).length === 0, 'Cleanse: the curse is lifted')
-  ok('Sanctum: Cleanse rite lifts a curse (Shrine folded in)')
-
-  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
-  EXPERIMENTS.provinceMode = LIVE_PROVINCE
-}
+// (Test G — Sanctum rites / curse Cleanse — DELETED at the V3.0 cutover with those systems.)
 
 // ── Test H: §F card-state model (V3.0 slice 1) ───────────────────────────────
 console.log('Test H: §F card-state — physical ids, printed vs effective, provenance, schema')
 {
-  EXPERIMENTS.ascendingDeck = true
-  EXPERIMENTS.provinceMode = false
   const { CAMPAIGN_SCHEMA_VERSION, applyGraft, moveGraft, effectiveFace, physicalById, physicalByLogical, migrateCampaign, projectPhysicalCards } = await import('../campaign/cards')
 
   const c = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-cardstate', kingdom).campaign!
@@ -1057,15 +908,11 @@ console.log('Test H: §F card-state — physical ids, printed vs effective, prov
   assert(!!view.physicalCards?.[s2!.physicalId], 'client state carries the physicalCards map')
   ok('§F: client projection — printed vs effective display data')
 
-  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
-  EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
 // ── Test I: V3 §3 — C2 royal gates (full rank, royal graft cap 10, keep 3/2/1, crown) ─
 console.log('Test I: royal gates — 4-royal gates, royal graft (cap 10), keep-decision, crown victory')
 {
-  EXPERIMENTS.ascendingDeck = true
-  EXPERIMENTS.provinceMode = false
   const { physicalByPrinted, physicalById, effectiveFace } = await import('../campaign/cards')
   const { startEncounter } = await import('../campaign/encounter')
 
@@ -1196,15 +1043,11 @@ console.log('Test I: royal gates — 4-royal gates, royal graft (cap 10), keep-d
   assert(cK.phase === 'campaign_won', `the ch6 King Gate + crown = V3.0 victory (got ${cK.phase})`)
   ok('royal gates: King Gate crown — keep 1 of 4 → campaign won')
 
-  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
-  EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
 // ── Test J: V3 §2 — classes: Staff pick, Staff effects, C2 home rung ─────────
 console.log('Test J: classes — Staff pick, identical start, Staff effects, C2 home rung')
 {
-  EXPERIMENTS.ascendingDeck = true
-  EXPERIMENTS.provinceMode = false
   const { applyStaffUse } = await import('../campaign/encounter')
   const { staffsOf } = await import('../campaign/paths')
   const { physicalByPrinted: pbp } = await import('../campaign/cards')
@@ -1282,15 +1125,11 @@ console.log('Test J: classes — Staff pick, identical start, Staff effects, C2 
   assert(!se.tavern.some(cd => cd.suit === 'D' && cd.rank === '6'), 'the recruit did not slide under the Tavern')
   ok('classes: Field Promotion — recruits enter the hand')
 
-  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
-  EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
 // ── Test K: V3 §5 — forgiveness: opening ♦, Camp bundle, seam reset ──────────
 console.log('Test K: forgiveness — opening Diamond, four-part Camp, province-seam reset')
 {
-  EXPERIMENTS.ascendingDeck = true
-  EXPERIMENTS.provinceMode = false
   const { campBundle, startEncounter, CAMP_BLOCK } = await import('../campaign/encounter')
 
   // (a) opening guarantee: every dealt hand holds ≥1 Diamond (several seeds)
@@ -1347,15 +1186,11 @@ console.log('Test K: forgiveness — opening Diamond, four-part Camp, province-s
   assert(cs.campDoubleNext === undefined && cs.campBlockNext === undefined, 'seam reset arms NO block, NO double (Camp only)')
   ok('forgiveness: automatic province-seam reset — hands carry, top up to 5, nothing else')
 
-  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
-  EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
 // ── Test L: V3 §6 — spells: fragments, bracelet, Forge tier-up, consume-to-empty ─
 console.log('Test L: spells — fragment drop, bracelet, Forge tier-up, gauntlet cast')
 {
-  EXPERIMENTS.ascendingDeck = true
-  EXPERIMENTS.provinceMode = false
   const { applyBraceletPlace } = await import('../campaign/campaign')
   const { gauntletOf } = await import('../campaign/spells')
 
@@ -1405,15 +1240,11 @@ console.log('Test L: spells — fragment drop, bracelet, Forge tier-up, gauntlet
   assert((cd.tokenFragments ?? 0) > fr0, `won encounters bank fragments via the 50/50 roll (got ${cd.tokenFragments})`)
   ok('spells: agnostic fragments drop after won encounters')
 
-  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
-  EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
 // ── Test M: V3 §7 — relics: bag + 4 named slots, free swaps, acquisition, effects ─
 console.log('Test M: relics — bag + slots, free swaps, Caravan pay-from-hand, activations')
 {
-  EXPERIMENTS.ascendingDeck = true
-  EXPERIMENTS.provinceMode = false
   const { applyEquipRelic } = await import('../campaign/campaign')
   const { relicBagOf, equipmentOf } = await import('../campaign/relics')
   const { applyActivateRelic } = await import('../campaign/encounter')
@@ -1476,15 +1307,11 @@ console.log('Test M: relics — bag + slots, free swaps, Caravan pay-from-hand, 
   assert(before - en.hp === 6, `Bloodlust: 3♥ deals 3+3 (dealt ${before - en.hp})`)
   ok('relics: combat lock + Amulet activation (Bloodlust +3)')
 
-  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
-  EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
 // ── Test N: V3 §8 — landmarks: Hunt, Sanctum Rearrange, Shrine Consecrate, Fallen Heroes ─
 console.log('Test N: landmarks — Hunt recruit, Sanctum Rearrange, Consecrate, Fallen Heroes swap')
 {
-  EXPERIMENTS.ascendingDeck = true
-  EXPERIMENTS.provinceMode = false
   const { physicalByPrinted, effectiveFace, applyGraft } = await import('../campaign/cards')
   const rigMap = (cc: CampaignState, kind: string) => {
     cc.map = {
@@ -1579,14 +1406,75 @@ console.log('Test N: landmarks — Hunt recruit, Sanctum Rearrange, Consecrate, 
   assert(c4.heroes[0]!.staffId === swap.id.slice('heroes:'.length), 'the hero carries the new Staff')
   ok('landmarks: Fallen Heroes — a free Staff swap, one per class')
 
-  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
-  EXPERIMENTS.provinceMode = LIVE_PROVINCE
+}
+
+// ── Test O: V3.0 cutover (slice 9) — lineage wipe, meta unlock, deletes ──────
+console.log('Test O: cutover — v3 kingdom, no-resume, paths unlock, §11 systems gone')
+{
+  const { listCampaigns } = await import('../campaign/store')
+  const { getTokenDef } = await import('../campaign/content')
+  const { buildMap } = await import('../campaign/maps')
+  const { createRng } = await import('../rng')
+
+  // (a) the kingdom carries the V3 marker (pre-V3 kingdoms are wiped on load)
+  const k9 = loadKingdom()
+  assert(k9.v3 === true, 'the kingdom carries the v3 cutover marker')
+  ok('cutover: pre-V3 lineages are wiped on first boot (v3 marker present)')
+
+  // (b) no mid-run save/resume: the lobby never lists saves
+  assert(listCampaigns().length === 0, 'listCampaigns is empty — single-session runs')
+  ok('cutover: no save/resume — a run is one sitting; only the lineage persists')
+
+  // (c) a fresh crown sets the meta unlock (win a ch6 King Gate right here)
+  {
+    const { startEncounter } = await import('../campaign/encounter')
+    const kd9 = loadKingdom()
+    kd9.unlockedChapters = [1, 2, 3, 4, 5, 6]
+    kd9.unlockedClasses = ['sentinel', 'quartermaster', 'surgeon', 'executioner', 'commander', 'warden']
+    const cO = createCampaign([{ id: P1, name: 'Gab' }], 6, 'cutover-crown', kd9).campaign!
+    applyClassPick(cO, P1, 'sentinel', 'footwork')
+    const oBoss = cO.map!.nodes.find(n => n.kind === 'boss')!
+    startEncounter(cO, oBoss.id, 'boss')
+    cO.phase = 'encounter'
+    const sO = cO.encounter!
+    while (sO.turnPhase === 'setup') applySetupReorder(cO, sO.setupPeek!.playerId, sO.setupPeek!.cards.map((_, i) => i))
+    let guard = 30
+    while (sO.outcome === 'active' && guard-- > 0) {
+      if (sO.turnPhase === 'discard') {
+        const h2 = sO.hands[0]!
+        const pick: number[] = []
+        let tot = 0
+        for (let i2 = 0; i2 < h2.length && tot < sO.discardNeeded; i2++) { pick.push(i2); tot += cardValue(h2[i2]!.rank) }
+        assert(!applyEncounterDiscard(cO, P1, pick).error, 'crown gate discard')
+        continue
+      }
+      if (sO.turnPhase !== 'play' || !sO.currentEnemy) break
+      sO.currentEnemy.hp = 1
+      sO.currentEnemy.attack = 0
+      sO.currentEnemy.shield = 0
+      sO.hands[0] = [{ suit: 'S', rank: '4', id: `to-kill-${guard}` }]
+      assert(!applyEncounterPlay(cO, P1, [0]).error, 'crown gate play')
+    }
+    checkEncounterEnd(cO, kd9)
+    assert(cO.pendingChoice?.royalKeep?.rank === 'K', 'crown decision presented')
+    assert(!applyChoice(cO, P1, cO.pendingChoice!.options[0]!.id, P1).error, 'crown pick')
+    assert(cO.phase === 'campaign_won', `crown = victory (got ${cO.phase})`)
+  }
+  assert(loadKingdom().pathsUnlocked === true, 'the crown unlocked the other three suit paths (meta)')
+  ok('cutover: C2 clear → pathsUnlocked banked on the Kingdom (options, not power)')
+
+  // (d) §11 deletes hold: no curse token, no provinceMode flag, no Tower node
+  assert(getTokenDef('undercut') === undefined, 'the undercut curse token is gone')
+  assert(!('provinceMode' in EXPERIMENTS), 'the provinceMode flag is gone')
+  for (const ch of [1, 2, 3, 4, 5, 6]) {
+    const m = buildMap(ch, createRng(42))
+    assert(m.nodes.every(n => (n.kind as string) !== 'tower'), `no Tower node on the ch${ch} map`)
+  }
+  ok('cutover: §11 deletes verified — curses, provinceMode, Tower are gone')
 }
 
 // Test T1 — onboarding tutorial launches a scripted Sentinel encounter
 {
-  const wasAsc = EXPERIMENTS.ascendingDeck
-  EXPERIMENTS.ascendingDeck = true
   console.log('\nTest T1: onboarding tutorial — scripted launch')
   const { campaign: t } = createCampaign([{ id: P1, name: 'Newbie' }], 1, 'tutorial', kingdom)
   assert(!!t, 'tutorial campaign created')
@@ -1607,14 +1495,11 @@ console.log('Test N: landmarks — Hunt recruit, Sanctum Rearrange, Consecrate, 
     assert(enemy?.immunityNullified === true, 'the training dummy blocks no suit (immunity nullified)')
     ok('Tutorial: launches a fixed Sentinel encounter (7♥ dummy @14hp, no suit-block, 12-card hand)')
   }
-  EXPERIMENTS.ascendingDeck = wasAsc
 }
 
 // Test T2 — play the whole tutorial on the forced line; the guide must advance
 // through every beat and the run must reach the end card (no stuck beat, no softlock).
 {
-  const wasAsc = EXPERIMENTS.ascendingDeck
-  EXPERIMENTS.ascendingDeck = true
   console.log('\nTest T2: tutorial — full playthrough on the rail')
   const { campaign: t } = createCampaign([{ id: P1, name: 'New' }], 1, 'tutorial', kingdom)
   let reached = 0
@@ -1656,7 +1541,6 @@ console.log('Test N: landmarks — Hunt recruit, Sanctum Rearrange, Consecrate, 
   assert(t?.phase === 'tutorial_done', `tutorial reaches the end card (phase ${t?.phase})`)
   assert(reached >= 11, `the guide advanced through all beats (max step ${reached}/11)`)
   ok('Tutorial: full forced-line playthrough reaches the end card; every beat fires')
-  EXPERIMENTS.ascendingDeck = wasAsc
 }
 
 console.log(failures === 0 ? '\nAll smoke tests passed ✅' : `\n${failures} failure(s) ❌`)

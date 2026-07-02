@@ -191,28 +191,13 @@ async function main() {
     assert(false, 'reconnected client automatically receives campaign state')
   }
 
-  // resume flow: load latest save into a fresh room
+  // V3 §10 (slice 9): NO mid-run save/resume — the lobby lists no saves.
+  // (Same-session reconnection above still works; only cross-session resume died.)
   a.emit('list_campaigns')
   const after = await waitFor<{ saves: { id: string }[] }>(a, 'campaign_saves')
-  assert(after.saves.length > 0, 'campaign was persisted')
+  assert(after.saves.length === 0, 'no resumable saves — V3 runs are single-session')
 
-  const c2 = await connect()
-  const d2 = await connect()
-  c2.emit('create_room', { name: 'Gab2' })
-  const room2 = await waitFor<{ code: string }>(c2, 'room_update')
-  d2.emit('join_room', { code: room2.code, name: 'Jerome2' })
-  await waitFor(d2, 'room_update')
-  let resumed: CState | null = null
-  c2.on('campaign_state', (s: CState) => { resumed = s })
-  c2.emit('resume_campaign', { code: room2.code, campaignId: after.saves[0]!.id })
-  try {
-    await waitFor<CState>(c2, 'campaign_state')
-    assert(!!resumed, 'campaign resumes from save with rebound players')
-  } catch {
-    assert(false, 'campaign resumes from save')
-  }
-
-  for (const s of [a, b, c2, d2]) s.close()
+  for (const s of [a, b]) s.close()
   console.log(failures === 0 ? '\nE2E passed ✅' : `\n${failures} E2E failure(s) ❌`)
   process.exit(failures === 0 ? 0 : 1)
 }

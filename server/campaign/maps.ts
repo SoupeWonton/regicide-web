@@ -1,6 +1,5 @@
 import type { NodeKind, RoadMapState, RoadNode } from './types'
 import type { Rng } from '../rng'
-import { EXPERIMENTS } from './experiments'
 
 /** Returns the continent number for a given chapter (ch 1-3 → C1, ch 4-6 → C2, …). */
 function continentOf(chapter: number): number {
@@ -36,7 +35,6 @@ const NODE_CT: Record<NodeKind, { reward: number; pressure: number }> = {
   forge:    { reward: 0.25, pressure: 0 },
   abbey:    { reward: 0.25, pressure: 0 },
   market:   { reward: 0.25, pressure: 0 },
-  tower:    { reward: 0.25, pressure: 0 },
   shrine:   { reward: 0.25, pressure: 0 },
   lair:     { reward: 1.0,  pressure: 1.1 },
   event:    { reward: 0.25, pressure: 0.1 },   // run events: impact varies (test-grade)
@@ -44,34 +42,7 @@ const NODE_CT: Record<NodeKind, { reward: number; pressure: number }> = {
   heroes:   { reward: 0.3,  pressure: 0 },     // V3 §8: Fallen Heroes — Staff swap (C2-P2)
 }
 
-const CHAPTER_1: ChapterSpec = {
-  variant: 'ch1-a',
-  layers: [
-    { kinds: ['start'] },
-    { kinds: ['skirmish', 'skirmish'] },
-    { kinds: ['forge', 'market', 'abbey'] },
-    { kinds: ['veteran', 'skirmish', 'veteran'] },
-    { kinds: ['tower', 'shrine', 'lair'] },
-    { kinds: ['veteran', 'veteran'] },
-    { kinds: ['camp'] },   // mandatory pre-boss camp (cannot be skipped — canon)
-    { kinds: ['boss'] },
-  ],
-}
 
-const CHAPTER_2: ChapterSpec = {
-  variant: 'ch2-a',
-  layers: [
-    { kinds: ['start'] },
-    { kinds: ['veteran', 'skirmish'] },
-    { kinds: ['market', 'forge', 'tower'] },
-    { kinds: ['elite', 'veteran', 'elite'] },
-    { kinds: ['camp', 'abbey'] },          // mid-chapter breather fork
-    { kinds: ['lair', 'shrine', 'elite'] },
-    { kinds: ['elite', 'veteran'] },
-    { kinds: ['camp'] },
-    { kinds: ['boss'] },
-  ],
-}
 
 // ── Continent-1 chapter maps (ascending-deck, chapters 1–3) ─────────────────
 //
@@ -155,35 +126,6 @@ const CONT1_CH3: ChapterSpec = {
   ],
 }
 
-// Province / Continent 2: one run = 12 road stops + 3 rank gates (Gates 4 Jacks /
-// Courtyard 4 Queens / Throne 4 Kings). Royals keep full stats — the 6→10 ATK step
-// entering C2 is fine. The LAIR (a full King for a rare, the "mini-throne" gamble)
-// is gated to ONCE, in Act III — a 20-ATK King in act 1 was the decapitation
-// (8k5jk9uq). Tower is retired everywhere (did nothing solo).
-const PROVINCE_1: ChapterSpec = {
-  variant: 'prov1-b',
-  layers: [
-    { kinds: ['start'] },
-    // ── Act I — the approach to the Gates ──
-    { kinds: ['skirmish'] },                      // stop 1 — guaranteed fight
-    { kinds: ['forge', 'market'] },               // stop 2 — guaranteed bonus
-    { kinds: ['skirmish', 'market'] },            // stop 3 — easy fight, or a Caravan
-    { kinds: ['boss'] },                          // THE GATES — 4 Jacks
-    // ── Act II — the Courtyard ──
-    { kinds: ['veteran'] },                       // stop 4 — guaranteed fight
-    { kinds: ['market', 'abbey', 'shrine'] },     // stop 5 — guaranteed bonus
-    { kinds: ['camp', 'shrine'] },                // stop 6 — REST or cleanse
-    { kinds: ['veteran', 'elite'] },              // stop 7 — fight (push harder for more)
-    { kinds: ['market', 'forge'] },               // stop 8 — bonus before the Queens
-    { kinds: ['boss'] },                          // THE COURTYARD — 4 Queens
-    // ── Act III — the Throne ──
-    { kinds: ['elite'] },                         // stop 9 — guaranteed fight
-    { kinds: ['forge', 'market', 'shrine'] },     // stop 10 — guaranteed bonus
-    { kinds: ['camp', 'lair'] },                  // stop 11 — REST, or the one Lair (a King) for a rare
-    { kinds: ['elite', 'veteran'] },              // stop 12 — the last fight before the Kings
-    { kinds: ['boss'] },                          // THE THRONE — 4 Kings
-  ],
-}
 
 // ── V3 §8/§9 (slice 8): Continent-2 province maps — three provinces, ONE royal
 // gate each (P1 Jack · P2 Queen · P3 King), mirroring the C1 road skeleton
@@ -233,20 +175,12 @@ const CONT2_P3: ChapterSpec = {   // ch6 — King tier → THE KING GATE (the cr
 }
 
 export function buildMap(chapter: number, rng: Rng): RoadMapState {
-  // Continent-1 ascending-deck maps (chapters 1–3)
-  let spec: ChapterSpec
-  if (EXPERIMENTS.ascendingDeck && continentOf(chapter) === 1) {
-    spec = chapter === 1 ? CONT1_CH1 : chapter === 2 ? CONT1_CH2 : CONT1_CH3
-  } else if (EXPERIMENTS.provinceMode && chapter <= 1) {
-    // Province mode uses PROVINCE_1 for the first (and currently only) chapter;
-    // continent-2 chapters (ch4+) in ascending-deck also use it.
-    spec = PROVINCE_1
-  } else if (EXPERIMENTS.ascendingDeck && continentOf(chapter) === 2) {
-    // V3 §8/§9: Continent 2 = three provinces, one royal gate each.
-    spec = chapter === 4 ? CONT2_P1 : chapter === 5 ? CONT2_P2 : CONT2_P3
-  } else {
-    spec = chapter === 1 ? CHAPTER_1 : CHAPTER_2
-  }
+  // V3.0 cutover (slice 9): the legacy CHAPTER_1/CHAPTER_2 castle maps and the
+  // PROVINCE_1 prototype are DELETED — C1 = the three ascending chapters,
+  // C2 = the three province maps (one royal gate each).
+  const spec: ChapterSpec = continentOf(chapter) === 1
+    ? (chapter === 1 ? CONT1_CH1 : chapter === 2 ? CONT1_CH2 : CONT1_CH3)
+    : (chapter === 4 ? CONT2_P1 : chapter === 5 ? CONT2_P2 : CONT2_P3)
   const nodes: RoadNode[] = []
   const layerIds: string[][] = []
 

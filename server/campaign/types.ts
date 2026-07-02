@@ -151,7 +151,7 @@ export type NodeKind =
   | 'skirmish' | 'veteran' | 'elite'
   | 'recruit'                              // Continent-1: number-enemy fight
   | 'draft'                                // Continent-1: steer the deck (solo per-hero pick)
-  | 'forge' | 'abbey' | 'market' | 'tower' | 'shrine' | 'lair'
+  | 'forge' | 'abbey' | 'market' | 'shrine' | 'lair'
   | 'event'
   | 'hunt'                                 // V3 §8: pursue a missed recruit (C1 only — NEW)
   | 'heroes'                               // V3 §8: Fallen Heroes — free Staff swap (C2-P2)
@@ -201,22 +201,14 @@ export type CampaignPhase =
   | 'tutorial_done'         // scripted tutorial finished — show the end card
 
 export interface PendingChoice {
+  // (forge_token / forge_card / shop kinds were deleted at the V3.0 cutover)
   kind: 'landmark_reward' | 'replacement' | 'relic_full' | 'draft_pick'
-       | 'forge_token' | 'forge_card'      // ascending-deck Step 5: two-step forge
-       | 'shop'                            // post-Council fragment shop (4 tiers)
        | 'royal_keep'                      // V3 §3: post-gate 3/2/1 keep-decision
   forPlayerId: string | null   // null → team vote (or host when solo)
   prompt: string
   options: { id: string; label: string; detail?: string }[]
   returnTo?: 'camp' | 'road'   // phase to restore after the pick (default road)
   votes?: Record<string, string>   // team rewards: playerId → optionId (secret ballot)
-  // forge_card step: the token chosen at the forge_token step, awaiting a target card
-  forgeToken?: Token
-  // true when this forge_token/forge_card flow is the fragment track (spends 2
-  // token fragments + only offers C-tier tokens) rather than the Forge budget.
-  fragmentApply?: boolean
-  // true when this forge flow is a FREE stamp (Lair rare-token reward — no budget)
-  freeForge?: boolean
   // royal_keep (V3 §3): the gate's royal pool + picks so far. mode 'leave' =
   // pick the ONE left behind (Jack Gate keeps 3); 'keep' = sequential keep
   // picks (Queen Gate ×2, King Gate ×1 — the crown).
@@ -429,18 +421,13 @@ export interface CampaignState {
   // All three are optional so saves from before this feature load fine.
   // Guards: always access via `c.ownedCards ?? []` etc.
   ownedCards?: string[]                          // card ids recruited this run
-  tokenBudget?: number                           // Forge (F-tier) token budget
-  tokenFragments?: number                        // fragment-shop currency
-  cardTokens?: Record<string, Token[]>           // cardId → token list
-  // transient post-Council fragment-shop state (spell/premium purchase caps)
-  shop?: { spellsLeft: number; premiumLeft: number }
-  // mythic relics acquired this continent (Caravan + Lair + shop share a cap of 3)
-  mythicThisContinent?: number
+  // (tokenBudget, the fragment shop and the mythic/item-stop caps were deleted
+  // at the V3.0 cutover, §11 slice 9)
+  tokenFragments?: number                        // V3 §6: the agnostic fragment pool
+  cardTokens?: Record<string, Token[]>           // cardId → token list (dormant V3 content)
   // item-economy: unlocked pools snapshotted from the Kingdom at run creation
   unlockedRelics?: string[]
   unlockedSpells?: string[]
-  // cap on relic/spell-granting landmarks per chapter (extra ones give forge budget)
-  itemStopsThisChapter?: number
 
   // ── §F card-state model (V3.0 slice 1) ─────────────────────────────────────
   // Persisted-format version. Absent = legacy v1 (logical-id keying only);
@@ -459,9 +446,14 @@ export interface CampaignState {
 // ── Kingdom (permanent unlock state) ─────────────────────────────────────────
 
 export interface KingdomState {
+  // V3.0 cutover marker (slice 9): kingdoms without it are wiped on load —
+  // the lineage reset. Meta banks OPTIONS, not power.
+  v3?: boolean
   unlockedChapters: number[]     // [1] initially
   unlockedClasses: ClassId[]     // Tier 1 initially
   specializationsUnlocked: boolean
+  // V3 §10: clearing C2 (the crown) opens the three non-home suit paths
+  pathsUnlocked?: boolean
   campaignsWon: number
   heroesLost: number
   // ascending-deck meta: the item pool starts small and grows on death/milestone.
@@ -589,14 +581,12 @@ export interface ClientCampaignState {
   }) | null
   rewardDraw: { seq: number; options: { id: string; label: string; detail?: string }[]; winnerId: string; tie: boolean } | null
   deathVote: { deadHeroName: string; options: string[]; votes: Record<string, string>; myVote: string | null; isBoss: boolean } | null
-  kingdom: { unlockedChapters: number[]; unlockedClasses: ClassId[]; specializationsUnlocked: boolean }
+  kingdom: { unlockedChapters: number[]; unlockedClasses: ClassId[]; specializationsUnlocked: boolean; pathsUnlocked?: boolean }
   log: string[]
   // ascending-deck: tokens stamped on cards, keyed by logical id (`${suit}${rank}`).
   // Lets the road/camp/class-select screens render tokened cards.
   cardTokens?: Record<string, ClientToken[]>
-  // ascending-deck: unspent forge budget (tokens you may still stamp)
-  tokenBudget?: number
-  // fragment track: how many token fragments held (2 → apply a C-tier token)
+  // V3 §6: the agnostic fragment pool (placed via the bracelet)
   tokenFragments?: number
   // ascending-deck mode is active (drives token UI: class-select stamps, badges)
   ascendingDeck?: boolean

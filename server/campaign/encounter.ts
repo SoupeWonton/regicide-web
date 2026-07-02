@@ -3,7 +3,7 @@ import { cardValue, cardLabel, suitSymbol, enemyStats, isNumberRank, numberEnemy
 import { createRng } from '../rng'
 import type { CampaignState, CampaignTurnPhase, EncounterState, EncounterTier, EncounterEvent } from './types'
 import { getEncounterDef, getItem, encountersOf, BOSS_MODIFIERS, CLASSES } from './content'
-import { EXPERIMENTS, CURATION_CUT } from './experiments'
+import { EXPERIMENTS } from './experiments'
 import { appendGameLog } from './store'
 import { spendDelta, holdDelta, cardSuits, leverBonus, markDamage, hasKeyword, rekeyCardTokens } from './tokens'
 import { syncCardRegistry, effectiveFace, registerLogicalCard, physicalById, applyGraft } from './cards'
@@ -116,9 +116,8 @@ export function setupChapterDeck(c: CampaignState, opts?: { seam?: boolean }) {
   // flag (superseded by the small start canon). Recruited number-cards carry
   // in via c.ownedCards — they are injected back into the tavern on setup.
   if (EXPERIMENTS.ascendingDeck) {
-    // (Class signature stamping retired — Decision 1, 2026-07-01: starting
-    // decks are IDENTICAL for all classes; class identity = Staff + home path.
-    // CLASS_SIGNATURES content survives in content.ts until the slice-9 delete.)
+    // (Class signature stamping deleted — Decision 1: starting decks are
+    // IDENTICAL for all classes; class identity = Staff + home path.)
     // §F: the deck is built FROM the physical registry — the A–5 start plus
     // every recruit each yield one runtime card carrying its EFFECTIVE face and
     // its physicalId as Card.id, so identity survives deck rebuilds (the old
@@ -176,25 +175,9 @@ export function setupChapterDeck(c: CampaignState, opts?: { seam?: boolean }) {
     return
   }
 
-  let tavern = buildCampaignDeck(c, a => r.shuffle(a))
-  // Province mode — class curation (deckbuild option B): each suited class
-  // removes its N lowest own-suit cards. Quality up, total runway down.
-  if (EXPERIMENTS.provinceMode) {
-    const cut = CURATION_CUT[c.heroes.length] ?? 2
-    for (const h of c.heroes) {
-      const suit = CLASSES[h.classId].suit
-      // suited classes cut their own suit's lowest; suitless (support/weird)
-      // classes trim the lowest cards deck-wide — generalist quality
-      const pool = tavern
-        .filter(cd => cd.rank !== 'Jo' && (!suit || cd.suit === suit))
-        .sort((a, b) => cardValue(a.rank) - cardValue(b.rank))
-        .slice(0, cut)
-      const ids = new Set(pool.map(cd => cd.id))
-      tavern = tavern.filter(cd => !ids.has(cd.id))
-      if (pool.length)
-        clog(c, `🃏 ${h.playerName} curates the deck: ${pool.length} low ${suit ? suitSymbol(suit as Suit) : ''} cards are cut.`)
-    }
-  }
+  // (Province-mode class curation was DELETED at the V3.0 cutover with the
+  // provinceMode flag + CURATION_CUT, §11 slice 9.)
+  const tavern = buildCampaignDeck(c, a => r.shuffle(a))
   c.deck = { tavern, discard: [], hands: c.heroes.map(() => []) }
   for (const hi of aliveIndices(c))
     for (let i = 0; i < maxHandSize(c, hi); i++)
@@ -427,7 +410,7 @@ function buildEnemyStack(tier: EncounterTier, isLair: boolean, players: number, 
   // effectively a gate fight). Applies in province mode AND ascending Continent-1
   // filler (where a 20-card A–5 deck cannot face two royals at once).
   const soloProvince = players === 1 && (
-    EXPERIMENTS.provinceMode || (EXPERIMENTS.ascendingDeck && continentOf(chapter ?? 1) === 1))
+    (EXPERIMENTS.ascendingDeck && continentOf(chapter ?? 1) === 1))
   if (tier === 'skirmish') return { cards: mk('J', pickSuits(soloProvince ? 1 : 2)) }
   if (tier === 'veteran') {
     if (soloProvince) return { cards: mk('Q', pickSuits(1)) }
@@ -484,7 +467,7 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
   }
   // Province-style rank split: gate = one rank per boss node.
   // Active in province mode OR in ascending-deck continent-2 (which also uses PROVINCE_1).
-  const useProvinceBossSplit = EXPERIMENTS.provinceMode || (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2)
+  const useProvinceBossSplit = EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2
   if (tier === 'boss' && useProvinceBossSplit && !opts.isCouncil) {
     // V3 §8 (slice 8): in ascending C2 the gate rank keys off the CHAPTER
     // (ch4 = Jack · ch5 = Queen · ch6 = King — one gate per province);
@@ -1228,7 +1211,7 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   const execActive = !EXPERIMENTS.ascendingDeck && hero.classId === 'executioner'
   // Siege upgrade — Regicide: in the castle, the Executioner's OWN attacks
   // finish royals from 1-4 HP (still once per enemy). V3: sieges retired.
-  const regicideWindow = s.tier === 'boss' && !EXPERIMENTS.provinceMode && !EXPERIMENTS.ascendingDeck && hero.classId === 'executioner' && enemy.hp >= 1 && enemy.hp <= 4
+  const regicideWindow = s.tier === 'boss' && !EXPERIMENTS.ascendingDeck && hero.classId === 'executioner' && enemy.hp >= 1 && enemy.hp <= 4
   if (regicideWindow && once(s, 'enemy.execFinish')) {
     clog(c, `   🪓 REGICIDE! The Executioner finishes the royal from ${enemy.hp} HP.`)
     ev(s, 'proc', '🪓 REGICIDE — finished!', 'gold', true)
@@ -1393,16 +1376,18 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
     if (excess > 0 && spadeCards > 0) s.flags['bastionCarry'] = Math.min(spadeCards, excess)
   }
 
-  // ── Token kill-triggers (Banner / Bloodprice) on the cards that landed it ──
+  // ── Token kill-triggers on the cards that landed it (dormant V3 content —
+  // nothing stamps tokens anymore; Bloodprice pays fragments since the forge
+  // budget was DELETED at the cutover, §11 slice 9) ──
   if (EXPERIMENTS.ascendingDeck && s.lastPlayed.length) {
     if (hasKeyword(c, s.lastPlayed, 'banner')) {
       const got = drawForHero(c, s, killerIdx, 1)
       if (got) { clog(c, '   ⚑ Banner: the kill draws 1.'); ev(s, 'proc', '⚑ Banner — draw 1', 'gold') }
     }
     if (exact && hasKeyword(c, s.lastPlayed, 'bloodprice')) {
-      c.tokenBudget = (c.tokenBudget ?? 0) + 1
-      clog(c, '   🩸 Bloodprice: exact kill — +1 forge budget.')
-      ev(s, 'proc', '🩸 Bloodprice +1 budget', 'gold')
+      c.tokenFragments = (c.tokenFragments ?? 0) + 1
+      clog(c, '   🩸 Bloodprice: exact kill — +1 fragment.')
+      ev(s, 'proc', '🩸 Bloodprice +1 fragment', 'gold')
     }
   }
   // Bloodhound (mythic): every exact kill draws a card — the finesse "win-more".
@@ -1550,7 +1535,7 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
   // back into the Tavern — fuel for the Kings, but hands are not redrawn.
   // (Tuned down from two full rests, which overshot to ~50% bot wins; the
   // siege ultimates cover hand recovery.)
-  if (s.tier === 'boss' && !EXPERIMENTS.provinceMode && s.defeatedCount === Math.ceil((2 * s.totalEnemies) / 3) && s.discard.length > 0) {
+  if (s.tier === 'boss' && !EXPERIMENTS.ascendingDeck && s.defeatedCount === Math.ceil((2 * s.totalEnemies) / 3) && s.discard.length > 0) {
     const { r, done } = rng(c)
     s.tavern.push(...r.shuffle(s.discard.splice(0)))
     done()
@@ -1739,7 +1724,7 @@ function counterattack(c: CampaignState, s: EncounterState, pi: number): { error
 
   // Warden siege ultimate — Deathward: once per castle, the first death is
   // prevented; the hero discards what they can and stands. V3: sieges retired.
-  if (coverable < needed && s.tier === 'boss' && !EXPERIMENTS.provinceMode && !EXPERIMENTS.ascendingDeck &&
+  if (coverable < needed && s.tier === 'boss' && !EXPERIMENTS.ascendingDeck &&
       c.heroes.some(h => h.alive && h.classId === 'warden') && once(s, 'ult.warden')) {
     clog(c, `🕯 DEATHWARD! The Warden pulls ${hero.playerName} back from the brink.`)
     ev(s, 'proc', '🕯 DEATHWARD — death prevented', 'gold', true)
@@ -2140,14 +2125,13 @@ function advanceTurn(c: CampaignState, s: EncounterState) {
   // Catalyst is once-per-turn: clear the per-hero spent flag as the turn passes.
   for (const k of Object.keys(s.flags)) if (k.startsWith('catalystUsed')) delete s.flags[k]
 
-  // ── Siege ultimates + siege items (boss fights only, once per castle) ─────
-  // (Class ultimates are canon-mode only; province mode replaces class power
-  // with deck curation. Item effects stay live in both modes.)
-  if (s.tier === 'boss') {
+  // ── Siege ultimates (boss fights only, once per castle) ───────────────────
+  // V3: sieges are RETIRED (§2, slice 4) — these fire only on legacy
+  // non-ascending runs (dead path after the cutover; deleted with the flag).
+  if (s.tier === 'boss' && !EXPERIMENTS.ascendingDeck) {
     // Surgeon — Field Triage: when the Tavern first runs dry, return up to 8
     // discard cards to it.
-    if (!EXPERIMENTS.provinceMode &&
-        c.heroes.some(h => h.alive && h.classId === 'surgeon') &&
+    if (c.heroes.some(h => h.alive && h.classId === 'surgeon') &&
         s.tavern.length === 0 && s.discard.length > 0 && once(s, 'ult.surgeon')) {
       const take = Math.min(8, s.discard.length)
       const back = s.discard.splice(0, take)
@@ -2159,7 +2143,7 @@ function advanceTurn(c: CampaignState, s: EncounterState) {
     }
     // Quartermaster — Last Requisition: when the Quartermaster's hand first
     // empties, the whole party draws back to full.
-    const qmIdx = EXPERIMENTS.provinceMode ? -1 : c.heroes.findIndex(h => h.alive && h.classId === 'quartermaster')
+    const qmIdx = c.heroes.findIndex(h => h.alive && h.classId === 'quartermaster')
     if (qmIdx >= 0 && s.hands[qmIdx]!.length === 0 && s.tavern.length > 0 && once(s, 'ult.quartermaster')) {
       for (const hi of aliveIndices(c)) drawForHero(c, s, hi, maxHandSize(c))
       clog(c, '📦 Last Requisition! The Quartermaster re-arms the whole party.')

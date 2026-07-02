@@ -25,18 +25,37 @@ export function loadKingdom(): KingdomState {
   try {
     k = JSON.parse(fs.readFileSync(KINGDOM_FILE, 'utf-8')) as KingdomState
   } catch {
-    k = {
-      unlockedChapters: [1],
-      unlockedClasses: [...TIER1_CLASSES],
-      specializationsUnlocked: false,
-      campaignsWon: 0,
-      heroesLost: 0,
-    }
+    k = freshKingdom()
+  }
+  // ── V3.0 cutover (slice 9): wipe every pre-V3 lineage ──────────────────────
+  // A kingdom without the v3 marker is a V2 save — reset it to a fresh V3
+  // lineage and purge the saved campaigns (no mid-run save/resume in V3.0).
+  // The client shows the one-line explainer at the lobby.
+  if (!k.v3) {
+    k = freshKingdom()
+    try {
+      for (const f of fs.readdirSync(CAMPAIGN_DIR)) {
+        if (f.endsWith('.json')) fs.unlinkSync(path.join(CAMPAIGN_DIR, f))
+      }
+    } catch { /* nothing to purge */ }
+    saveKingdom(k)
   }
   // item-economy: default the starting pools for fresh/legacy kingdoms.
   if (!k.unlockedRelics) k.unlockedRelics = [...STARTING_RELICS]
   if (!k.unlockedSpells) k.unlockedSpells = [...STARTING_SPELLS]
   return k
+}
+
+function freshKingdom(): KingdomState {
+  return {
+    v3: true,
+    unlockedChapters: [1],
+    unlockedClasses: [...TIER1_CLASSES],
+    specializationsUnlocked: false,
+    pathsUnlocked: false,
+    campaignsWon: 0,
+    heroesLost: 0,
+  }
 }
 
 export function saveKingdom(k: KingdomState) {
@@ -87,19 +106,9 @@ export interface SaveSummary {
 }
 
 export function listCampaigns(): SaveSummary[] {
-  ensureDirs()
-  const out: SaveSummary[] = []
-  for (const f of fs.readdirSync(CAMPAIGN_DIR)) {
-    if (!f.endsWith('.json')) continue
-    try {
-      const c = JSON.parse(fs.readFileSync(path.join(CAMPAIGN_DIR, f), 'utf-8')) as CampaignState
-      if (c.phase === 'campaign_lost') continue
-      out.push({
-        id: c.id, name: c.name, chapter: c.chapter, phase: c.phase,
-        heroes: c.heroes.map(h => ({ name: h.playerName, classId: h.classId, alive: h.alive })),
-        createdAt: c.createdAt,
-      })
-    } catch { /* corrupt save — skip */ }
-  }
-  return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  // V3.0 (slice 9, §10): NO mid-run save/resume — a run is single-session and
+  // only the lineage meta persists. The lobby therefore never lists saves.
+  // (saveCampaign stays: it backs same-session reconnection and debugging.)
+  return []
 }
+

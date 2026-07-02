@@ -209,6 +209,9 @@ function pickStaff(staffId: string) {
     <p v-if="state.ascendingDeck" class="text-center text-[11px] text-primary/50 font-flavor tracking-wide">
       ✒ Every class starts the same 20 cards (A–5). Your identity is your Staff (pick one
       of four) and your home-suit path — its first rung reveals when you reach Continent 2.
+      <span v-if="state.kingdom.pathsUnlocked" class="text-success/70">
+        ✨ Your lineage has been crowned — all four suit paths stand open.
+      </span>
     </p>
     <p v-else class="text-center text-[11px] text-primary/50 font-flavor tracking-wide">
       ⚔ Province rules: each suited hero curates the deck at setup — their lowest cards of their own suit are cut.

@@ -151,6 +151,11 @@ function skipTutorial() {
             <span class="text-xs text-base-content/60">save this run's stats (bot vs human data)</span>
           </label>
           <button class="btn btn-primary w-full" @click="onStart">Start</button>
+          <!-- V3 §10: runs are single-session (no mid-run save/resume); the
+               lineage meta persists — the one-line explainer -->
+          <p class="text-[11px] text-center text-base-content/50 font-flavor tracking-wide">
+            ✒ A run is one sitting — no saves. Keep your lineage: clearing Continent 2 unlocks the other suit paths for every run after.
+          </p>
 
           <template v-if="saves.length">
             <div class="divider my-0 text-xs text-base-content/40">or resume</div>

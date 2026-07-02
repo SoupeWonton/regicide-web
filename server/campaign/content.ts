@@ -250,10 +250,9 @@ export const ALL_SPELL_IDS = [...STARTING_SPELLS, ...SPELL_UNLOCK_ORDER]
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const TOKEN_DEFS: Record<string, TokenDef> = {
-  // A. value — SPEND
+  // A. value — SPEND (undercut — the curse — was DELETED at the V3.0 cutover)
   hone:        { id: 'hone', name: 'Hone', short: '+1', kind: 'value', spend: 1, power: 1, source: 'F', forgeable: true, text: '+1 value when played (damage & suit power).' },
   temper:      { id: 'temper', name: 'Temper', short: '+2', kind: 'value', spend: 2, power: 2, source: 'F', forgeable: true, text: '+2 value when played.' },
-  undercut:    { id: 'undercut', name: 'Undercut', short: '−1', kind: 'value', spend: -1, power: 1, source: 'S', forgeable: false, text: '−1 value when played — undershoot onto an exact kill.' },
   // B. value — HOLD
   ballast:        { id: 'ballast', name: 'Ballast', short: '⛨+1', kind: 'value', hold: 1, power: 1, source: 'F', forgeable: true, text: 'Discards as +1 value (soaks a bigger hit).' },
   'bulwark-weave':{ id: 'bulwark-weave', name: 'Bulwark-weave', short: '⛨+2', kind: 'value', hold: 2, power: 2, source: 'F', forgeable: true, text: 'Discards as +2 value.' },
@@ -277,42 +276,7 @@ export const TOKEN_DEFS: Record<string, TokenDef> = {
 
 export function getTokenDef(id: string): TokenDef | undefined { return TOKEN_DEFS[id] }
 
-/** Tokens a forge node may offer (F-market, plus suit tokens resolve a suit). */
-export const FORGEABLE_TOKEN_IDS = Object.values(TOKEN_DEFS).filter(d => d.forgeable).map(d => d.id)
-
-/** C-tier ("not too strong") tokens the fragment track may apply on the road.
- * 2 fragments → 1 application. Weak by design — value bumps + light consistency;
- * the Forge keeps the stronger F-tier tokens (Temper / Graft / lever / suit). */
-export const C_TIER_TOKEN_IDS = ['hone', 'ballast', 'scry', 'mark']
-
-// ── Class level-1 signatures (pure-token; locked 2026-06-14) ─────────────────
-// Each class stamps its signature tokens onto specific cards of the shared 20-card
-// start (A–5 ×4). First 4 suited classes are the active design; 5–9 are drafted/
-// parked. cardId = `${suit}${rank}`. Suit tokens carry a resolved `suit`.
-export const CLASS_SIGNATURES: Record<ClassId, Token[]> = {
-  // suited — own-suit lever stamps
-  sentinel:     [{ defId: 'plate' },      // → applied to 3♠ 4♠ 5♠ (see SIGNATURE_CARDS)
-                 { defId: 'plate' }, { defId: 'plate' }],
-  quartermaster:[{ defId: 'provision' }, { defId: 'provision' }, { defId: 'provision' }],
-  surgeon:      [{ defId: 'mend' }, { defId: 'mend' }, { defId: 'mend' }],
-  executioner:  [{ defId: 'edge' }, { defId: 'edge' }, { defId: 'undercut' }],
-  // suitless — token-family stamps (parked: drafted, not balance-tuned)
-  commander:    [{ defId: 'banner' }, { defId: 'banner' }, { defId: 'banner' }],
-  warden:       [{ defId: 'bulwark-weave' }, { defId: 'bulwark-weave' }, { defId: 'bulwark-weave' }],
-  gambler:      [{ defId: 'glasswork' }, { defId: 'glasswork' }, { defId: 'mark' }],
-  exile:        [{ defId: 'transmute', suit: 'S' }, { defId: 'transmute', suit: 'C' }],
-  oracle:       [{ defId: 'scry' }, { defId: 'scry' }, { defId: 'mark' }],
-}
-
-/** Which cards each class stamps (parallel to CLASS_SIGNATURES order). */
-export const SIGNATURE_CARDS: Record<ClassId, string[]> = {
-  sentinel:      ['S3', 'S4', 'S5'],
-  quartermaster: ['D3', 'D4', 'D5'],
-  surgeon:       ['H3', 'H4', 'H5'],
-  executioner:   ['C4', 'C5', 'C2'],
-  commander:     ['D3', 'S4', 'C5'],
-  warden:        ['S2', 'H2', 'C3'],
-  gambler:       ['D5', 'C5', 'H4'],
-  exile:         ['S5', 'C5'],
-  oracle:        ['D2', 'D3', 'S4'],
-}
+// (FORGEABLE_TOKEN_IDS, C_TIER_TOKEN_IDS and the class level-1 signatures —
+// CLASS_SIGNATURES / SIGNATURE_CARDS — were DELETED at the V3.0 cutover,
+// §11 slice 9: nothing stamps tokens anymore. TOKEN_DEFS survives as dormant
+// display machinery for cards that still carry legacy tokens.)

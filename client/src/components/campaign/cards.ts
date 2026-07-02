@@ -135,26 +135,8 @@ export const STAFF_CHOICES: Record<string, StaffChoice[]> = {
   ],
 }
 
-// ascending-deck Step 5 — client mirror of the locked class level-1 signatures
-// (server: content.ts CLASS_SIGNATURES + SIGNATURE_CARDS). Used by ClassSelect to
-// show "which cards a class stamps" before you pick (select-by-cards UX).
-export interface SigStamp { card: string; short: string; tone: 'good' | 'bad' | 'neutral'; name: string }
-function stamp(cardId: string, short: string, tone: SigStamp['tone'], name: string): SigStamp {
-  const suit = cardId[0]!
-  const rank = cardId.slice(1)
-  return { card: `${rank}${suitSymbol(suit)}`, short, tone, name }
-}
-export const CLASS_SIGNATURE_PREVIEW: Record<string, SigStamp[]> = {
-  sentinel:      [stamp('S3', '♠+1', 'neutral', 'Plate'), stamp('S4', '♠+1', 'neutral', 'Plate'), stamp('S5', '♠+1', 'neutral', 'Plate')],
-  quartermaster: [stamp('D3', '♦+1', 'neutral', 'Provision'), stamp('D4', '♦+1', 'neutral', 'Provision'), stamp('D5', '♦+1', 'neutral', 'Provision')],
-  surgeon:       [stamp('H3', '♥+1', 'neutral', 'Mend'), stamp('H4', '♥+1', 'neutral', 'Mend'), stamp('H5', '♥+1', 'neutral', 'Mend')],
-  executioner:   [stamp('C4', '♣+2', 'neutral', 'Edge'), stamp('C5', '♣+2', 'neutral', 'Edge'), stamp('C2', '−1', 'bad', 'Undercut')],
-  commander:     [stamp('D3', '⚑', 'neutral', 'Banner'), stamp('S4', '⚑', 'neutral', 'Banner'), stamp('C5', '⚑', 'neutral', 'Banner')],
-  warden:        [stamp('S2', '⛨+2', 'good', 'Bulwark-weave'), stamp('H2', '⛨+2', 'good', 'Bulwark-weave'), stamp('C3', '⛨+2', 'good', 'Bulwark-weave')],
-  gambler:       [stamp('D5', '+2/−1', 'good', 'Glasswork'), stamp('C5', '+2/−1', 'good', 'Glasswork'), stamp('H4', '✦+2', 'neutral', 'Mark')],
-  exile:         [stamp('S5', '→♠', 'neutral', 'Transmute'), stamp('C5', '→♣', 'neutral', 'Transmute')],
-  oracle:        [stamp('D2', '👁', 'neutral', 'Scry'), stamp('D3', '👁', 'neutral', 'Scry'), stamp('S4', '✦+2', 'neutral', 'Mark')],
-}
+// (CLASS_SIGNATURE_PREVIEW was deleted with the class signatures at the V3.0
+// cutover — class identity is the Staff pick + the home-suit path.)
 
 export const NODE_DESCRIPTIONS: Record<string, string> = {
   start: 'Where the lineage set out.',

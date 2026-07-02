@@ -401,7 +401,7 @@ function heroTooltip(h: ClientHero): string {
     <OverlayModal v-if="choice" tone="primary">
       <h3 class="text-lg font-bold text-center">{{ choice.prompt }}</h3>
       <template v-if="choice.mine">
-        <div :class="(choice.kind === 'exile_pick' || choice.kind === 'forge_card') ? 'flex flex-wrap gap-1.5 justify-center' : 'space-y-2'">
+        <div class="space-y-2">
           <template v-for="opt in choice.options" :key="opt.id">
             <!-- items are physical cards; everything else stays a button -->
             <ItemCard
@@ -410,17 +410,6 @@ function heroTooltip(h: ClientHero): string {
               :class="choice.teamVote && choice.myVote === opt.id ? 'ring-2 ring-primary' : ''"
               @click="act({ type: 'choice_pick', optionId: opt.id })"
             />
-            <!-- card pickers (exile rite / forge stamp) — rendered like the in-fight deck viewer -->
-            <button
-              v-else-if="choice.kind === 'exile_pick' || choice.kind === 'forge_card'"
-              class="card-face w-12 h-16 font-mono flex flex-col items-center justify-center relative transition-transform hover:-translate-y-1"
-              :class="choice.teamVote && choice.myVote === opt.id ? 'ring-2 ring-primary' : ''"
-              :title="opt.detail"
-              @click="act({ type: 'choice_pick', optionId: opt.id })"
-            >
-              <span class="text-lg font-bold" :class="suitClass(opt.id[0])">{{ opt.id.slice(1) }}</span>
-              <span :class="suitClass(opt.id[0])">{{ suitSymbol(opt.id[0]) }}</span>
-            </button>
             <button
               v-else
               class="btn btn-outline justify-start text-left h-auto py-2 w-full"

@@ -146,15 +146,6 @@ export function projectCardTokens(c: CampaignState): Record<string, ClientToken[
   return Object.keys(out).length ? out : undefined
 }
 
-/** Build the level-1 preview cardTokens for a class (for ClassSelect), without mutating state. */
-export function previewSignature(cards: string[], tokens: Token[]): Record<string, ClientToken[]> {
-  const out: Record<string, ClientToken[]> = {}
-  for (let i = 0; i < cards.length && i < tokens.length; i++) {
-    const ct = projectToken(tokens[i]!)
-    if (!ct) continue
-    ;(out[cards[i]!] ??= []).push(ct)
-  }
-  return out
-}
+// (previewSignature was deleted with the class signatures at the V3.0 cutover.)
 
 export { TOKEN_DEFS }

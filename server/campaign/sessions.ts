@@ -1,7 +1,7 @@
 import type { CampaignState, ClientCampaignState, KingdomState } from './types'
 import {
   createCampaign, applyClassPick, applyRoadChoose, applyChoice, applyDeathVote,
-  applyBreakCamp, beginReplacement, applyFragmentStart, applyBraceletPlace, applyEquipRelic,
+  applyBreakCamp, beginReplacement, applyBraceletPlace, applyEquipRelic,
   applyContinueChapter, buildClientCampaign, checkEncounterEnd, startTutorial,
 } from './campaign'
 import {
@@ -95,7 +95,6 @@ export type CampaignAction =
   | { type: 'keep_drawn'; keepIndices: number[] }   // ascending-deck: overdraw selection
   | { type: 'graft_select'; cardIndex: number; mode: 'value' | 'suit' }   // ascending-deck: redundant-kill graft
   | { type: 'staff_use'; cardIndex?: number }        // V3 §2: activated-Staff use (slice 4)
-  | { type: 'apply_fragment' }                       // fragment track: spend 2 → apply a C-tier token (retired V3)
   | { type: 'bracelet_place'; suit: string }         // V3 §6: place a fragment into a gauntlet hole
   | { type: 'equip_relic'; slot: string; relicId: string | null }   // V3 §7: bag ↔ slot swap
   | { type: 'death_vote'; vote: string }
@@ -131,7 +130,6 @@ export function dispatchCampaignAction(
     case 'keep_drawn': result = applyKeepDrawn(c, playerId, action.keepIndices); break
     case 'graft_select': result = applyGraftSelect(c, playerId, action.cardIndex, action.mode); break
     case 'staff_use': result = applyStaffUse(c, playerId, action.cardIndex); break
-    case 'apply_fragment': result = applyFragmentStart(c, playerId, hostId); break
     case 'bracelet_place': result = applyBraceletPlace(c, playerId, action.suit); break
     case 'equip_relic': result = applyEquipRelic(c, playerId, action.slot, action.relicId); break
     case 'death_vote': result = applyDeathVote(c, playerId, action.vote); break

@@ -5,7 +5,7 @@ import type {
   CampaignState, ClassId, ClientCampaignState, ClientHero, ClientRoadNode,
   Hero, KingdomState, NodeKind, PendingChoice, RoadNode, Token,
 } from './types'
-import { CLASSES, TIER1_CLASSES, getItem, itemsOf, RELIC_SLOTS, getEncounterDef, BOSS_MODIFIERS, FORGEABLE_TOKEN_IDS, C_TIER_TOKEN_IDS, getTokenDef, RELIC_UNLOCK_ORDER, SPELL_UNLOCK_ORDER, HAILMARY_SPELL_IDS, MYTHIC_RELIC_IDS, BRIDGE_RELIC_ID, MYTHIC_PER_CONTINENT } from './content'
+import { CLASSES, TIER1_CLASSES, getItem, itemsOf, RELIC_SLOTS, getEncounterDef, BOSS_MODIFIERS, getTokenDef, RELIC_UNLOCK_ORDER, SPELL_UNLOCK_ORDER } from './content'
 import { stampToken, projectCardTokens, rekeyCardTokens, MAX_TOKENS_PER_CARD } from './tokens'
 import { CAMPAIGN_SCHEMA_VERSION, registerLogicalCard, projectPhysicalCards, effectiveFace, logicalOf, moveGraft, applyGraft } from './cards'
 import { staffsOf, getStaff, getLadder, homeLadder } from './paths'
@@ -103,7 +103,6 @@ export function createCampaign(
     // snapshot the Kingdom's unlocked item pools for this run (meta: grows on death)
     unlockedRelics: [...(kingdom.unlockedRelics ?? [])],
     unlockedSpells: [...(kingdom.unlockedSpells ?? [])],
-    itemStopsThisChapter: 0,
   }
   clog(c, `🏰 A new lineage sets out. Seed: ${realSeed}. Chapter ${chapter}.`)
   clog(c, '⚔️ Choose your heroes — the campaign starts with the core roster.')
@@ -222,7 +221,7 @@ export function revealForkedRoad(c: CampaignState) {
 // phase and node kind, so it is safe to call after any choice resolution.
 function autoAdvanceAfterGate(c: CampaignState) {
   if (!EXPERIMENTS.autoMarchAfterGates) return
-  if (!EXPERIMENTS.provinceMode || c.phase !== 'road' || !c.map) return
+  if (c.phase !== 'road' || !c.map) return
   const cur = c.map.nodes.find(n => n.id === c.map!.currentNodeId)
   if (!cur || cur.kind !== 'boss' || cur.next.length === 0) return
   const { r, done } = rng(c)
@@ -242,7 +241,7 @@ function labelOf(kind: NodeKind): string {
     skirmish: 'a skirmish', veteran: 'a veteran patrol', elite: 'an elite warband',
     recruit: 'a recruit encounter', draft: 'a draft',
     forge: 'the Forge', abbey: 'the Sanctum', market: 'the Caravan',
-    tower: 'the Tower', shrine: 'the Shrine', lair: 'a Lair',
+    shrine: 'the Shrine', lair: 'a Lair',
     event: 'a strange happening',
     hunt: 'a Hunt', heroes: 'the Fallen Heroes',
   }[kind]
@@ -299,20 +298,11 @@ function resolveNode(c: CampaignState, nodeId: string, kind: NodeKind) {
       clog(c, '🏕 The party makes camp. Plan, prepare, recover.')
       break
     case 'draft': offerDraft(c); break
-    case 'forge':
-      // Ascending-deck: the Forge stamps TOKENS (offer-menu). Otherwise: a relic.
-      if (EXPERIMENTS.ascendingDeck) offerForge(c)
-      else offerItems(c, 'relic', 'standard', 2, 'The Forge offers its work — choose a relic.')
-      break
-    case 'abbey':
-      // V3 §8: Sanctum = Rearrange (graft transfers) — the rites are retired
-      if (EXPERIMENTS.ascendingDeck) offerSanctumV3(c, SANCTUM_TRANSFERS)
-      else offerItems(c, 'spell', 'standard', 2, 'The Abbey shares its rites — choose a spell.')
-      break
-    case 'market':
-      if (EXPERIMENTS.ascendingDeck) offerCaravan(c)
-      else offerItems(c, 'spell', 'standard', 3, 'The Market trades in readiness — choose a spell.')
-      break
+    // V3.0 cutover (slice 9): the non-ascending offerItems fallbacks and the
+    // Tower node are DELETED (§11) — every landmark is its V3 verb.
+    case 'forge': offerForge(c); break
+    case 'abbey': offerSanctumV3(c, SANCTUM_TRANSFERS); break
+    case 'market': offerCaravan(c); break
     case 'hunt':
       // V3 §8 — Hunt (C1 only, NEW): pursue a missed recruit. Still an exact kill.
       offerHunt(c, nodeId)
@@ -322,27 +312,7 @@ function resolveNode(c: CampaignState, nodeId: string, kind: NodeKind) {
       // drawn Staff per class (own class included). Just a swap; repeatable.
       offerFallenHeroes(c)
       break
-    case 'tower': {
-      c.phase = 'landmark'
-      c.pendingChoice = {
-        kind: 'landmark_reward', forPlayerId: null,
-        prompt: 'The Tower grants initiative: choose who starts the next encounter.',
-        options: c.heroes.filter(h => h.alive).map(h => ({
-          id: `hero-${c.heroes.indexOf(h)}`, label: `${h.playerName} (${CLASSES[h.classId].name})`,
-        })),
-      }
-      // intel canon: certain landmarks reveal boss intel
-      if (c.chapter === 2 && c.encounter?.bossModifierId) c.encounter.bossModifierRevealed = true
-      c.pendingChoice.options.push({ id: 'intel', label: 'Study the court instead (reveal boss intel)' })
-      break
-    }
-    case 'shrine':
-      // V3 §8: Shrine = Consecrate (permanent transmute) — Cleanse is retired
-      if (EXPERIMENTS.ascendingDeck) { offerShrineV3(c); break }
-      c.shrineBlessing = true
-      clog(c, '⛩ The Shrine blesses the party: next encounter, everyone draws 1 and the hand cap is raised by 1.')
-      c.phase = 'road'
-      break
+    case 'shrine': offerShrineV3(c); break
     case 'event': {
       const { r, done } = rng(c)
       const event = r.pick(RUN_EVENTS)
@@ -367,48 +337,10 @@ function rewardBonus(c: CampaignState): number {
   return c.heroes.length <= 2 ? 1 : 0
 }
 
-function offerItems(c: CampaignState, kind: 'relic' | 'spell', tier: 'standard' | 'rare', n: number, prompt: string) {
-  const { r, done } = rng(c)
-  const owned = new Set([...c.spells, ...c.heroes.flatMap(h => h.relicIds)])
-  let pool = itemPool(c, kind, tier).filter(i => !owned.has(i.id))
-  if (c.debug.forceNextRewardId) {
-    pool = [getItem(c.debug.forceNextRewardId)]
-    c.debug.forceNextRewardId = undefined
-  }
-  const options = r.shuffle(pool).slice(0, n + rewardBonus(c))
-  done()
-  if (options.length === 0) { clog(c, 'Nothing new on offer here.'); c.phase = 'road'; return }
-  c.phase = 'landmark'
-  c.pendingChoice = {
-    kind: 'landmark_reward', forPlayerId: null, prompt,
-    options: options.map(i => ({ id: i.id, label: `${i.name}${i.tier === 'rare' ? ' ★' : ''}`, detail: i.text })),
-  }
-}
+// (offerItems, the per-chapter item-stop cap, consumeItemStop and the curse
+// system — cursedCardIds, the Caravan mythic deal, Cleanse — were DELETED at
+// the V3.0 cutover, §11 slice 9. Relics = Lair/Caravan; spells = the gauntlet.)
 
-// ── Ascending-deck item economy (relics/spells from specific places) ─────────
-// Relics from the Caravan + important battles; spells from the Sanctum. Both
-// draw from the run's unlocked pool. A per-chapter cap keeps item stops to 2-3.
-
-const ITEM_STOPS_PER_CHAPTER = 3
-
-/** True (and counts) if another relic/spell stop is allowed this chapter. */
-function consumeItemStop(c: CampaignState): boolean {
-  const n = c.itemStopsThisChapter ?? 0
-  if (n >= ITEM_STOPS_PER_CHAPTER) return false
-  c.itemStopsThisChapter = n + 1
-  return true
-}
-
-/** Logical card ids carrying a curse (a token with negative spend or hold). */
-function cursedCardIds(c: CampaignState): string[] {
-  const out: string[] = []
-  for (const [id, list] of Object.entries(c.cardTokens ?? {})) {
-    if (list.some(t => { const d = getTokenDef(t.defId); return !!d && ((d.spend ?? 0) < 0 || (d.hold ?? 0) < 0) })) out.push(id)
-  }
-  return out
-}
-
-// The Caravan — a MYTHIC relic, paid for by cursing all your 2s (or 3s).
 // V3 §7 (slice 7): Caravan pay-from-hand. Cost = a visible discard-total paid
 // from your ROAD hand (greedy smallest cards), Caravan Coin −2. Placeholder
 // number: CARAVAN_COST = 8 (plan §A). Bought relics land in the BAG.
@@ -441,56 +373,10 @@ function offerCaravanV3(c: CampaignState) {
   }
 }
 
+// V3.0 cutover (§11 slice 9): offerCaravan IS the pay-from-hand Caravan; the
+// mythic-for-a-curse deal and the Lair's free token stamp are deleted.
 function offerCaravan(c: CampaignState) {
-  if (EXPERIMENTS.ascendingDeck) { offerCaravanV3(c); return }
-  if (!consumeItemStop(c)) {
-    c.tokenBudget = (c.tokenBudget ?? 0) + 1
-    clog(c, '🐫 The Caravan has moved on — you salvage a measure of forge budget instead.')
-    c.phase = 'road'; autoAdvanceAfterGate(c); return
-  }
-  const ownedR = new Set(c.heroes.flatMap(h => h.relicIds))
-  const pool = MYTHIC_RELIC_IDS.filter(id => !ownedR.has(id))
-  if (mythicCapLeft(c) <= 0 || pool.length === 0) {
-    clog(c, '🐫 The Caravan has no mythic to offer you.'); c.phase = 'road'; autoAdvanceAfterGate(c); return
-  }
-  const { r, done } = rng(c)
-  const offered = r.shuffle(pool).slice(0, 2)
-  done()
-  // each offered mythic is bought with a curse on a whole low rank (2s / 3s)
-  const options = offered.map((id, i) => {
-    const rank = i % 2 === 0 ? '2' : '3'
-    return { id: `caravan:mythic:${rank}:${id}`, label: `${getItem(id).name} ★ — curse all your ${rank}s`,
-      detail: `${getItem(id).text}  ·  stamps −1 on every ${rank} you own` }
-  })
-  options.push({ id: 'caravan:skip', label: 'Wave the Caravan on', detail: 'Take no mythic and no curse.' })
-  c.phase = 'landmark'
-  c.pendingChoice = { kind: 'landmark_reward', forPlayerId: null, prompt: '🐫 The Caravan — a mythic, for a curse.', options }
-}
-
-function applyCaravanMythic(c: CampaignState, optionId: string): { error?: string } {
-  const [, , rank, relicId] = optionId.split(':')   // caravan:mythic:<rank>:<relicId>
-  c.pendingChoice = null
-  if (!relicId || mythicCapLeft(c) <= 0) { c.phase = 'road'; autoAdvanceAfterGate(c); return {} }
-  for (const suit of ['C', 'D', 'H', 'S'] as Suit[]) stampToken(c, `${suit}${rank}`, { defId: 'undercut' })
-  clog(c, `🖤 The Caravan's price: every ${rank} you own is cursed (−1) — ${getItem(relicId).name} is yours.`)
-  if (grantMythic(c, relicId)) return {}   // relic slots full → release choice awaits
-  c.phase = 'road'; autoAdvanceAfterGate(c); return {}
-}
-
-// Lair "rare token" reward — stamp one strong F-tier token onto a card, free.
-function applyLairToken(c: CampaignState): { error?: string } {
-  if (!eligibleForgeCards(c).length) { c.pendingChoice = null; c.phase = 'road'; autoAdvanceAfterGate(c); return {} }
-  const { r, done } = rng(c)
-  const options = ['temper', 'graft', 'edge', 'glasswork'].map(id => {
-    const d = getTokenDef(id)!
-    if (d.needsSuit) { const suit = r.pick(['C', 'D', 'H', 'S'] as Suit[]); return { id: `forge:${id}:${suit}`, label: `${d.name} ${suitSymbol(suit)}`, detail: d.text } }
-    return { id: `forge:${id}`, label: d.name, detail: d.text }
-  })
-  done()
-  options.push({ id: 'forge:done', label: 'Skip the token' })
-  c.phase = 'landmark'
-  c.pendingChoice = { kind: 'forge_token', forPlayerId: null, freeForge: true, returnTo: 'road', prompt: '🕸 A rare token — stamp it free onto a card.', options }
-  return {}
+  offerCaravanV3(c)
 }
 
 // ── V3 §8 (slice 8): out-of-combat §F rewrites + the new landmark handlers ───
@@ -671,86 +557,9 @@ function offerFallenHeroes(c: CampaignState) {
   }
 }
 
-// The Sanctum — RITES (economy-and-identity §5). No longer sells held spells (those
-// are shop/Lair-only now). Sells immediate, consumed-on-pick transforms applied NOW,
-// between fights: Foresight the next fight / Blessing / Cleanse (folds the Shrine in).
-// The verb split: Camp rests · Sanctum transforms (now) · Spells answer.
-// NOTE: there is deliberately NO "Exile" rite — no mechanic may remove a card from
-// the deck. The deck only ever grows (recruit royals; never thin).
-function offerSanctum(c: CampaignState) {
-  if (!consumeItemStop(c)) {
-    c.tokenBudget = (c.tokenBudget ?? 0) + 1
-    clog(c, '✨ The Sanctum is spent — you draw a measure of forge budget from its embers.')
-    c.phase = 'road'; autoAdvanceAfterGate(c); return
-  }
-  const options: PendingChoice['options'] = []
-  options.push({ id: 'sanctum:foresight', label: '👁 Foresight — read the next encounter', detail: 'See the full enemy lineup of your next fight before it begins.' })
-  if (!c.shrineBlessing)
-    options.push({ id: 'sanctum:blessing', label: '✨ Blessing — enter the next fight emboldened', detail: 'Next encounter: everyone draws 1 and the hand cap is +1.' })
-  if (cursedCardIds(c).length)
-    options.push({ id: 'sanctum:cleanse', label: '⛩ Cleanse — lift a curse', detail: 'Removes one −1 curse from a card.' })
-  if (options.length === 0) { clog(c, '✨ The Sanctum has no rite you need.'); c.phase = 'road'; autoAdvanceAfterGate(c); return }
-  c.phase = 'landmark'
-  c.pendingChoice = { kind: 'landmark_reward', forPlayerId: null, prompt: '✨ The Sanctum — choose a rite (consumed now).', options }
-}
-
-function applySanctumRite(c: CampaignState, optionId: string): { error?: string } {
-  c.pendingChoice = null
-  switch (optionId) {
-    case 'sanctum:foresight':
-      c.foresightNext = true
-      clog(c, '👁 Foresight: the next encounter\'s enemies will be laid bare before the first blow.')
-      c.phase = 'road'; autoAdvanceAfterGate(c); return {}
-    case 'sanctum:blessing':
-      c.shrineBlessing = true
-      clog(c, '✨ The Sanctum\'s blessing: next encounter everyone draws 1 and the hand cap is +1.')
-      c.phase = 'road'; autoAdvanceAfterGate(c); return {}
-    case 'sanctum:cleanse': {
-      const cursed = cursedCardIds(c)
-      if (cursed.length === 0) { clog(c, '⛩ Nothing to cleanse.'); c.phase = 'road'; autoAdvanceAfterGate(c); return {} }
-      c.phase = 'landmark'
-      c.pendingChoice = {
-        kind: 'landmark_reward', forPlayerId: null,
-        prompt: '⛩ The Sanctum — lift a curse from one of your cards.',
-        options: cursed.map(id => ({ id: `shrine:cleanse:${id}`, label: `Cleanse ${cardLabelFromId(id)}`, detail: 'Removes one −1 curse.' })),
-      }
-      return {}
-    }
-  }
-  c.phase = 'road'; autoAdvanceAfterGate(c); return {}
-}
-
-// The Shrine — cleanse a curse (or, with none, the old blessing).
-function offerShrine(c: CampaignState) {
-  const cursed = cursedCardIds(c)
-  if (cursed.length === 0) {
-    c.shrineBlessing = true
-    clog(c, '⛩ The Shrine blesses the party: next encounter everyone draws 1 and the hand cap is +1.')
-    c.phase = 'road'; autoAdvanceAfterGate(c); return
-  }
-  c.phase = 'landmark'
-  c.pendingChoice = {
-    kind: 'landmark_reward', forPlayerId: null,
-    prompt: '⛩ The Shrine — lift a curse from one of your cards.',
-    options: cursed.map(id => ({ id: `shrine:cleanse:${id}`, label: `Cleanse ${cardLabelFromId(id)}`, detail: 'Removes one −1 curse.' })),
-  }
-}
-
-function applyShrineCleanse(c: CampaignState, cardId: string): { error?: string } {
-  const list = c.cardTokens?.[cardId]
-  if (list) {
-    const idx = list.findIndex(t => { const d = getTokenDef(t.defId); return !!d && ((d.spend ?? 0) < 0 || (d.hold ?? 0) < 0) })
-    if (idx >= 0) { list.splice(idx, 1); if (list.length === 0) delete c.cardTokens![cardId] }
-  }
-  clog(c, `⛩ The Shrine lifts a curse from ${cardLabelFromId(cardId)}.`)
-  c.pendingChoice = null
-  c.phase = 'road'; autoAdvanceAfterGate(c); return {}
-}
-
-// ── Ascending-deck forge (Step 5) — stamp tokens on cards ────────────────────
-// Offer-menu model: a forge node contributes +1 budget, then offers tokens to
-// stamp; each stamp spends 1 budget. Earned budget (backfill redundancy, Council,
-// Bloodprice) is spent here too. Two-step pick: choose a token → choose a card.
+// (The Sanctum RITES — Foresight/Blessing/Cleanse — the legacy Shrine, the
+// curse Cleanse, and the token-forge machinery were DELETED at the V3.0
+// cutover, §11 slice 9. The Sanctum is Rearrange; the Shrine is Consecrate.)
 
 function cardLabelFromId(id: string): string {
   const suit = id[0]!
@@ -758,255 +567,38 @@ function cardLabelFromId(id: string): string {
   return `${rank}${suitSymbol(suit as Suit)}`
 }
 
-/** Logical card ids in the persistent deck that can still take a token. */
-function eligibleForgeCards(c: CampaignState): string[] {
-  const deck = c.deck
-  if (!deck) return []
-  const ids = new Set<string>()
-  for (const card of [...deck.tavern, ...deck.discard, ...deck.hands.flat()]) {
-    if (card.rank === 'Jo') continue
-    const id = `${card.suit}${card.rank}`
-    if ((c.cardTokens?.[id]?.length ?? 0) < MAX_TOKENS_PER_CARD) ids.add(id)
-  }
-  return [...ids].sort()
-}
-
-function tokenSummary(c: CampaignState, cardId: string): string | undefined {
-  const list = c.cardTokens?.[cardId]
-  if (!list?.length) return undefined
-  return list.map(t => getTokenDef(t.defId)?.short ?? t.defId).join(' ')
-}
-
 function offerForge(c: CampaignState) {
-  // ── V3 §6 (slice 6): the Forge FORGES — sandbagged fragments become the
-  // next crystal tier (spells only; Fragment → Half; Full = V3.5). One
-  // tier-up per visit. The old token-stamp offer is retired (delete slice 9).
-  if (EXPERIMENTS.ascendingDeck) {
-    const g = gauntletOf(c)
-    const ready = GAUNTLET_SUITS.filter(su => g[su]!.tier === 1 && g[su]!.frags >= FRAGMENTS_PER_HALF)
-    if (!ready.length) {
-      clog(c, `⚒️ The Forge finds nothing ready — a hole needs ${FRAGMENTS_PER_HALF} invested fragments to forge its Half.`)
-      c.phase = 'road'
-      autoAdvanceAfterGate(c)
-      return
-    }
-    c.phase = 'landmark'
-    c.pendingChoice = {
-      kind: 'landmark_reward', forPlayerId: null,
-      prompt: '⚒️ The Forge — forge one suit’s fragments into a HALF crystal.',
-      options: [
-        ...ready.map(su => ({
-          id: `forgeup:${su}`,
-          label: `${suitSymbol(su as Suit)} → ${CRYSTALS[su]!.half.name} (Half)`,
-          detail: CRYSTALS[su]!.half.text,
-        })),
-        { id: 'forgeup:skip', label: 'Bank the fragments', detail: 'Leave everything sandbagged for later.' },
-      ],
-    }
-    return
-  }
-  c.tokenBudget = (c.tokenBudget ?? 0) + 1   // the forge's own contribution
-  clog(c, '⚒️ The Forge fires up — stamp tokens onto your cards.')
-  presentForgeTokens(c)
-}
-
-function presentForgeTokens(c: CampaignState) {
-  const budget = c.tokenBudget ?? 0
-  if (budget <= 0 || eligibleForgeCards(c).length === 0) {
-    if (budget > 0) clog(c, '⚒️ No cards can take more tokens right now.')
-    c.pendingChoice = null
+  // V3 §6: the Forge FORGES — sandbagged fragments become the next crystal
+  // tier (spells only; Fragment → Half; Full = V3.5). One tier-up per visit.
+  // (The token-stamp offer, forge budget and fragment shop were DELETED at
+  // the cutover, §11 slice 9.)
+  const g = gauntletOf(c)
+  const ready = GAUNTLET_SUITS.filter(su => g[su]!.tier === 1 && g[su]!.frags >= FRAGMENTS_PER_HALF)
+  if (!ready.length) {
+    clog(c, `⚒️ The Forge finds nothing ready — a hole needs ${FRAGMENTS_PER_HALF} invested fragments to forge its Half.`)
     c.phase = 'road'
     autoAdvanceAfterGate(c)
     return
   }
-  const { r, done } = rng(c)
-  const ids = r.shuffle([...FORGEABLE_TOKEN_IDS]).slice(0, 3)
-  const options = ids.map(id => {
-    const d = getTokenDef(id)!
-    if (d.needsSuit) {
-      const suit = r.pick(['C', 'D', 'H', 'S'] as Suit[])
-      return { id: `forge:${id}:${suit}`, label: `${d.name} ${suitSymbol(suit)}`, detail: d.text }
-    }
-    return { id: `forge:${id}`, label: d.name, detail: d.text }
-  })
-  done()
-  options.push({ id: 'forge:done', label: 'Leave the forge', detail: `Keep ${budget} budget for later.` })
   c.phase = 'landmark'
   c.pendingChoice = {
-    kind: 'forge_token', forPlayerId: null,
-    prompt: `The Forge offers its work (budget: ${budget}). Choose a token to stamp.`,
-    options,
-  }
-}
-
-// Fragment track (Continent 1): spend 2 token fragments to apply a weak C-tier
-// token, triggerable any time the player is on the road. Reuses the forge_token
-// → forge_card two-step, flagged `fragmentApply` so it spends fragments (not the
-// Forge budget) and returns to the road instead of looping the forge menu.
-// How many fragments buy one C-tier token. Deliberately scarce (~1–4 per
-// continent) so the over-upgrade trap is a real choice: too many +value stamps
-// and your cards overshoot the exact-kill threshold (playtest 2026-06-16).
-export const FRAGMENTS_PER_TOKEN = 6
-
-export function applyFragmentStart(c: CampaignState, _playerId: string, _hostId: string): { error?: string } {
-  // V3 §6 (slice 6): the C-tier token track is retired — fragments feed the
-  // gauntlet via the bracelet now (code deleted in slice 9).
-  if (EXPERIMENTS.ascendingDeck) return { error: 'Fragments feed the gauntlet now — place them with the bracelet.' }
-  if (!EXPERIMENTS.ascendingDeck) return { error: 'Fragments are an ascending-deck feature.' }
-  if (c.phase !== 'road') return { error: 'Apply fragment tokens from the road.' }
-  if (c.pendingChoice) return { error: 'Resolve the current choice first.' }
-  if ((c.tokenFragments ?? 0) < FRAGMENTS_PER_TOKEN) return { error: `Collect ${FRAGMENTS_PER_TOKEN} fragments to apply a token.` }
-  if (eligibleForgeCards(c).length === 0) return { error: 'No card can take another token.' }
-  c.phase = 'landmark'
-  c.pendingChoice = {
-    kind: 'forge_token', forPlayerId: null, fragmentApply: true, returnTo: 'road',
-    prompt: `Apply a token (${c.tokenFragments}/${FRAGMENTS_PER_TOKEN} fragments). Choose a C-tier token to stamp.`,
+    kind: 'landmark_reward', forPlayerId: null,
+    prompt: '⚒️ The Forge — forge one suit’s fragments into a HALF crystal.',
     options: [
-      ...C_TIER_TOKEN_IDS.map(id => { const d = getTokenDef(id)!; return { id: `forge:${id}`, label: d.name, detail: d.text } }),
-      { id: 'forge:done', label: 'Not now', detail: 'Keep your fragments for later.' },
+      ...ready.map(su => ({
+        id: `forgeup:${su}`,
+        label: `${suitSymbol(su as Suit)} → ${CRYSTALS[su]!.half.name} (Half)`,
+        detail: CRYSTALS[su]!.half.text,
+      })),
+      { id: 'forgeup:skip', label: 'Bank the fragments', detail: 'Leave everything sandbagged for later.' },
     ],
   }
-  return {}
 }
 
-function applyForgeToken(c: CampaignState, optionId: string): { error?: string } {
-  const fragmentApply = !!c.pendingChoice?.fragmentApply
-  const freeForge = !!c.pendingChoice?.freeForge
-  const returnTo = c.pendingChoice?.returnTo
-  if (optionId === 'forge:done') {
-    c.pendingChoice = null
-    if (returnTo === 'shop') { presentFragmentShop(c); return {} }   // back to the shop menu
-    if (freeForge) { c.phase = 'road'; autoAdvanceAfterGate(c); return {} }   // Lair: skip the free token
-    c.phase = fragmentApply ? (returnTo ?? 'road') : 'road'
-    if (!fragmentApply) autoAdvanceAfterGate(c)
-    return {}
-  }
-  const [, defId, suit] = optionId.split(':')
-  if (!defId || !getTokenDef(defId)) return { error: 'Unknown token.' }
-  if (fragmentApply && !C_TIER_TOKEN_IDS.includes(defId)) return { error: 'Fragments apply only C-tier tokens.' }
-  const token: Token = suit ? { defId, suit } : { defId }
-  const cards = eligibleForgeCards(c)
-  if (cards.length === 0) { if (fragmentApply || freeForge) { c.pendingChoice = null; c.phase = returnTo ?? 'road' } else presentForgeTokens(c); return {} }
-  const d = getTokenDef(defId)!
-  c.pendingChoice = {
-    kind: 'forge_card', forPlayerId: c.pendingChoice?.forPlayerId ?? null, forgeToken: token,
-    fragmentApply, freeForge, returnTo,
-    prompt: `Stamp ${d.name}${suit ? ' ' + suitSymbol(suit as Suit) : ''} on which card?`,
-    options: cards.map(id => ({ id, label: cardLabelFromId(id), detail: tokenSummary(c, id) })),
-  }
-  return {}
-}
-
-function applyForgeCard(c: CampaignState, optionId: string, token: Token): { error?: string } {
-  const fragmentApply = !!c.pendingChoice?.fragmentApply
-  const freeForge = !!c.pendingChoice?.freeForge
-  const returnTo = c.pendingChoice?.returnTo
-  const err = stampToken(c, optionId, token)
-  if (err) return { error: err }
-  const d = getTokenDef(token.defId)!
-  if (freeForge) {   // Lair rare token — no cost
-    clog(c, `   🕸 Stamped ${d.name}${token.suit ? ' ' + suitSymbol(token.suit as Suit) : ''} onto ${cardLabelFromId(optionId)} (free).`)
-    c.pendingChoice = null
-    c.phase = 'road'; autoAdvanceAfterGate(c)
-    return {}
-  }
-  if (fragmentApply) {
-    c.tokenFragments = Math.max(0, (c.tokenFragments ?? 0) - FRAGMENTS_PER_TOKEN)
-    clog(c, `   ✦ Applied ${d.name} onto ${cardLabelFromId(optionId)} (${FRAGMENTS_PER_TOKEN} fragments spent).`)
-    c.pendingChoice = null
-    if (returnTo === 'shop') { presentFragmentShop(c); return {} }
-    c.phase = returnTo ?? 'road'
-    return {}
-  }
-  c.tokenBudget = Math.max(0, (c.tokenBudget ?? 0) - 1)
-  clog(c, `   ✒ Forged ${d.name}${token.suit ? ' ' + suitSymbol(token.suit as Suit) : ''} onto ${cardLabelFromId(optionId)}.`)
-  presentForgeTokens(c)   // offer again while budget remains, else leave the forge
-  return {}
-}
-
-// ── Post-Council fragment shop (economy-and-identity.md §1) ───────────────────
-// Appears at the Continent 1→2 seam; spend banked fragments across four tiers.
-const SHOP_COST = { token: FRAGMENTS_PER_TOKEN, spell: 18, relic: 24, premium: 36 }
-
-// ── Mythic relic cap — Caravan + Lair + shop share 3 per continent ───────────
-function mythicCapLeft(c: CampaignState): number {
-  return Math.max(0, MYTHIC_PER_CONTINENT - (c.mythicThisContinent ?? 0))
-}
-function grantMythic(c: CampaignState, id: string): boolean {
-  c.mythicThisContinent = (c.mythicThisContinent ?? 0) + 1
-  return grantItem(c, id)   // true → relic-slot-full release choice pending
-}
-
-export function openFragmentShop(c: CampaignState) {
-  c.shop = { spellsLeft: 2, premiumLeft: 1 }
-  presentFragmentShop(c)
-}
-
-function presentFragmentShop(c: CampaignState) {
-  const shop = c.shop
-  if (!shop) { c.pendingChoice = null; finishChapterTransition(c); return }
-  const frags = c.tokenFragments ?? 0
-  const { r, done } = rng(c)
-  const options: { id: string; label: string; detail?: string }[] = []
-  if (frags >= SHOP_COST.token && eligibleForgeCards(c).length)
-    options.push({ id: 'shop:token', label: `Stamp a C-tier token  (−${SHOP_COST.token}✦)`, detail: 'Hone / Ballast / Scry / Mark onto one of your cards.' })
-  if (frags >= SHOP_COST.spell && shop.spellsLeft > 0)
-    for (const id of r.shuffle(HAILMARY_SPELL_IDS.filter(s => !c.spells.includes(s))).slice(0, 2))
-      options.push({ id: `shop:spell:${id}`, label: `${getItem(id).name}  (−${SHOP_COST.spell}✦)`, detail: getItem(id).text })
-  if (frags >= SHOP_COST.relic && mythicCapLeft(c) > 0) {
-    const owned = new Set(c.heroes.flatMap(h => h.relicIds))
-    for (const id of r.shuffle(MYTHIC_RELIC_IDS.filter(m => !owned.has(m))).slice(0, 2))
-      options.push({ id: `shop:relic:${id}`, label: `${getItem(id).name} ★  (−${SHOP_COST.relic}✦)`, detail: getItem(id).text })
-  }
-  if (frags >= SHOP_COST.premium && shop.premiumLeft > 0 && !c.heroes.some(h => h.relicIds.includes(BRIDGE_RELIC_ID)))
-    options.push({ id: 'shop:premium', label: `${getItem(BRIDGE_RELIC_ID).name} ★★  (−${SHOP_COST.premium}✦)`, detail: getItem(BRIDGE_RELIC_ID).text })
-  done()
-  options.push({ id: 'shop:done', label: 'Leave — march into Continent 2' })
-  c.phase = 'landmark'
-  c.pendingChoice = {
-    kind: 'shop', forPlayerId: null,
-    prompt: `✦ Graduation shop — ${frags} fragments banked. Buy your way into Continent 2.`,
-    options,
-  }
-}
-
-export function applyShopChoice(c: CampaignState, optionId: string): { error?: string } {
-  if (!c.shop) return { error: 'The shop is closed.' }
-  const frags = c.tokenFragments ?? 0
-  if (optionId === 'shop:done') { c.shop = undefined; c.pendingChoice = null; finishChapterTransition(c); return {} }
-  if (optionId === 'shop:token') {
-    if (frags < SHOP_COST.token || !eligibleForgeCards(c).length) return { error: 'Cannot apply a token now.' }
-    c.pendingChoice = {
-      kind: 'forge_token', forPlayerId: null, fragmentApply: true, returnTo: 'shop',
-      prompt: `Apply a token (−${SHOP_COST.token}✦). Choose a C-tier token.`,
-      options: [...C_TIER_TOKEN_IDS.map(id => { const d = getTokenDef(id)!; return { id: `forge:${id}`, label: d.name, detail: d.text } }), { id: 'forge:done', label: 'Back' }],
-    }
-    return {}
-  }
-  if (optionId.startsWith('shop:spell:')) {
-    const id = optionId.slice('shop:spell:'.length)
-    if (frags < SHOP_COST.spell || c.shop.spellsLeft <= 0) return { error: 'Cannot buy that spell.' }
-    c.tokenFragments = frags - SHOP_COST.spell; c.shop.spellsLeft--; c.spells.push(id)
-    clog(c, `🛒 Bought the spell ${getItem(id).name} (−${SHOP_COST.spell}✦).`)
-    presentFragmentShop(c); return {}
-  }
-  if (optionId.startsWith('shop:relic:')) {
-    const id = optionId.slice('shop:relic:'.length)
-    if (frags < SHOP_COST.relic || mythicCapLeft(c) <= 0) return { error: 'Cannot buy that relic.' }
-    c.tokenFragments = frags - SHOP_COST.relic
-    clog(c, `🛒 Bought the mythic relic ${getItem(id).name} (−${SHOP_COST.relic}✦).`)
-    if (grantMythic(c, id)) { if (c.pendingChoice) c.pendingChoice.returnTo = 'shop'; return {} }   // slot full → release
-    presentFragmentShop(c); return {}
-  }
-  if (optionId === 'shop:premium') {
-    if (frags < SHOP_COST.premium || c.shop.premiumLeft <= 0) return { error: 'Cannot buy the bridge.' }
-    c.tokenFragments = frags - SHOP_COST.premium; c.shop.premiumLeft--
-    clog(c, `🛒 Bought ${getItem(BRIDGE_RELIC_ID).name} (−${SHOP_COST.premium}✦).`)
-    if (grantItem(c, BRIDGE_RELIC_ID)) { if (c.pendingChoice) c.pendingChoice.returnTo = 'shop'; return {} }
-    presentFragmentShop(c); return {}
-  }
-  return { error: 'Unknown shop option.' }
-}
+// (presentForgeTokens, the fragment C-tier track, applyForgeToken/Card, the
+// mythic cap and the post-Council graduation shop were DELETED at the V3.0
+// cutover, §11 slice 9 — fragments feed the gauntlet; relics come from the
+// Lair and the Caravan's pay-from-hand.)
 
 // ── Ascending-deck drafts (Step 6) — steer the early deck ────────────────────
 // A draft is a solo per-hero pick (forPlayerId-scoped, so it bypasses the
@@ -1018,10 +610,10 @@ export function applyShopChoice(c: CampaignState, optionId: string): { error?: s
 const DRAFT_TEMPO = 3
 
 function offerDraft(c: CampaignState) {
-  // Drafts are a Continent-1 deck-steering tool. Outside Continent 1 (or with
-  // the flag off) the node degrades to a market so the road never spins.
-  if (!(EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 1)) {
-    offerItems(c, 'spell', 'standard', 3, 'The caravan trades in readiness — choose a spell.')
+  // Drafts are a Continent-1 deck-steering tool. Outside Continent 1 the node
+  // degrades to a Caravan so the road never spins.
+  if (continentOf(c.chapter) !== 1) {
+    offerCaravan(c)
     return
   }
   const tierRanks = RECRUIT_RANKS_BY_CHAPTER[c.chapter] ?? ['6', '7']
@@ -1051,26 +643,14 @@ function offerDraft(c: CampaignState) {
     label: `Draw ${n} now`,
     detail: `Pure tempo — immediately draw ${n} cards. Nothing joins the deck.`,
   })
-  // Graft archetype (needs Step-5 tokens): add a 2nd suit to one of your cards.
-  const graftOption = () => {
-    const suit = r.pick(suits)
-    return {
-      id: `draft:graft:${suit}`,
-      label: `Graft ${suitSymbol(suit)} onto a card`,
-      detail: `Add ${suitSymbol(suit)} as a second suit to your best eligible card — it then fires two levers.`,
-    }
-  }
-  const canGraft = eligibleForgeCards(c).length > 0
-
-  // Three distinct draft categories (locked 2026-06-15):
+  // Draft categories (V3.0 cutover: the additive-graft archetype is DELETED —
+  // grafts come only from kills):
   //   A — recruit a tier card you lack + draw 3 (tempo)
-  //   B — graft a 2nd suit onto one of your cards (token archetype)
-  //   C — a clean tier card, no rider ("just the card")
+  //   B — a clean tier card, no rider ("just the card")
   // Pad toward three real options; degrade gracefully when the tier runs dry.
   const options: { id: string; label: string; detail?: string }[] = []
   if (pool.length >= 1) options.push(cardOption(pool[0]!))      // A
-  if (canGraft) options.push(graftOption())                    // B
-  if (pool.length >= 2) options.push(plainCardOption(pool[1]!)) // C
+  if (pool.length >= 2) options.push(plainCardOption(pool[1]!)) // B
   if (options.length < 3) options.push(tempoOption(DRAFT_TEMPO + 2))
   if (options.length < 2) options.push(tempoOption(DRAFT_TEMPO))
   options.splice(3)   // at most three
@@ -1095,8 +675,6 @@ export function applyChoice(c: CampaignState, playerId: string, optionId: string
     return { error: 'You are not in this campaign.' }
   }
   if (!pc.options.some(o => o.id === optionId)) return { error: 'Invalid option.' }
-
-  if (pc.kind === 'shop') return applyShopChoice(c, optionId)
 
   if (pc.kind === 'royal_keep') return applyRoyalKeep(c, pc, optionId)
 
@@ -1148,23 +726,14 @@ export function applyChoice(c: CampaignState, playerId: string, optionId: string
     return resolveDraftPick(c, pc, optionId)
   }
 
-  if (pc.kind === 'forge_token') {
-    return applyForgeToken(c, optionId)
-  }
-
-  if (pc.kind === 'forge_card') {
-    if (!pc.forgeToken) { c.pendingChoice = null; c.phase = 'road'; return { error: 'No token to forge.' } }
-    return applyForgeCard(c, optionId, pc.forgeToken)
-  }
+  // (forge_token / forge_card / shop kinds were DELETED at the V3.0 cutover.)
 
   if (pc.kind === 'relic_full') {
     // optionId is the relic to RELEASE; the holder keeps the other two
     const target = c.heroes.find(h => h.playerId === pc.forPlayerId) ?? c.heroes.find(h => h.alive)!
-    const backToShop = pc.returnTo === 'shop'
     target.relicIds = pc.options.map(o => o.id).filter(id => id !== optionId)
     clog(c, `   ${target.playerName} releases ${getItem(optionId).name}; carries ${target.relicIds.map(id => getItem(id).name).join(' & ')}.`)
     c.pendingChoice = null
-    if (backToShop) { presentFragmentShop(c); return {} }
     c.phase = 'road'
     autoAdvanceAfterGate(c)
     return {}
@@ -1178,11 +747,9 @@ function resolveRewardOption(c: CampaignState, optionId: string, pc: PendingChoi
   // ascending-deck item-economy special options (Caravan / Sanctum / Shrine)
   if (optionId === 'caravan:skip') {
     c.pendingChoice = null
-    clog(c, '🐫 You wave the Caravan on — no mythic, no curse.')
+    clog(c, '🐫 You wave the Caravan on.')
     c.phase = 'road'; autoAdvanceAfterGate(c); return {}
   }
-  if (optionId.startsWith('caravan:mythic:')) return applyCaravanMythic(c, optionId)
-  if (optionId === 'lair:token') return applyLairToken(c)
   // V3 §8 — Hunt: the chosen quarry becomes the whole fight
   if (optionId.startsWith('hunt:')) {
     const [, cardId, nodeId] = optionId.split(':')
@@ -1327,13 +894,13 @@ function resolveRewardOption(c: CampaignState, optionId: string, pc: PendingChoi
     autoAdvanceAfterGate(c)
     return {}
   }
-  if (optionId.startsWith('sanctum:')) return applySanctumRite(c, optionId)
-  if (optionId.startsWith('shrine:cleanse:')) return applyShrineCleanse(c, optionId.slice('shrine:cleanse:'.length))
-  if (optionId.startsWith('hero-')) {
-    c.nextStarterIndex = parseInt(optionId.slice(5))
-    clog(c, `🗼 ${c.heroes[c.nextStarterIndex]!.playerName} will take the first turn of the next encounter.`)
+  // V3 §8: 'sanctum:done' closes the Rearrange menu (the legacy rites and the
+  // curse Cleanse were deleted at the cutover; the Tower's hero-/intel picks too)
+  if (optionId === 'sanctum:done') {
     c.pendingChoice = null
-    c.phase = pc.returnTo ?? 'road'   // Brace Command picks return to camp
+    clog(c, '✨ You leave the Sanctum as it stands.')
+    c.phase = 'road'
+    autoAdvanceAfterGate(c)
     return {}
   }
   if (optionId.startsWith('ev:')) {
@@ -1343,21 +910,12 @@ function resolveRewardOption(c: CampaignState, optionId: string, pc: PendingChoi
     c.phase = 'road'
     return {}
   }
-  if (optionId === 'intel') {
-    clog(c, c.chapter === 2 ? '🗼 The Tower reveals the court’s corruption.' : '🗼 The Tower reveals little — the First Ascension hides no tricks.')
-    c.debug = { ...c.debug }
-    c.pendingChoice = null
-    c.phase = 'road'
-    // reveal applies to the *next* boss encounter — store on campaign
-    ;(c as CampaignState & { bossIntel?: boolean }).bossIntel = true
-    return {}
-  }
-  // mythic relics (e.g. from the Lair) count against the 3/continent cap
-  const grant = MYTHIC_RELIC_IDS.includes(optionId) ? grantMythic(c, optionId) : grantItem(c, optionId)
+  // legacy item grants (the pools are empty under V3 — kept for stray options)
+  const grant = grantItem(c, optionId)
   if (grant) return {}   // relic slots full: release choice awaits
   c.pendingChoice = null
   c.phase = 'road'
-  autoAdvanceAfterGate(c)   // province: gates sweep the party forward
+  autoAdvanceAfterGate(c)
   return {}
 }
 
@@ -1370,19 +928,11 @@ function resolveDraftPick(c: CampaignState, pc: PendingChoice, optionId: string)
   const tempo = parseInt(tempoStr ?? '0') || 0
   const deck = c.deck
 
-  // Graft archetype: add a 2nd suit to the player's best eligible card.
+  // (The additive-graft draft archetype was DELETED at the cutover — grafts
+  // come only from kills. Any stray 'graft' option degrades to a fragment.)
   if (body === 'graft') {
-    const suit = tempoStr as Suit
-    const target = eligibleForgeCards(c)
-      .filter(id => id[0] !== suit && !(c.cardTokens?.[id]?.some(t => t.defId === 'graft' && t.suit === suit)))
-      .sort((a, b) => cardValue(b.slice(1)) - cardValue(a.slice(1)))[0]
-    if (target) {
-      stampToken(c, target, { defId: 'graft', suit })
-      clog(c, `🃏 Draft: grafts ${suitSymbol(suit)} onto ${cardLabelFromId(target)} — now a dual-type card.`)
-    } else {
-      c.tokenBudget = (c.tokenBudget ?? 0) + 1
-      clog(c, '🃏 Draft: no card could take the graft — +1 forge budget instead.')
-    }
+    c.tokenFragments = (c.tokenFragments ?? 0) + 1
+    clog(c, '🃏 Draft: the graft archetype is retired — +1 fragment instead.')
     c.pendingChoice = null
     c.phase = 'road'
     return {}
@@ -1393,9 +943,9 @@ function resolveDraftPick(c: CampaignState, pc: PendingChoice, optionId: string)
     const suit = cardId[0] as Suit
     const rank = cardId.slice(1) as Card['rank']
     if ((c.ownedCards ?? []).includes(cardId)) {
-      // already owned (shouldn't happen — offers are unowned) → redundancy token
-      c.tokenBudget = (c.tokenBudget ?? 0) + 1
-      clog(c, `🃏 Draft: ${rank}${suitSymbol(suit)} already owned — +1 token budget.`)
+      // already owned (shouldn't happen — offers are unowned) → redundancy → fragment
+      c.tokenFragments = (c.tokenFragments ?? 0) + 1
+      clog(c, `🃏 Draft: ${rank}${suitSymbol(suit)} already owned — +1 fragment.`)
     } else {
       c.ownedCards = [...(c.ownedCards ?? []), cardId]
       // §F: the drafted card carries its physical identity from the start
@@ -1592,7 +1142,7 @@ export function checkEncounterEnd(c: CampaignState, kingdom?: KingdomState) {
     const rankNode = c.map?.nodes.find(n => n.id === s.nodeId)
     c.lastFight = {
       tier: s.tier,
-      rank: s.tier === 'boss' && (EXPERIMENTS.provinceMode || (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2)) && rankNode
+      rank: s.tier === 'boss' && EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2 && rankNode
         ? (['J', 'Q', 'K'] as const)[Math.min(c.map!.nodes.filter(n => n.kind === 'boss' && n.layer < rankNode.layer).length, 2)]!
         : null,
       handSizes: s.hands.map(h => h.length),
@@ -1637,13 +1187,12 @@ export function checkEncounterEnd(c: CampaignState, kingdom?: KingdomState) {
         return
       }
 
-      // Province / ascending-deck: the Gates and the Courtyard are intermediate
+      // Continent-1 number gates: the Gates and the Courtyard are intermediate
       // gate fights — pay spoils and march on; only the Throne completes the
-      // chapter. Continent 1 (ch1/ch2) uses number gates with the same flow.
-      // (Ch3's Council of Tens is handled above and never reaches here.)
-      const useProvinceBossSplit = EXPERIMENTS.provinceMode
-        || (EXPERIMENTS.ascendingDeck && (continentOf(c.chapter) === 2
-          || (continentOf(c.chapter) === 1 && c.chapter !== 3)))
+      // chapter. (Ch3's Council of Tens is handled above and never gets here;
+      // C2 gates short-circuit into the keep-decision above.)
+      const useProvinceBossSplit = EXPERIMENTS.ascendingDeck
+        && ((continentOf(c.chapter) === 1 && c.chapter !== 3) || continentOf(c.chapter) === 2)
       if (useProvinceBossSplit && node.next.length > 0) {
         c.encounter = null
         presentGateSpoils(c, node)
@@ -1654,45 +1203,27 @@ export function checkEncounterEnd(c: CampaignState, kingdom?: KingdomState) {
       else { c.phase = 'campaign_won' }   // defensive: real boss clears always pass kingdom
       return
     }
-    // ── Lair: a 3-way reward screen — pick a mythic relic, a hail-mary spell,
-    // or a rare token (the gamble's payoff). Mythic shares the 3/continent cap.
     if (node.kind === 'lair') {
       const { r, done } = rng(c)
       c.encounter = null
-      // V3 §7 (slice 7): the Lair is the relic RAID — the dangerous fight pays
-      // one of two pool relics into the bag (the primary relic source).
-      if (EXPERIMENTS.ascendingDeck) {
-        const owned = relicsOwned(c)
-        const pool = r.shuffle(V3_RELICS.filter(rd => !owned.has(rd.id))).slice(0, 2)
-        done()
-        if (!pool.length) {
-          c.tokenFragments = (c.tokenFragments ?? 0) + 1
-          clog(c, '🕸 The Lair holds nothing new — a fragment glints instead (+1).')
-          c.phase = 'road'
-          return
-        }
-        c.phase = 'landmark'
-        c.pendingChoice = {
-          kind: 'landmark_reward', forPlayerId: null,
-          prompt: '🕸 The Lair’s hoard lies open — claim one relic for the bag.',
-          options: pool.map(rd => ({ id: `v3relic:${rd.id}`, label: `${rd.name} (${rd.slot})`, detail: rd.text })),
-        }
+      // V3 §7: the Lair is the relic RAID — the dangerous fight pays one of
+      // two pool relics into the bag. (The legacy mythic/hail-mary/token
+      // 3-way was DELETED at the cutover, §11 slice 9.)
+      const owned = relicsOwned(c)
+      const pool = r.shuffle(V3_RELICS.filter(rd => !owned.has(rd.id))).slice(0, 2)
+      done()
+      if (!pool.length) {
+        c.tokenFragments = (c.tokenFragments ?? 0) + 1
+        clog(c, '🕸 The Lair holds nothing new — a fragment glints instead (+1).')
+        c.phase = 'road'
         return
       }
-      const ownedR = new Set(c.heroes.flatMap(h => h.relicIds))
-      const options: { id: string; label: string; detail?: string }[] = []
-      const mythic = mythicCapLeft(c) > 0 ? r.shuffle(MYTHIC_RELIC_IDS.filter(m => !ownedR.has(m)))[0] : undefined
-      if (mythic) options.push({ id: mythic, label: `${getItem(mythic).name} ★ (mythic relic)`, detail: getItem(mythic).text })
-      // V3 §6: spells are gauntlet-only — the Lair's hail-mary offer is legacy
-      const spell = EXPERIMENTS.ascendingDeck ? undefined : r.shuffle(HAILMARY_SPELL_IDS.filter(s => !c.spells.includes(s)))[0]
-      if (spell) options.push({ id: spell, label: `${getItem(spell).name} (hail-mary spell)`, detail: getItem(spell).text })
-      if (eligibleForgeCards(c).length)
-        options.push({ id: 'lair:token', label: 'A rare token — stamp it now', detail: 'Stamp one strong F-tier token (Temper / Graft / a lever) onto a card, free.' })
-      done()
-      if (options.length) {
-        c.phase = 'landmark'
-        c.pendingChoice = { kind: 'landmark_reward', forPlayerId: null, prompt: 'The Lair’s hoard lies open — claim one prize.', options }
-      } else c.phase = 'road'
+      c.phase = 'landmark'
+      c.pendingChoice = {
+        kind: 'landmark_reward', forPlayerId: null,
+        prompt: '🕸 The Lair’s hoard lies open — claim one relic for the bag.',
+        options: pool.map(rd => ({ id: `v3relic:${rd.id}`, label: `${rd.name} (${rd.slot})`, detail: rd.text })),
+      }
       return
     }
     // standard encounter drops: skirmish/recruit → no spoils (the fight is a
@@ -1722,16 +1253,12 @@ export function checkEncounterEnd(c: CampaignState, kingdom?: KingdomState) {
   }
 
   if (s.outcome === 'retreated') {
+    // V3: a retreat (Slip Away) buys another attempt with NO rest — the
+    // fight is retaken as you stand (the legacy emergency full rest died
+    // with the cutover).
     c.encounter = null
     c.phase = 'camp'
-    if (EXPERIMENTS.provinceMode) {
-      // Province canon: retreating buys another attempt but NO rest — camps
-      // are scarce, and a retreat must not be a free one.
-      clog(c, '🏳 The party falls back, winded. No rest — the fight can be retaken as you stand.')
-    } else {
-      campRest(c)   // emergency camp is an interlude: full rest applies
-      clog(c, '🏕 The party falls back to an emergency camp. The fight can be retaken from here.')
-    }
+    clog(c, '🏳 The party falls back, winded. No rest — the fight can be retaken as you stand.')
   }
 }
 
@@ -2044,18 +1571,7 @@ function finalizeRoyalKeep(c: CampaignState, rk: NonNullable<PendingChoice['roya
 }
 
 function completeChapter(c: CampaignState, kingdom: KingdomState) {
-  if (EXPERIMENTS.provinceMode && c.chapter === 1) {
-    // Province 1 liberated: the run is complete; further provinces unlock at
-    // the kingdom level (chapter 2 content is out of scope for the prototype).
-    if (!kingdom.unlockedChapters.includes(2)) kingdom.unlockedChapters.push(2)
-    for (const cid of ['commander', 'warden', 'gambler', 'exile', 'oracle'] as ClassId[])
-      if (!kingdom.unlockedClasses.includes(cid)) kingdom.unlockedClasses.push(cid)
-    kingdom.campaignsWon++
-    saveKingdom(kingdom)
-    c.phase = 'campaign_won'
-    clog(c, '👑 The Throne is taken — the province is liberated. New provinces open to the Kingdom.')
-    return
-  }
+  // (The provinceMode prototype's win path was DELETED at the cutover.)
 
   // ── Ascending-deck: Continent 1 chapter transitions (1 → 2 → 3 → seam → 4) ─
   if (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 1) {
@@ -2103,10 +1619,14 @@ function completeChapter(c: CampaignState, kingdom: KingdomState) {
       }
       for (const cid of ['gambler', 'exile', 'oracle'] as ClassId[])
         if (!kingdom.unlockedClasses.includes(cid)) kingdom.unlockedClasses.push(cid)
+      // V3 §10 (slice 9): the crown unlocks the three non-home suit paths —
+      // meta banks OPTIONS, not power (in-run breadth is V3.5).
+      kingdom.pathsUnlocked = true
       kingdom.campaignsWon++
       saveKingdom(kingdom)
       c.phase = 'campaign_won'
       clog(c, '👑 The King Gate falls and the crown is yours — Continent 2 is Shaped. The campaign is WON!')
+      clog(c, '   ✨ The other three suit paths open to your lineage (visible from your next run).')
       return
     }
     for (const cid of ['gambler', 'exile', 'oracle'] as ClassId[])
@@ -2187,7 +1707,6 @@ export function applyContinueChapter(c: CampaignState, playerId: string, hostId:
   c.exileBurden = 0
   c.gamblerWagerUsed = false
   c.ironReprieveUsed = false
-  c.itemStopsThisChapter = 0   // relic/spell-stop budget refreshes each chapter
   c.relicChapterUses = {}      // V3 §7: once-per-province relic uses refresh
 
   const { r, done } = rng(c)
@@ -2204,8 +1723,6 @@ export function applyContinueChapter(c: CampaignState, playerId: string, hostId:
 // transition (also called when the post-Council shop closes). For the
 // Continent seam, setupChapterDeck builds the FULL A-10 deck from ownedCards.
 function finishChapterTransition(c: CampaignState) {
-  // entering a new continent (ch1, ch4, ch7…): the mythic 3/continent cap resets
-  if (((c.chapter - 1) % 3) === 0) c.mythicThisContinent = 0
   // V3 seam reset (slice 5): a chapter/province boundary carries hands + tops
   // up to 5 — the automatic, lighter cousin of the Camp bundle (Decision 4).
   setupChapterDeck(c, { seam: true })
@@ -2344,8 +1861,8 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
       // Sanctum Foresight rite: the upcoming enemy lineup, laid bare this fight
       foreseen: s.flags['foreseen'] ? s.enemyDeck.map(card => cardLabelFromId(`${card.suit}${card.rank}`)) : undefined,
       siegeRank: (() => {
-        // province mode or ascending-deck continent-2: which rank gate this boss node is
-        const useRankSplit = EXPERIMENTS.provinceMode || (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2)
+        // ascending-deck continent-2: which rank gate this boss node is
+        const useRankSplit = EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2
         if (s.tier !== 'boss' || !useRankSplit || !c.map) return null
         const node = c.map.nodes.find(n => n.id === s.nodeId)
         if (!node) return null
@@ -2404,10 +1921,10 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
       unlockedChapters: kingdom.unlockedChapters,
       unlockedClasses: kingdom.unlockedClasses,
       specializationsUnlocked: kingdom.specializationsUnlocked,
+      pathsUnlocked: !!kingdom.pathsUnlocked,
     },
     log: c.log,
     cardTokens: projectCardTokens(c),
-    tokenBudget: c.tokenBudget,
     tokenFragments: c.tokenFragments,
     ascendingDeck: EXPERIMENTS.ascendingDeck,
     physicalCards: projectPhysicalCards(c),

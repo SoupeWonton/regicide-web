@@ -144,7 +144,7 @@ export function recordRunEnd(c: CampaignState, resultOverride?: 'abandoned') {
     lossNodeKind: t.lossNodeKind,
     lossModifier: t.lossModifier,
     classes,
-    provinceMode: EXPERIMENTS.provinceMode ? 1 : 0,
+    provinceMode: 0,   // flag deleted at the V3.0 cutover (CSV column kept for continuity)
     startedAt: t.startedAt,
     endedAt: new Date().toISOString(),
   })
