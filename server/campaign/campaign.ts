@@ -6,8 +6,8 @@ import type {
   Hero, KingdomState, NodeKind, PendingChoice, RoadNode, Token,
 } from './types'
 import { CLASSES, TIER1_CLASSES, getItem, itemsOf, RELIC_SLOTS, getEncounterDef, BOSS_MODIFIERS, FORGEABLE_TOKEN_IDS, C_TIER_TOKEN_IDS, getTokenDef, RELIC_UNLOCK_ORDER, SPELL_UNLOCK_ORDER, HAILMARY_SPELL_IDS, MYTHIC_RELIC_IDS, BRIDGE_RELIC_ID, MYTHIC_PER_CONTINENT } from './content'
-import { stampToken, projectCardTokens, MAX_TOKENS_PER_CARD } from './tokens'
-import { CAMPAIGN_SCHEMA_VERSION, registerLogicalCard, projectPhysicalCards } from './cards'
+import { stampToken, projectCardTokens, rekeyCardTokens, MAX_TOKENS_PER_CARD } from './tokens'
+import { CAMPAIGN_SCHEMA_VERSION, registerLogicalCard, projectPhysicalCards, effectiveFace, logicalOf, moveGraft, applyGraft } from './cards'
 import { staffsOf, getStaff, getLadder, homeLadder } from './paths'
 import { CRYSTALS, FRAGMENTS_PER_HALF, GAUNTLET_SUITS, gauntletOf, projectGauntlet } from './spells'
 import { V3_RELICS, RELIC_SLOT_ORDER, getV3Relic, relicBagOf, equipmentOf, relicEquipped, relicsOwned, type RelicSlot } from './relics'
@@ -241,9 +241,10 @@ function labelOf(kind: NodeKind): string {
     start: 'the trailhead', camp: 'a camp', boss: 'the castle gates',
     skirmish: 'a skirmish', veteran: 'a veteran patrol', elite: 'an elite warband',
     recruit: 'a recruit encounter', draft: 'a draft',
-    forge: 'the Forge', abbey: 'the Abbey', market: 'the Market',
+    forge: 'the Forge', abbey: 'the Sanctum', market: 'the Caravan',
     tower: 'the Tower', shrine: 'the Shrine', lair: 'a Lair',
     event: 'a strange happening',
+    hunt: 'a Hunt', heroes: 'the Fallen Heroes',
   }[kind]
 }
 
@@ -304,12 +305,22 @@ function resolveNode(c: CampaignState, nodeId: string, kind: NodeKind) {
       else offerItems(c, 'relic', 'standard', 2, 'The Forge offers its work — choose a relic.')
       break
     case 'abbey':
-      if (EXPERIMENTS.ascendingDeck) offerSanctum(c)
+      // V3 §8: Sanctum = Rearrange (graft transfers) — the rites are retired
+      if (EXPERIMENTS.ascendingDeck) offerSanctumV3(c, SANCTUM_TRANSFERS)
       else offerItems(c, 'spell', 'standard', 2, 'The Abbey shares its rites — choose a spell.')
       break
     case 'market':
       if (EXPERIMENTS.ascendingDeck) offerCaravan(c)
       else offerItems(c, 'spell', 'standard', 3, 'The Market trades in readiness — choose a spell.')
+      break
+    case 'hunt':
+      // V3 §8 — Hunt (C1 only, NEW): pursue a missed recruit. Still an exact kill.
+      offerHunt(c, nodeId)
+      break
+    case 'heroes':
+      // V3 §8 — Fallen Heroes (C2-P2 start): free Staff swap — one randomly-
+      // drawn Staff per class (own class included). Just a swap; repeatable.
+      offerFallenHeroes(c)
       break
     case 'tower': {
       c.phase = 'landmark'
@@ -326,7 +337,8 @@ function resolveNode(c: CampaignState, nodeId: string, kind: NodeKind) {
       break
     }
     case 'shrine':
-      if (EXPERIMENTS.ascendingDeck) { offerShrine(c); break }
+      // V3 §8: Shrine = Consecrate (permanent transmute) — Cleanse is retired
+      if (EXPERIMENTS.ascendingDeck) { offerShrineV3(c); break }
       c.shrineBlessing = true
       clog(c, '⛩ The Shrine blesses the party: next encounter, everyone draws 1 and the hand cap is raised by 1.')
       c.phase = 'road'
@@ -479,6 +491,184 @@ function applyLairToken(c: CampaignState): { error?: string } {
   c.phase = 'landmark'
   c.pendingChoice = { kind: 'forge_token', forPlayerId: null, freeForge: true, returnTo: 'road', prompt: '🕸 A rare token — stamp it free onto a card.', options }
   return {}
+}
+
+// ── V3 §8 (slice 8): out-of-combat §F rewrites + the new landmark handlers ───
+
+/** After a graft moves/lands between fights: refresh the runtime faces of the
+ * touched cards in the road deck and carry their legacy token keys along. */
+function syncCardFaces(c: CampaignState, physicalIds: string[], before: Record<string, string>) {
+  for (const id of physicalIds) {
+    const pc = c.cards?.[id]
+    if (!pc) continue
+    const f = effectiveFace(pc)
+    const now = `${f.suit}${f.rank}`
+    if (before[id] && before[id] !== now) rekeyCardTokens(c, before[id]!, now)
+    const piles = c.deck ? [c.deck.tavern, c.deck.discard, ...c.deck.hands] : []
+    for (const pile of piles)
+      for (const cd of pile)
+        if (cd.id === id) {
+          cd.suit = f.suit as Suit
+          cd.rank = f.rank as Card['rank']
+        }
+  }
+}
+
+function captureFaces(c: CampaignState, physicalIds: string[]): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const id of physicalIds) {
+    const pc = c.cards?.[id]
+    if (pc) out[id] = logicalOf(effectiveFace(pc))
+  }
+  return out
+}
+
+function moveGraftSynced(c: CampaignState, fromId: string, seq: number, toId: string): string | null {
+  const before = captureFaces(c, [fromId, toId])
+  const err = moveGraft(c, fromId, seq, toId)
+  if (err) return err
+  syncCardFaces(c, [fromId, toId], before)
+  return null
+}
+
+function applyGraftSynced(c: CampaignState, physicalId: string, kind: 'rank' | 'suit', to: string, source: string): string | null {
+  const before = captureFaces(c, [physicalId])
+  const err = applyGraft(c, physicalId, kind, to, source)
+  if (err) return err
+  syncCardFaces(c, [physicalId], before)
+  return null
+}
+
+// V3 §8 — Sanctum = REARRANGE: up to two transfers per visit, each relocating
+// an earned graft between owned cards (no new power, pure redistribution).
+// ⚑ Targets are the current road hand (placeholder for the full deck picker).
+const SANCTUM_TRANSFERS = 2
+
+function movableGrafts(c: CampaignState): { pcId: string; seq: number; label: string }[] {
+  const out: { pcId: string; seq: number; label: string }[] = []
+  for (const pc of Object.values(c.cards ?? {}))
+    for (const g of pc.grafts)
+      out.push({
+        pcId: pc.physicalId, seq: g.seq,
+        label: `${g.kind === 'suit' ? `→${suitSymbol(g.to as Suit)}` : `→${g.to}`} on ${cardLabelFromId(logicalOf(effectiveFace(pc)))}`,
+      })
+  return out
+}
+
+function offerSanctumV3(c: CampaignState, remaining: number) {
+  const movable = movableGrafts(c)
+  if (!movable.length) {
+    clog(c, '✨ The Sanctum finds nothing to rearrange — no grafts ride your deck yet.')
+    c.phase = 'road'
+    autoAdvanceAfterGate(c)
+    return
+  }
+  c.phase = 'landmark'
+  c.pendingChoice = {
+    kind: 'landmark_reward', forPlayerId: null,
+    prompt: `✨ The Sanctum — Rearrange: relocate a graft (${remaining} transfer${remaining !== 1 ? 's' : ''} left this visit).`,
+    options: [
+      ...movable.slice(0, 6).map(m => ({
+        id: `sanctum:move:${m.pcId}:${m.seq}:${remaining}`,
+        label: m.label,
+        detail: 'Move this graft to a held card — the card underneath is never lost.',
+      })),
+      { id: 'sanctum:done', label: 'Leave', detail: 'Rearrange nothing further.' },
+    ],
+  }
+}
+
+// V3 §8 — Shrine = CONSECRATE: permanently transmute one owned card's suit or
+// rank — no kill required. ⚑ Placeholder: three seeded offers instead of a
+// full any-card/any-value picker.
+function offerShrineV3(c: CampaignState) {
+  const owned = Object.values(c.cards ?? {})
+  if (!owned.length) { c.phase = 'road'; autoAdvanceAfterGate(c); return }
+  const { r, done } = rng(c)
+  const seen = new Set<string>()
+  const options: PendingChoice['options'] = []
+  const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+  for (let i = 0; i < 4 && options.length < 3; i++) {
+    const pc = r.pick(owned)
+    const f = effectiveFace(pc)
+    if (i === 1) {
+      const idx = RANKS.indexOf(f.rank)
+      const up = idx >= 0 && idx < RANKS.length - 1 ? RANKS[idx + 1]! : null
+      if (!up) continue
+      const id = `shrine:cons:${pc.physicalId}:rank:${up}`
+      if (seen.has(id)) continue
+      seen.add(id)
+      options.push({ id, label: `${f.rank}${suitSymbol(f.suit as Suit)} → ${up}${suitSymbol(f.suit as Suit)}`, detail: 'Consecrate: the card is permanently transmuted.' })
+    } else {
+      const to = r.pick((['C', 'D', 'H', 'S'] as const).filter(su => su !== f.suit))
+      const id = `shrine:cons:${pc.physicalId}:suit:${to}`
+      if (seen.has(id)) continue
+      seen.add(id)
+      options.push({ id, label: `${f.rank}${suitSymbol(f.suit as Suit)} → ${f.rank}${suitSymbol(to)}`, detail: 'Consecrate: the card is permanently transmuted.' })
+    }
+  }
+  done()
+  if (!options.length) { c.phase = 'road'; autoAdvanceAfterGate(c); return }
+  options.push({ id: 'shrine:skip', label: 'Leave the Shrine', detail: 'Consecrate nothing.' })
+  c.phase = 'landmark'
+  c.pendingChoice = {
+    kind: 'landmark_reward', forPlayerId: null,
+    prompt: '⛩ The Shrine — Consecrate one owned card (permanent, no kill required).',
+    options,
+  }
+}
+
+// V3 §8 — Hunt (C1 only, NEW): pick a missed recruit from the tiers seen so
+// far; the fight is that single card — an exact kill still recruits it.
+function offerHunt(c: CampaignState, nodeId: string) {
+  const suits: Suit[] = ['C', 'D', 'H', 'S']
+  const ranks = Object.entries(RECRUIT_RANKS_BY_CHAPTER)
+    .filter(([ch]) => Number(ch) <= c.chapter)
+    .flatMap(([, r2]) => r2)
+  const owned = new Set(c.ownedCards ?? [])
+  const targets: string[] = []
+  for (const rank of ranks) for (const su of suits) { const id = `${su}${rank}`; if (!owned.has(id)) targets.push(id) }
+  if (!targets.length) {
+    clog(c, '🏹 The Hunt finds no missing quarry — a skirmish blocks the trail instead.')
+    startEncounter(c, nodeId, 'skirmish')
+    c.phase = 'encounter'
+    return
+  }
+  const { r, done } = rng(c)
+  const picks = r.shuffle(targets).slice(0, 4)
+  done()
+  c.phase = 'landmark'
+  c.pendingChoice = {
+    kind: 'landmark_reward', forPlayerId: null,
+    prompt: '🏹 The Hunt — choose your quarry (an exact kill still recruits it).',
+    options: picks.map(id => ({
+      id: `hunt:${id}:${nodeId}`,
+      label: cardLabelFromId(id),
+      detail: 'Track it down. Exact-kill to recruit; overkill and it slips away.',
+    })),
+  }
+}
+
+// V3 §8 — Fallen Heroes: a free, repeatable Staff swap — one randomly-drawn
+// Staff from each of the four classes (own class included).
+function offerFallenHeroes(c: CampaignState) {
+  const { r, done } = rng(c)
+  const hero = c.heroes[0]!
+  const options: PendingChoice['options'] = []
+  for (const cls of TIER1_CLASSES) {
+    const pool = staffsOf(cls).filter(st => st.id !== hero.staffId)
+    if (!pool.length) continue
+    const pick = r.pick(pool)
+    options.push({ id: `heroes:${pick.id}`, label: `${pick.name} — ${CLASSES[cls].name}`, detail: pick.text })
+  }
+  done()
+  options.push({ id: 'heroes:keep', label: 'Keep your Staff', detail: getStaff(hero.staffId)?.text ?? '' })
+  c.phase = 'landmark'
+  c.pendingChoice = {
+    kind: 'landmark_reward', forPlayerId: null,
+    prompt: '🪦 The Fallen Heroes — take up a fallen champion’s Staff (free; yours is set aside).',
+    options,
+  }
 }
 
 // The Sanctum — RITES (economy-and-identity §5). No longer sells held spells (those
@@ -993,6 +1183,83 @@ function resolveRewardOption(c: CampaignState, optionId: string, pc: PendingChoi
   }
   if (optionId.startsWith('caravan:mythic:')) return applyCaravanMythic(c, optionId)
   if (optionId === 'lair:token') return applyLairToken(c)
+  // V3 §8 — Hunt: the chosen quarry becomes the whole fight
+  if (optionId.startsWith('hunt:')) {
+    const [, cardId, nodeId] = optionId.split(':')
+    c.pendingChoice = null
+    clog(c, `🏹 The Hunt begins — ${cardLabelFromId(cardId!)} is the quarry.`)
+    startEncounter(c, nodeId!, 'skirmish', { huntCardId: cardId })
+    c.phase = 'encounter'
+    return {}
+  }
+  // V3 §8 — Fallen Heroes: the Staff swap
+  if (optionId.startsWith('heroes:')) {
+    const staffId = optionId.slice('heroes:'.length)
+    c.pendingChoice = null
+    if (staffId !== 'keep') {
+      const st = getStaff(staffId)
+      if (st) {
+        c.heroes[0]!.staffId = st.id
+        clog(c, `🪦 ${c.heroes[0]!.playerName} takes up ${st.name} — the fallen champion's Staff.`)
+      }
+    } else {
+      clog(c, '🪦 You keep your own Staff.')
+    }
+    c.phase = 'road'
+    autoAdvanceAfterGate(c)
+    return {}
+  }
+  // V3 §8 — Sanctum Rearrange: pick a graft, then its new home (road hand)
+  if (optionId.startsWith('sanctum:move:')) {
+    const [, , pcId, seqStr, remStr] = optionId.split(':')
+    const targets = (c.deck?.hands[0] ?? []).filter(cd => cd.id !== pcId && !!c.cards?.[cd.id])
+    if (!targets.length) {
+      clog(c, '✨ No held card can receive the graft right now.')
+      c.pendingChoice = null
+      c.phase = 'road'
+      autoAdvanceAfterGate(c)
+      return {}
+    }
+    c.pendingChoice = {
+      kind: 'landmark_reward', forPlayerId: null,
+      prompt: '✨ Rearrange — onto which held card?',
+      options: [
+        ...targets.slice(0, 8).map(cd => ({ id: `sanctum:to:${pcId}:${seqStr}:${cd.id}:${remStr}`, label: `${cd.rank}${suitSymbol(cd.suit)}` })),
+        { id: 'sanctum:done', label: 'Cancel' },
+      ],
+    }
+    return {}
+  }
+  if (optionId.startsWith('sanctum:to:')) {
+    const [, , srcId, seqStr, dstId, remStr] = optionId.split(':')
+    c.pendingChoice = null
+    const err = moveGraftSynced(c, srcId!, Number(seqStr), dstId!)
+    if (err) clog(c, `✨ The rite fizzles: ${err}`)
+    else clog(c, '✨ Rearranged — the graft finds a new home.')
+    const rem = Number(remStr) - 1
+    if (rem > 0 && movableGrafts(c).length) { offerSanctumV3(c, rem); return {} }
+    c.phase = 'road'
+    autoAdvanceAfterGate(c)
+    return {}
+  }
+  // V3 §8 — Shrine Consecrate: a permanent §F transmute, no kill required
+  if (optionId.startsWith('shrine:cons:')) {
+    const [, , pcId, kind, to] = optionId.split(':')
+    c.pendingChoice = null
+    const err = applyGraftSynced(c, pcId!, kind as 'rank' | 'suit', to!, 'shrine:consecrate')
+    if (err) clog(c, `⛩ The Consecration fails: ${err}`)
+    else clog(c, `⛩ Consecrated — the card is permanently transmuted.`)
+    c.phase = 'road'
+    autoAdvanceAfterGate(c)
+    return {}
+  }
+  if (optionId === 'shrine:skip') {
+    c.pendingChoice = null
+    clog(c, '⛩ You leave the Shrine untouched.')
+    c.phase = 'road'
+    autoAdvanceAfterGate(c)
+    return {}
+  }
   // V3 §7 — Forced March resolution: skip the fight, or take it after all
   if (optionId.startsWith('march:') || optionId.startsWith('fight:')) {
     const [verb, nodeId, kind] = optionId.split(':')
@@ -1360,10 +1627,11 @@ export function checkEncounterEnd(c: CampaignState, kingdom?: KingdomState) {
       }
 
       // ── V3 §3: ascending C2 — a royal gate falls → the keep-decision ───────
-      // (3/2/1 pyramid). The spoils/march (intermediate gates) or the crown +
-      // victory (King Gate) resume in finalizeRoyalKeep after the picks.
+      // (3/2/1 pyramid). Slice 8: the gate rank keys off the CHAPTER (one gate
+      // per province: ch4 Jack · ch5 Queen · ch6 King). The seam (intermediate
+      // provinces) or the crown + victory (ch6) resume in finalizeRoyalKeep.
       if (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2) {
-        const gateIdx = Math.min(c.map!.nodes.filter(n => n.kind === 'boss' && n.layer < node.layer).length, 2)
+        const gateIdx = Math.min(Math.max(c.chapter - 4, 0), 2)
         c.encounter = null
         presentRoyalKeep(c, (['J', 'Q', 'K'] as const)[gateIdx]!, node.id)
         return
@@ -1796,7 +2064,7 @@ function completeChapter(c: CampaignState, kingdom: KingdomState) {
       if (!kingdom.unlockedChapters.includes(c.chapter + 1)) kingdom.unlockedChapters.push(c.chapter + 1)
       saveKingdom(kingdom)
       c.phase = 'chapter_complete'
-      clog(c, `🏰 Chapter ${c.chapter} complete. The path deepens — Chapter ${c.chapter + 1} awaits.`)
+      clog(c, `🏰 Province ${c.chapter} of Continent 1 is Claimed. Province ${c.chapter + 1} awaits beyond the seam.`)
       return
     }
     // ch3 complete (Council of Tens defeated) → continent seam → ch4 (province)
@@ -1822,14 +2090,23 @@ function completeChapter(c: CampaignState, kingdom: KingdomState) {
     clog(c, '🏰 Kingdom unlocks: Chapter 2, specializations, Commander, Warden.')
     clog(c, 'Rest now. The Broken Court waits beyond the interlude.')
   } else {
-    // ── Ascending-deck: Continent-2 province victory ────────────────────────
+    // ── Ascending-deck: Continent-2 province transitions + the crown ────────
+    // V3 §8/§9: C2 = three provinces (ch4 Jack · ch5 Queen · ch6 King); the
+    // King Gate's crown is the V3.0 victory.
     if (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2) {
+      if (c.chapter < 6) {
+        if (!kingdom.unlockedChapters.includes(c.chapter + 1)) kingdom.unlockedChapters.push(c.chapter + 1)
+        saveKingdom(kingdom)
+        c.phase = 'chapter_complete'
+        clog(c, `⚜ Province ${c.chapter - 3} of Continent 2 is Shaped. ${c.chapter === 4 ? 'The Queen Gate' : 'The King Gate'} waits beyond the seam.`)
+        return
+      }
       for (const cid of ['gambler', 'exile', 'oracle'] as ClassId[])
         if (!kingdom.unlockedClasses.includes(cid)) kingdom.unlockedClasses.push(cid)
       kingdom.campaignsWon++
       saveKingdom(kingdom)
       c.phase = 'campaign_won'
-      clog(c, '👑 The province falls. Continent 2 is yours — the full campaign is won!')
+      clog(c, '👑 The King Gate falls and the crown is yours — Continent 2 is Shaped. The campaign is WON!')
       return
     }
     for (const cid of ['gambler', 'exile', 'oracle'] as ClassId[])
@@ -1899,6 +2176,12 @@ export function applyContinueChapter(c: CampaignState, playerId: string, hostId:
   c.chapter = c.chapter + 1
   grantC2Rungs(c)   // crossing the continent seam lights the home-path C2 rung
 
+  // V3 §9 (slice 8): the God-of-Luck wager at the continent seam — an
+  // animation-only beat (the player always "loses"; Gab styles it later).
+  if (EXPERIMENTS.ascendingDeck && c.chapter === 4) {
+    clog(c, '🎲 At the seam, the God of Luck fans three cards. You pick — and lose. He smiles; the wager stands. (Animation placeholder.)')
+  }
+
   // chapter-scoped state resets
   c.exiledCards = []
   c.exileBurden = 0
@@ -1928,7 +2211,9 @@ function finishChapterTransition(c: CampaignState) {
   setupChapterDeck(c, { seam: true })
   c.phase = 'road'
   if (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2)
-    clog(c, `🗺 CONTINENT 2 — Chapter ${c.chapter}: the province awaits. Your complete deck marches with you.`)
+    clog(c, `🗺 CONTINENT 2 · Province ${c.chapter - 3} — ${['the Jack Gate', 'the Queen Gate', 'the King Gate'][Math.min(c.chapter - 4, 2)]} lies at its end. Your deck marches with you.`)
+  else if (EXPERIMENTS.ascendingDeck)
+    clog(c, `🗺 Province ${c.chapter} of Continent 1: the road deepens.`)
   else
     clog(c, `🗺 Chapter ${c.chapter}: the road deepens.`)
   logNodeCT(c)

@@ -40,6 +40,8 @@ const NODE_CT: Record<NodeKind, { reward: number; pressure: number }> = {
   shrine:   { reward: 0.25, pressure: 0 },
   lair:     { reward: 1.0,  pressure: 1.1 },
   event:    { reward: 0.25, pressure: 0.1 },   // run events: impact varies (test-grade)
+  hunt:     { reward: 0.4,  pressure: 0.4 },   // V3 §8: pursue a missed recruit (C1 only)
+  heroes:   { reward: 0.3,  pressure: 0 },     // V3 §8: Fallen Heroes — Staff swap (C2-P2)
 }
 
 const CHAPTER_1: ChapterSpec = {
@@ -95,7 +97,7 @@ const CONT1_CH1: ChapterSpec = {
     { kinds: ['skirmish'] },
     { kinds: ['market', 'abbey', 'shrine'] },
     { kinds: ['camp', 'lair'] },                  // REST or gamble
-    { kinds: ['veteran', 'draft'] },              // tier fight, or steer the deck
+    { kinds: ['veteran', 'draft', 'hunt'] },      // tier fight, steer the deck, or HUNT a missed recruit
     { kinds: ['market', 'forge'] },               // Caravan (buy a relic) or Forge
     { kinds: ['boss'] },                          // THE COURTYARD — 3×7
     // ── Act III — the Throne (6s+7s) ──
@@ -120,7 +122,7 @@ const CONT1_CH2: ChapterSpec = {
     { kinds: ['skirmish'] },
     { kinds: ['market', 'abbey', 'shrine'] },
     { kinds: ['camp', 'lair'] },
-    { kinds: ['veteran', 'draft'] },
+    { kinds: ['veteran', 'draft', 'hunt'] },      // fight, steer, or HUNT a missed recruit
     { kinds: ['market', 'forge'] },               // Caravan (buy a relic) or Forge
     { kinds: ['boss'] },                          // THE COURTYARD — 3×9
     // ── Act III — the Throne (8s+9s) ──
@@ -183,6 +185,53 @@ const PROVINCE_1: ChapterSpec = {
   ],
 }
 
+// ── V3 §8/§9 (slice 8): Continent-2 province maps — three provinces, ONE royal
+// gate each (P1 Jack · P2 Queen · P3 King), mirroring the C1 road skeleton
+// (Decision 5): fights + forks + ~1 landmark stop per act + a mandatory
+// pre-gate camp. Road fights field the province's royal tier. Fallen Heroes
+// opens Province 2. No Tower (retired), no Hunt (C1 only).
+
+const CONT2_P1: ChapterSpec = {   // ch4 — Jack tier → THE JACK GATE (keep 3 of 4)
+  variant: 'cont2-p1',
+  layers: [
+    { kinds: ['start'] },
+    { kinds: ['skirmish'] },                      // a Jack duel opens the Shape
+    { kinds: ['forge', 'market'] },               // tier-up, or a Caravan relic
+    { kinds: ['veteran', 'lair'] },               // fight, or gamble the raid
+    { kinds: ['abbey', 'shrine'] },               // Sanctum Rearrange / Consecrate
+    { kinds: ['camp'] },                          // mandatory pre-gate camp
+    { kinds: ['boss'] },                          // THE JACK GATE — 4 Jacks
+  ],
+}
+
+const CONT2_P2: ChapterSpec = {   // ch5 — Queen tier → THE QUEEN GATE (keep 2 of 4)
+  variant: 'cont2-p2',
+  layers: [
+    { kinds: ['start'] },
+    { kinds: ['heroes'] },                        // FALLEN HEROES — swap your Staff
+    { kinds: ['skirmish'] },
+    { kinds: ['market', 'forge'] },
+    { kinds: ['veteran', 'lair'] },
+    { kinds: ['abbey', 'shrine', 'event'] },
+    { kinds: ['camp'] },
+    { kinds: ['boss'] },                          // THE QUEEN GATE — 4 Queens
+  ],
+}
+
+const CONT2_P3: ChapterSpec = {   // ch6 — King tier → THE KING GATE (the crown)
+  variant: 'cont2-p3',
+  layers: [
+    { kinds: ['start'] },
+    { kinds: ['skirmish'] },
+    { kinds: ['forge', 'market', 'shrine'] },
+    { kinds: ['veteran', 'lair'] },
+    { kinds: ['abbey', 'camp'] },                 // transform, or an early breath
+    { kinds: ['veteran', 'elite'] },
+    { kinds: ['camp'] },                          // mandatory pre-Throne camp
+    { kinds: ['boss'] },                          // THE KING GATE — 4 Kings, one crown
+  ],
+}
+
 export function buildMap(chapter: number, rng: Rng): RoadMapState {
   // Continent-1 ascending-deck maps (chapters 1–3)
   let spec: ChapterSpec
@@ -193,8 +242,8 @@ export function buildMap(chapter: number, rng: Rng): RoadMapState {
     // continent-2 chapters (ch4+) in ascending-deck also use it.
     spec = PROVINCE_1
   } else if (EXPERIMENTS.ascendingDeck && continentOf(chapter) === 2) {
-    // Continent-2 (ascending-deck): the province IS the finale; chapter 4 → PROVINCE_1.
-    spec = PROVINCE_1
+    // V3 §8/§9: Continent 2 = three provinces, one royal gate each.
+    spec = chapter === 4 ? CONT2_P1 : chapter === 5 ? CONT2_P2 : CONT2_P3
   } else {
     spec = chapter === 1 ? CHAPTER_1 : CHAPTER_2
   }

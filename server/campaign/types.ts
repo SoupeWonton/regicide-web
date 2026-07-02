@@ -153,6 +153,8 @@ export type NodeKind =
   | 'draft'                                // Continent-1: steer the deck (solo per-hero pick)
   | 'forge' | 'abbey' | 'market' | 'tower' | 'shrine' | 'lair'
   | 'event'
+  | 'hunt'                                 // V3 §8: pursue a missed recruit (C1 only — NEW)
+  | 'heroes'                               // V3 §8: Fallen Heroes — free Staff swap (C2-P2)
 
 export interface RoadNode {
   id: string

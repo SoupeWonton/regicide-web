@@ -797,7 +797,7 @@ console.log('Test D: ascending-deck flag-on — full arc (ch1 → ch2 → ch3 �
   step(arc, P1, () => applyContinueChapter(arc, P1, P1), 'continue ch3→ch4 (continent seam)')
   assert(arc.chapter === 4, `chapter advances to 4 (got ${arc.chapter})`)
   assert(cOf(arc.chapter) === 2, `chapter 4 is continent 2 (cOf(4)=${cOf(arc.chapter)})`)
-  assert(arc.map!.variant === 'prov1-b', `ch4 uses province map prov1-b (got ${arc.map!.variant})`)
+  assert(arc.map!.variant === 'cont2-p1', `ch4 uses the C2 P1 province map (got ${arc.map!.variant})`)
 
   // Deck at ch4 should have all A-10 cards (40 number cards + jesters)
   const ch4Cards = [...(arc.deck?.tavern ?? []), ...(arc.deck?.hands[0] ?? [])]
@@ -812,16 +812,16 @@ console.log('Test D: ascending-deck flag-on — full arc (ch1 → ch2 → ch3 �
   assert(ownedAfter.length === ownedBefore.length, `backfill is a no-op on ch4 (continent 2) (${ownedBefore.length} → ${ownedAfter.length})`)
   ok('ascending-deck: backfill is OFF in continent 2 (ch4)')
 
-  // Province map has 3 boss nodes (Gates / Courtyard / Throne)
+  // V3 §8: each C2 province carries ONE royal gate (ch4 J · ch5 Q · ch6 K)
   const bosses4 = arc.map!.nodes.filter(n => n.kind === 'boss')
-  assert(bosses4.length === 3, `ch4 province map has 3 rank gates (got ${bosses4.length})`)
-  ok('ascending-deck: ch4 (continent 2) province map has 3 rank gates')
+  assert(bosses4.length === 1, `ch4 province map has ONE gate (got ${bosses4.length})`)
+  ok('ascending-deck: ch4 (C2 P1) carries a single royal gate')
 
-  // Drive the full province (ch4) to campaign_won
-  const arcEnd = drive(arc, { cheatKill: true, budget: 5000 })
+  // Drive the three C2 provinces to the crown
+  const arcEnd = drive(arc, { cheatKill: true, budget: 8000 })
   assert(arcEnd === 'campaign_won', `full arc wins (got ${arcEnd})`)
-  assert(arc.chapter === 4, `won on ch4 (got ${arc.chapter})`)
-  ok(`ascending-deck: full arc ch1→ch2→ch3→Council→ch4(province) WINS! (${arcEnd})`)
+  assert(arc.chapter === 6, `won at the ch6 King Gate (got ch${arc.chapter})`)
+  ok(`ascending-deck: full arc ch1→ch2→ch3→Council→C2 provinces→CROWN WINS! (${arcEnd})`)
 
   EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
   EXPERIMENTS.provinceMode = LIVE_PROVINCE
@@ -1070,22 +1070,23 @@ console.log('Test I: royal gates — 4-royal gates, royal graft (cap 10), keep-d
   const { startEncounter } = await import('../campaign/encounter')
 
   const kd = loadKingdom()
-  kd.unlockedChapters = [1, 2, 3, 4]
+  kd.unlockedChapters = [1, 2, 3, 4, 5, 6]
   kd.unlockedClasses = ['sentinel', 'quartermaster', 'surgeon', 'executioner', 'commander', 'warden']
   const c = createCampaign([{ id: P1, name: 'Gab' }], 4, 'royal-gates', kd).campaign!
   applyClassPick(c, P1, 'sentinel')
+  // V3 §8: one gate per province — the rank keys off the chapter
   const bosses = c.map!.nodes.filter(n => n.kind === 'boss').sort((a, b) => a.layer - b.layer)
-  assert(bosses.length === 3, `ch4 map has 3 gates (got ${bosses.length})`)
+  assert(bosses.length === 1, `the P1 map carries one gate (got ${bosses.length})`)
 
   // helper: clear the rest of a gate with overkills (never exact, never recruit)
-  const overkillAll = (sx: NonNullable<CampaignState['encounter']>) => {
+  const overkillAll = (cx: CampaignState, sx: NonNullable<CampaignState['encounter']>) => {
     let guard = 30
     while (sx.outcome === 'active' && guard-- > 0) {
       if (sx.turnPhase === 'discard') {
         const hand2 = sx.hands[0]!
         const pick: number[] = []; let tot = 0
         for (let i2 = 0; i2 < hand2.length && tot < sx.discardNeeded; i2++) { pick.push(i2); tot += cardValue(hand2[i2]!.rank) }
-        const rd = applyEncounterDiscard(c, P1, pick)
+        const rd = applyEncounterDiscard(cx, P1, pick)
         assert(!rd.error, `gate discard: ${rd.error}`)
         continue
       }
@@ -1093,7 +1094,7 @@ console.log('Test I: royal gates — 4-royal gates, royal graft (cap 10), keep-d
       const en = sx.currentEnemy
       en.hp = 1; en.attack = 0; en.shield = 0
       sx.hands[0] = [{ suit: 'S', rank: '4', id: `ti-kill-${guard}` }]   // 4 dmg vs 1 hp = overkill
-      const r2 = applyEncounterPlay(c, P1, [0])
+      const r2 = applyEncounterPlay(cx, P1, [0])
       assert(!r2.error, `gate overkill play: ${r2.error}`)
     }
   }
@@ -1130,7 +1131,7 @@ console.log('Test I: royal gates — 4-royal gates, royal graft (cap 10), keep-d
   ok('royal gates: exact royal kill → replacement graft (cap 10); royals never join by kill')
 
   // (c) clear the gate → the Jack keep-decision (leave 1, keep 3)
-  overkillAll(s)
+  overkillAll(c, s)
   assert(s.outcome === 'won', `Jack Gate cleared (${s.outcome})`)
   checkEncounterEnd(c, kd)
   const pcJ = c.pendingChoice
@@ -1146,48 +1147,53 @@ console.log('Test I: royal gates — 4-royal gates, royal graft (cap 10), keep-d
     'kept Jacks shuffled into the tavern as §F-backed real deck cards')
   ok('royal gates: Jack Gate keeps 3 of 4 — kept royals are real deck cards')
 
-  // (d) Queen Gate: keep 2 of 4 via two sequential picks
-  c.pendingChoice = null
-  c.phase = 'road'
-  startEncounter(c, bosses[1]!.id, 'boss')
-  c.phase = 'encounter'
-  const sQ = c.encounter!
-  while (sQ.turnPhase === 'setup') applySetupReorder(c, sQ.setupPeek!.playerId, sQ.setupPeek!.cards.map((_, i) => i))
-  overkillAll(sQ)
+  // (d) Queen Gate (ch5): keep 2 of 4 via two sequential picks
+  const cQ = createCampaign([{ id: P1, name: 'Gab' }], 5, 'royal-gates-q', kd).campaign!
+  applyClassPick(cQ, P1, 'sentinel')
+  const qBoss = cQ.map!.nodes.find(n => n.kind === 'boss')!
+  startEncounter(cQ, qBoss.id, 'boss')
+  cQ.phase = 'encounter'
+  const sQ = cQ.encounter!
+  while (sQ.turnPhase === 'setup') applySetupReorder(cQ, sQ.setupPeek!.playerId, sQ.setupPeek!.cards.map((_, i) => i))
+  const qCards = [...(sQ.currentEnemy ? [sQ.currentEnemy.card] : []), ...sQ.enemyDeck]
+  assert(qCards.length === 4 && qCards.every(cd => cd.rank === 'Q'),
+    `the ch5 gate fields four Queens (got ${qCards.map(cd => cd.suit + cd.rank).join(',')})`)
+  overkillAll(cQ, sQ)
   assert(sQ.outcome === 'won', `Queen Gate cleared (${sQ.outcome})`)
-  checkEncounterEnd(c, kd)
-  const pcQ = c.pendingChoice
+  checkEncounterEnd(cQ, kd)
+  const pcQ = cQ.pendingChoice
   assert(pcQ?.kind === 'royal_keep' && pcQ.royalKeep?.rank === 'Q', 'Queen keep-decision presented')
   const q1 = pcQ!.options[0]!.id
-  assert(!applyChoice(c, P1, q1, P1).error, 'first Queen pick resolves')
-  assert(c.pendingChoice?.kind === 'royal_keep' && c.pendingChoice.options.length === 3,
+  assert(!applyChoice(cQ, P1, q1, P1).error, 'first Queen pick resolves')
+  assert(cQ.pendingChoice?.kind === 'royal_keep' && cQ.pendingChoice.options.length === 3,
     'second Queen pick pending from the remaining three')
-  const q2 = c.pendingChoice!.options[0]!.id
-  assert(!applyChoice(c, P1, q2, P1).error, 'second Queen pick resolves')
-  const ownedQ = (c.ownedCards ?? []).filter(id => id.slice(1) === 'Q')
+  const q2 = cQ.pendingChoice!.options[0]!.id
+  assert(!applyChoice(cQ, P1, q2, P1).error, 'second Queen pick resolves')
+  const ownedQ = (cQ.ownedCards ?? []).filter(id => id.slice(1) === 'Q')
   assert(ownedQ.length === 2 && ownedQ.includes(q1) && ownedQ.includes(q2), `two Queens kept (${ownedQ.join(',')})`)
   ok('royal gates: Queen Gate keeps 2 of 4 — sequential picks')
 
-  // (e) King Gate: four Kings, keep 1 — the crown — and that IS the V3.0 victory
-  c.pendingChoice = null
-  c.phase = 'road'
-  startEncounter(c, bosses[2]!.id, 'boss')
-  c.phase = 'encounter'
-  const sK = c.encounter!
-  while (sK.turnPhase === 'setup') applySetupReorder(c, sK.setupPeek!.playerId, sK.setupPeek!.cards.map((_, i) => i))
+  // (e) King Gate (ch6): four Kings, keep 1 — the crown — the V3.0 victory
+  const cK = createCampaign([{ id: P1, name: 'Gab' }], 6, 'royal-gates-k', kd).campaign!
+  applyClassPick(cK, P1, 'sentinel')
+  const kBoss = cK.map!.nodes.find(n => n.kind === 'boss')!
+  startEncounter(cK, kBoss.id, 'boss')
+  cK.phase = 'encounter'
+  const sK = cK.encounter!
+  while (sK.turnPhase === 'setup') applySetupReorder(cK, sK.setupPeek!.playerId, sK.setupPeek!.cards.map((_, i) => i))
   const kCards = [...(sK.currentEnemy ? [sK.currentEnemy.card] : []), ...sK.enemyDeck]
   assert(kCards.length === 4 && kCards.every(cd => cd.rank === 'K'),
     `King Gate fields four Kings (got ${kCards.map(cd => cd.suit + cd.rank).join(',')})`)
-  overkillAll(sK)
+  overkillAll(cK, sK)
   assert(sK.outcome === 'won', `Throne cleared (${sK.outcome})`)
-  checkEncounterEnd(c, kd)
-  const pcK = c.pendingChoice
+  checkEncounterEnd(cK, kd)
+  const pcK = cK.pendingChoice
   assert(pcK?.kind === 'royal_keep' && pcK.royalKeep?.rank === 'K', 'crown decision presented')
   const crown = pcK!.options[2]!.id
-  assert(!applyChoice(c, P1, crown, P1).error, 'crown pick resolves')
-  const ownedK = (c.ownedCards ?? []).filter(id => id.slice(1) === 'K')
+  assert(!applyChoice(cK, P1, crown, P1).error, 'crown pick resolves')
+  const ownedK = (cK.ownedCards ?? []).filter(id => id.slice(1) === 'K')
   assert(ownedK.length === 1 && ownedK[0] === crown, `exactly one King kept — the crown (${ownedK.join(',')})`)
-  assert(c.phase === 'campaign_won', `King Gate cleared + crowned = V3.0 victory (got ${c.phase})`)
+  assert(cK.phase === 'campaign_won', `the ch6 King Gate + crown = V3.0 victory (got ${cK.phase})`)
   ok('royal gates: King Gate crown — keep 1 of 4 → campaign won')
 
   EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
@@ -1469,6 +1475,109 @@ console.log('Test M: relics — bag + slots, free swaps, Caravan pay-from-hand, 
   assert(!applyEncounterPlay(c, P1, [0]).error, 'play with Bloodlust armed')
   assert(before - en.hp === 6, `Bloodlust: 3♥ deals 3+3 (dealt ${before - en.hp})`)
   ok('relics: combat lock + Amulet activation (Bloodlust +3)')
+
+  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
+  EXPERIMENTS.provinceMode = LIVE_PROVINCE
+}
+
+// ── Test N: V3 §8 — landmarks: Hunt, Sanctum Rearrange, Shrine Consecrate, Fallen Heroes ─
+console.log('Test N: landmarks — Hunt recruit, Sanctum Rearrange, Consecrate, Fallen Heroes swap')
+{
+  EXPERIMENTS.ascendingDeck = true
+  EXPERIMENTS.provinceMode = false
+  const { physicalByPrinted, effectiveFace, applyGraft } = await import('../campaign/cards')
+  const rigMap = (cc: CampaignState, kind: string) => {
+    cc.map = {
+      variant: 'test',
+      nodes: [
+        { id: 'r0', kind: 'start', layer: 0, next: ['r1'], known: true, visited: true, rewardCT: 0, pressureCT: 0 },
+        { id: 'r1', kind: kind as never, layer: 1, next: [], known: true, visited: false, rewardCT: 0, pressureCT: 0 },
+      ],
+      currentNodeId: 'r0',
+    }
+    cc.phase = 'road'
+  }
+
+  // (a) Hunt (C1 only, NEW): pick a missed quarry — the fight IS that card
+  const c = createCampaign([{ id: P1, name: 'Gab' }], 1, 'lm-hunt', kingdom).campaign!
+  applyClassPick(c, P1, 'sentinel', 'footwork')
+  rigMap(c, 'hunt')
+  step(c, 'host', () => applyRoadChoose(c, P1, 'r1', P1), 'road→hunt')
+  const hpc = c.pendingChoice
+  assert(hpc?.kind === 'landmark_reward' && hpc.options.every(o => o.id.startsWith('hunt:')), 'the Hunt offers quarry picks')
+  const quarry = hpc!.options[0]!.id.split(':')[1]!
+  assert(!applyChoice(c, P1, hpc!.options[0]!.id, P1).error, 'quarry pick resolves')
+  assert(c.phase === 'encounter', `the Hunt is a fight (got ${c.phase})`)
+  const sH = c.encounter!
+  while (sH.turnPhase === 'setup') applySetupReorder(c, sH.setupPeek!.playerId, sH.setupPeek!.cards.map((_, i) => i))
+  const foe = sH.currentEnemy!
+  assert(`${foe.card.suit}${foe.card.rank}` === quarry && sH.enemyDeck.length === 0, 'the quarry is the whole fight')
+  foe.hp = 2; foe.attack = 0; foe.shield = 0
+  sH.turnPhase = 'play'
+  sH.currentPlayerIndex = 0
+  sH.hands[0] = [{ suit: 'S', rank: '2', id: physicalByPrinted(c, 'S2')!.physicalId }]
+  assert(!applyEncounterPlay(c, P1, [0]).error, 'hunt exact-kill play')
+  assert((c.ownedCards ?? []).includes(quarry), `the quarry is recruited (${quarry})`)
+  ok('landmarks: Hunt — a missed recruit, tracked down and exact-killed')
+
+  // (b) Sanctum = Rearrange: relocate a graft between held cards (§F move)
+  const c2 = createCampaign([{ id: P1, name: 'Gab' }], 1, 'lm-sanctum', kingdom).campaign!
+  applyClassPick(c2, P1, 'sentinel', 'footwork')
+  const s2 = physicalByPrinted(c2, 'S2')!
+  const h3 = physicalByPrinted(c2, 'H3')!
+  assert(applyGraft(c2, s2.physicalId, 'suit', 'D', 'test') === null, 'seed graft on 2♠ (→♦)')
+  c2.deck!.hands[0] = [
+    { suit: 'D', rank: '2', id: s2.physicalId },
+    { suit: 'H', rank: '3', id: h3.physicalId },
+  ]
+  rigMap(c2, 'abbey')
+  step(c2, 'host', () => applyRoadChoose(c2, P1, 'r1', P1), 'road→sanctum')
+  const spc = c2.pendingChoice
+  assert(!!spc && spc.options.some(o => o.id.startsWith('sanctum:move:')), 'the Sanctum offers Rearrange transfers')
+  const moveOpt = spc!.options.find(o => o.id.startsWith('sanctum:move:'))!
+  assert(!applyChoice(c2, P1, moveOpt.id, P1).error, 'graft pick resolves')
+  const toOpt = c2.pendingChoice!.options.find(o => o.id.startsWith('sanctum:to:'))
+  assert(!!toOpt, 'a target menu follows (held cards)')
+  assert(!applyChoice(c2, P1, toOpt!.id, P1).error, 'target pick resolves')
+  assert(effectiveFace(s2).suit === 'S', 'the source card reverts underneath')
+  assert(effectiveFace(h3).suit === 'D', 'the target now carries the graft (3♦)')
+  const rtH3 = c2.deck!.hands[0]!.find(cd => cd.id === h3.physicalId)
+  assert(rtH3?.suit === 'D', 'the runtime hand card face is synced')
+  ok('landmarks: Sanctum Rearrange — a graft moves; nothing is lost')
+
+  // (c) Shrine = Consecrate: a permanent §F transmute, no kill required
+  const c3 = createCampaign([{ id: P1, name: 'Gab' }], 1, 'lm-shrine', kingdom).campaign!
+  applyClassPick(c3, P1, 'sentinel', 'footwork')
+  rigMap(c3, 'shrine')
+  step(c3, 'host', () => applyRoadChoose(c3, P1, 'r1', P1), 'road→shrine')
+  const cons = c3.pendingChoice?.options.find(o => o.id.startsWith('shrine:cons:'))
+  assert(!!cons, 'the Shrine offers Consecrations')
+  const [, , pcid, kind, to] = cons!.id.split(':')
+  assert(!applyChoice(c3, P1, cons!.id, P1).error, 'Consecration resolves')
+  const consecrated = c3.cards![pcid!]!
+  const face = effectiveFace(consecrated)
+  assert((kind === 'suit' ? face.suit : face.rank) === to, `the card is transmuted (${kind} → ${to})`)
+  assert(consecrated.grafts.some(g => g.source === 'shrine:consecrate'), 'provenance records the Consecration')
+  ok('landmarks: Shrine Consecrate — permanent transmute, §F provenance')
+
+  // (d) Fallen Heroes: the free Staff swap (one random Staff per class)
+  const kd8 = loadKingdom()
+  kd8.unlockedChapters = [1, 2, 3, 4, 5, 6]
+  kd8.unlockedClasses = ['sentinel', 'quartermaster', 'surgeon', 'executioner', 'commander', 'warden']
+  const c5 = createCampaign([{ id: P1, name: 'Gab' }], 5, 'lm-heroes', kd8).campaign!
+  applyClassPick(c5, P1, 'sentinel', 'footwork')
+  assert(c5.map!.nodes.some(n => n.kind === 'heroes'), 'the C2-P2 map opens with the Fallen Heroes')
+  const c4 = createCampaign([{ id: P1, name: 'Gab' }], 1, 'lm-heroes2', kingdom).campaign!
+  applyClassPick(c4, P1, 'sentinel', 'footwork')
+  rigMap(c4, 'heroes')
+  step(c4, 'host', () => applyRoadChoose(c4, P1, 'r1', P1), 'road→heroes')
+  const fpc = c4.pendingChoice
+  assert(!!fpc && fpc.options.filter(o => o.id.startsWith('heroes:') && o.id !== 'heroes:keep').length === 4,
+    'one random Staff per class on offer (+ keep)')
+  const swap = fpc!.options[0]!
+  assert(!applyChoice(c4, P1, swap.id, P1).error, 'the swap resolves')
+  assert(c4.heroes[0]!.staffId === swap.id.slice('heroes:'.length), 'the hero carries the new Staff')
+  ok('landmarks: Fallen Heroes — a free Staff swap, one per class')
 
   EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
   EXPERIMENTS.provinceMode = LIVE_PROVINCE

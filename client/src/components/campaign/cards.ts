@@ -92,14 +92,16 @@ export const CLASS_ICONS: Record<string, string> = {
 export const NODE_ICONS: Record<string, string> = {
   start: '🏁', camp: '🏕', boss: '👑', skirmish: '⚔️', veteran: '🗡',
   elite: '💀', forge: '⚒️', abbey: '✨', market: '🐫', tower: '🗼',
-  shrine: '⛩', lair: '🕸', event: '🎭', recruit: '🪖', draft: '🃏', unknown: '❓',
+  shrine: '⛩', lair: '🕸', event: '🎭', recruit: '🪖', draft: '🃏',
+  hunt: '🏹', heroes: '🪦', unknown: '❓',
 }
 
 export const NODE_LABELS: Record<string, string> = {
-  start: 'Trailhead', camp: 'Camp', boss: 'The Castle', skirmish: 'Skirmish',
+  start: 'Trailhead', camp: 'Camp', boss: 'The Gate', skirmish: 'Skirmish',
   veteran: 'Veterans', elite: 'Elite', forge: 'Forge', abbey: 'Sanctum',
   market: 'Caravan', tower: 'Tower', shrine: 'Shrine', lair: 'Lair',
-  event: 'Event', recruit: 'Recruit', draft: 'Draft', unknown: '???',
+  event: 'Event', recruit: 'Recruit', draft: 'Draft',
+  hunt: 'Hunt', heroes: 'Fallen Heroes', unknown: '???',
 }
 
 // ── V3 §2 — client mirror of the Staff roster (server: campaign/paths.ts) ────
@@ -161,14 +163,16 @@ export const NODE_DESCRIPTIONS: Record<string, string> = {
   skirmish: 'A light fight (2 Jacks) with a minor twist. Your hand and deck carry over from the road.',
   veteran: 'A harder fight (Jacks + a Queen) with a nastier twist.',
   elite: 'A dangerous fight (Jack, Queen, King) with a punishing rule.',
-  forge: 'The Forge: stamp tokens onto your cards (spends forge budget).',
-  abbey: 'The Sanctum: take one of two spells — or pay the rite (spend your deck’s top 2) for a rare.',
-  market: 'The Caravan: take one of two relics — or strike a dark deal (curse 3 cards) for a rare.',
+  forge: 'The Forge: forge sandbagged fragments into the next crystal tier (Fragment → Half).',
+  abbey: 'The Sanctum — Rearrange: relocate up to two grafts between your cards. No new power, pure redistribution.',
+  market: 'The Caravan: a relic for a visible price — pay the discard-total from your hand. No wallet.',
   tower: 'The Tower: study the road for boss intel, and brace for the next fight.',
-  shrine: 'The Shrine: lift a curse from one of your cards (or a blessing if you carry none).',
-  lair: 'An elite gate guards a rare prize. High risk, rare reward.',
+  shrine: 'The Shrine — Consecrate: permanently transmute one owned card’s suit or rank. No kill required.',
+  lair: 'The Lair: a dangerous raid — win it and claim a relic for your bag.',
   event: 'A strange happening on the road. A choice with real consequences — fortune, bargains, or chaos.',
   recruit: 'A number-enemy fight. An exact kill recruits the card into your deck; otherwise it arrives later via backfill.',
   draft: 'Steer your deck: pick an unowned tier card — each option comes with an immediate tempo burst.',
+  hunt: 'The Hunt: pick a recruit you missed and track it down — an exact kill still recruits it.',
+  heroes: 'The Fallen Heroes: trade your Staff for a fallen champion’s — one random Staff per class, free.',
   unknown: 'Unscouted. You will only know what it is once you commit.',
 }

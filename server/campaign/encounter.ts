@@ -396,6 +396,13 @@ function buildEnemyStack(tier: EncounterTier, isLair: boolean, players: number, 
     return { cards: pickNumberStack([lo, tierRanks[0]!], 1, owned, shuffler) }   // skirmish
   }
   const mk = (rank: 'J' | 'Q' | 'K', suits: Suit[]) => suits.map(suit => ({ suit, rank: rank as Card['rank'], id: uid() }))
+  // V3 §8/§9 (slice 8): Continent-2 ROAD fights field the province's royal
+  // tier (P1 Jacks · P2 Queens · P3 Kings) — duels, not mixed courts.
+  if (EXPERIMENTS.ascendingDeck && continentOf(chapter ?? 1) === 2 && tier !== 'boss') {
+    const tierRank = (['J', 'Q', 'K'] as const)[Math.min(Math.max((chapter ?? 4) - 4, 0), 2)]!
+    const n = (tier === 'skirmish' ? 1 : 2) + (players === 1 ? 0 : 1)
+    return { cards: mk(tierRank, shuffler([...SUITS]).slice(0, Math.min(4, n))) }
+  }
   if (tier === 'boss') {
     // V3 §3 (ascending C2): a gate IS the full rank — all four royals fought,
     // and the 3/2/1 keep-decision after the fight covers all four. Legacy
@@ -437,7 +444,7 @@ function buildEnemyStack(tier: EncounterTier, isLair: boolean, players: number, 
 
 // ── Encounter creation ───────────────────────────────────────────────────────
 
-export function startEncounter(c: CampaignState, nodeId: string, tier: EncounterTier, opts: { isLair?: boolean; isRecruit?: boolean; isCouncil?: boolean } = {}) {
+export function startEncounter(c: CampaignState, nodeId: string, tier: EncounterTier, opts: { isLair?: boolean; isRecruit?: boolean; isCouncil?: boolean; huntCardId?: string } = {}) {
   const { r, done } = rng(c)
   const shuffler = <T>(a: T[]) => r.shuffle(a)
 
@@ -479,7 +486,12 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
   // Active in province mode OR in ascending-deck continent-2 (which also uses PROVINCE_1).
   const useProvinceBossSplit = EXPERIMENTS.provinceMode || (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2)
   if (tier === 'boss' && useProvinceBossSplit && !opts.isCouncil) {
-    rankOnly = (['J', 'Q', 'K'] as const)[gateIndex(nodeId)]
+    // V3 §8 (slice 8): in ascending C2 the gate rank keys off the CHAPTER
+    // (ch4 = Jack · ch5 = Queen · ch6 = King — one gate per province);
+    // legacy province mode keeps the within-map boss-order split.
+    rankOnly = EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2
+      ? (['J', 'Q', 'K'] as const)[Math.min(Math.max(c.chapter - 4, 0), 2)]
+      : (['J', 'Q', 'K'] as const)[gateIndex(nodeId)]
   } else if (tier === 'boss' && EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 1 && !opts.isCouncil) {
     // Continent-1 ch1/ch2: number gates (Gates/Courtyard/Throne) — never royals.
     gateRanks = C1_GATE_RANKS[c.chapter]?.[gateIndex(nodeId)]
@@ -489,7 +501,10 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
   // Tutorial: a fixed, scripted enemy order instead of the seeded stack.
   const stackResult = c.tutorial
     ? { cards: tutorialEnemies() }
-    : buildEnemyStack(tier, !!opts.isLair, heroesAlive.length, shuffler, rankOnly, opts.isRecruit, c.chapter, c.ownedCards ?? [], opts.isCouncil, gateRanks)
+    // V3 §8 — Hunt (C1 only): the pursued recruit is the whole fight
+    : opts.huntCardId
+      ? { cards: [{ suit: opts.huntCardId[0] as Suit, rank: opts.huntCardId.slice(1) as Card['rank'], id: uid() }] }
+      : buildEnemyStack(tier, !!opts.isLair, heroesAlive.length, shuffler, rankOnly, opts.isRecruit, c.chapter, c.ownedCards ?? [], opts.isCouncil, gateRanks)
   // If the recruit tier was fully owned, the node degrades to a filler fight
   // (the player already has all the cards — enemies are now generic royals)
   if (stackResult.recruitDegraded) {
@@ -573,11 +588,12 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
       ? `THE THRONE — every ${gateRanks.join(' and ')} rises. Complete the rank.`
       : `THE ${gateIndex(nodeId) === 0 ? 'GATES' : 'COURTYARD'} — four ${gateRanks[0]}s bar the way.`
     : null
+  const v3Gates = EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2
   const bossLabel = opts.isCouncil ? 'THE COUNCIL OF TENS — all four 10s rise. Defeat them all to ascend.'
     : gateNumLabel ? gateNumLabel
-    : rankOnly === 'J' ? 'THE GATES — four Jacks bar the way.'
-    : rankOnly === 'Q' ? 'THE COURTYARD — four Queens hold the yard.'
-    : rankOnly === 'K' ? 'THE THRONE — four Kings. No retreat.'
+    : rankOnly === 'J' ? (v3Gates ? 'THE JACK GATE — four Jacks bar the way. Three will follow you.' : 'THE GATES — four Jacks bar the way.')
+    : rankOnly === 'Q' ? (v3Gates ? 'THE QUEEN GATE — four Queens hold the yard. Two will follow you.' : 'THE COURTYARD — four Queens hold the yard.')
+    : rankOnly === 'K' ? (v3Gates ? 'THE KING GATE — four Kings. One crown. No retreat.' : 'THE THRONE — four Kings. No retreat.')
     : c.chapter === 1 ? 'The Castle stands before you — 12 royals.' : 'The Broken Court awaits — 12 royals, and something is wrong.'
   clog(c, `⚔️ ${tier === 'boss' ? bossLabel : `Encounter: ${def?.name ?? tier}`}`)
   if (def) clog(c, `   ${def.mechanicText}`)

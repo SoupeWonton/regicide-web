@@ -120,7 +120,7 @@ function pickStaff(staffId: string) {
       <h2 class="text-3xl font-display font-bold gold-title mt-1">Assemble the Lineage</h2>
       <div class="splash-rule h-px mt-3 mx-auto w-56 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
       <p class="text-sm text-base-content/50 mt-2 font-flavor tracking-wide">
-        Chapter {{ state.chapter }} — choose your banner.
+        Continent {{ Math.ceil(state.chapter / 3) }} · Province {{ ((state.chapter - 1) % 3) + 1 }} — choose your banner.
       </p>
     </div>
 

@@ -39,9 +39,10 @@ for Landry's playtest review — not a reopened design question.
   (it was full-court logic: reshuffle discard→tavern at 2/3 defeated). Gate
   recovery is the seam rest + Camp (slice 5). If gates prove too punishing,
   reintroduce as a gate-clear reshuffle.
-- ⚑ **Gate rank is derived from boss-node order within the current map**
-  (layer count → J/Q/K). When slice 8 splits C2 into three provinces
-  (ch4/ch5/ch6), the rank must key off the chapter instead — revisit there.
+- ~~⚑ Gate rank from boss-node order~~ — **resolved in slice 8**: C2 is three
+  provinces (ch4/ch5/ch6), one gate each; the rank keys off the chapter
+  (ch4 = Jack · ch5 = Queen · ch6 = King). C2 road fights field the province's
+  royal tier as duels. Victory = the ch6 crown.
 - ⚑ **Duel Charm no longer primes off C2 royal kills** (its hook lives in the
   legacy royal path). It is superseded in slice 7 anyway; not worth a shim.
 - ⚑ **No fragment roll on royal kills** — mirrors Decision 3 (graft trigger
