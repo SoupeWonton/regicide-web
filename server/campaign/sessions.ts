@@ -7,7 +7,7 @@ import {
 import {
   applyEncounterPlay, applyEncounterDiscard, applyEncounterYield,
   applyEncounterChooseNext, applyCastSpell, applyActivateRelic, applyArmWager,
-  applySetupReorder, applyKeepDrawn, applyGraftSelect,
+  applySetupReorder, applyKeepDrawn, applyGraftSelect, applyStaffUse,
 } from './encounter'
 import { advanceTutorialStep } from './tutorial'
 import { loadKingdom, saveKingdom, saveCampaign, loadCampaign, listCampaigns, deleteCampaign } from './store'
@@ -81,7 +81,7 @@ export function resumeCampaignSession(
 export function endSession(code: string) { sessions.delete(code) }
 
 export type CampaignAction =
-  | { type: 'pick_class'; classId: string }
+  | { type: 'pick_class'; classId: string; staffId?: string }   // V3 §2: class + Staff pick
   | { type: 'road_choose'; nodeId: string }
   | { type: 'choice_pick'; optionId: string }
   | { type: 'setup_reorder'; order: number[] }
@@ -94,6 +94,7 @@ export type CampaignAction =
   | { type: 'arm_wager' }
   | { type: 'keep_drawn'; keepIndices: number[] }   // ascending-deck: overdraw selection
   | { type: 'graft_select'; cardIndex: number; mode: 'value' | 'suit' }   // ascending-deck: redundant-kill graft
+  | { type: 'staff_use'; cardIndex?: number }        // V3 §2: activated-Staff use (slice 4)
   | { type: 'apply_fragment' }                       // fragment track: spend 2 → apply a C-tier token
   | { type: 'death_vote'; vote: string }
   | { type: 'begin_replacement' }
@@ -114,7 +115,7 @@ export function dispatchCampaignAction(
   const snap = observeBefore(c, playerId, action)
   let result: { error?: string }
   switch (action.type) {
-    case 'pick_class': result = applyClassPick(c, playerId, action.classId as never); break
+    case 'pick_class': result = applyClassPick(c, playerId, action.classId as never, action.staffId); break
     case 'road_choose': result = applyRoadChoose(c, playerId, action.nodeId, hostId); break
     case 'choice_pick': result = applyChoice(c, playerId, action.optionId, hostId); break
     case 'setup_reorder': result = applySetupReorder(c, playerId, action.order); break
@@ -127,6 +128,7 @@ export function dispatchCampaignAction(
     case 'arm_wager': result = applyArmWager(c, playerId); break
     case 'keep_drawn': result = applyKeepDrawn(c, playerId, action.keepIndices); break
     case 'graft_select': result = applyGraftSelect(c, playerId, action.cardIndex, action.mode); break
+    case 'staff_use': result = applyStaffUse(c, playerId, action.cardIndex); break
     case 'apply_fragment': result = applyFragmentStart(c, playerId, hostId); break
     case 'death_vote': result = applyDeathVote(c, playerId, action.vote); break
     case 'begin_replacement': result = beginReplacement(c, kingdom); break

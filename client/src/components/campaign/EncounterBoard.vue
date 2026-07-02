@@ -2,7 +2,7 @@
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { socket } from '../../socket'
 import type { ClientCampaignState, Card, EncounterEvent } from '../../types'
-import { cardValue, suitSymbol, CLASS_ICONS, tokensOf, tokenToneClass, tokenSpend, tokenHold, effectiveSuits } from './cards'
+import { cardValue, suitSymbol, CLASS_ICONS, tokensOf, tokenToneClass, tokenSpend, tokenHold, effectiveSuits, STAFF_CHOICES } from './cards'
 import OverlayModal from './OverlayModal.vue'
 import HeroPortrait from './HeroPortrait.vue'
 import ItemCard from './ItemCard.vue'
@@ -35,6 +35,28 @@ const me = computed(() => props.state.heroes[props.state.myHeroIndex])
 const isMyTurn = computed(() => props.state.myHeroIndex === enc.value.currentPlayerIndex && enc.value.outcome === 'active')
 const inPlay = computed(() => enc.value.turnPhase === 'play' && isMyTurn.value)
 const inDiscard = computed(() => enc.value.turnPhase === 'discard' && isMyTurn.value)
+
+// V3 §2 — activated-Staff button (placeholder UI). Parry fires while paying a
+// counterattack; every other activated Staff fires in your play phase.
+const myStaff = computed(() => {
+  const h = props.state.heroes[props.state.myHeroIndex]
+  if (!h?.staff) return null
+  return (STAFF_CHOICES[h.classId] ?? []).find(st => st.id === h.staff!.id) ?? null
+})
+const staffUsable = computed(() => {
+  if (!myStaff.value?.activated) return false
+  return myStaff.value.id === 'parry' ? inDiscard.value : inPlay.value
+})
+function useStaff() {
+  const st = myStaff.value
+  if (!st) return
+  if (st.usesCard) {
+    if (selected.value.length !== 1) { errorMsg.value = `${st.name} needs exactly one selected card.`; return }
+    act({ type: 'staff_use', cardIndex: selected.value[0] })
+    return
+  }
+  act({ type: 'staff_use' })
+}
 const inChoose = computed(() => enc.value.turnPhase === 'choose_next' && isMyTurn.value)
 const myPeek = computed(() => enc.value.turnPhase === 'setup' && enc.value.setupPeek?.mine)
 
@@ -799,6 +821,14 @@ const netAttack = computed(() => {
                 <span :class="suitClass(card.suit)">{{ card.rank !== 'Jo' ? suitSymbol(card.suit) : '' }}</span>
               </div>
             </TransitionGroup>
+          </div>
+
+          <!-- V3 §2: activated-Staff use (placeholder UI). Card-targeting
+               Staffs use the single selected hand card. -->
+          <div v-if="staffUsable" class="absolute top-0 right-0 z-30">
+            <button class="btn btn-xs btn-outline btn-warning" :title="myStaff!.text" @click="useStaff">
+              🪄 {{ myStaff!.name }}
+            </button>
           </div>
 
           <!-- floating action: bottom-center of the arena (never covers the

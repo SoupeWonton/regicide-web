@@ -8,6 +8,7 @@ import type {
 import { CLASSES, TIER1_CLASSES, getItem, itemsOf, RELIC_SLOTS, getEncounterDef, BOSS_MODIFIERS, FORGEABLE_TOKEN_IDS, C_TIER_TOKEN_IDS, getTokenDef, RELIC_UNLOCK_ORDER, SPELL_UNLOCK_ORDER, HAILMARY_SPELL_IDS, MYTHIC_RELIC_IDS, BRIDGE_RELIC_ID, MYTHIC_PER_CONTINENT } from './content'
 import { stampToken, projectCardTokens, MAX_TOKENS_PER_CARD } from './tokens'
 import { CAMPAIGN_SCHEMA_VERSION, registerLogicalCard, projectPhysicalCards } from './cards'
+import { staffsOf, getStaff, getLadder, homeLadder } from './paths'
 import { buildMap } from './maps'
 import {
   startEncounter, maxHandSize, setupChapterDeck, campRest, dealReplacementHand,
@@ -99,7 +100,7 @@ export function createCampaign(
   return { campaign: c }
 }
 
-export function applyClassPick(c: CampaignState, playerId: string, classId: ClassId): { error?: string } {
+export function applyClassPick(c: CampaignState, playerId: string, classId: ClassId, staffId?: string): { error?: string } {
   if (c.phase !== 'class_select') return { error: 'Not selecting classes.' }
   // New players get only the 4 core classes (TIER1); the other 5 are meta-unlock
   // runway, hidden in the UI and rejected here until unlocks ship. Mirrors the
@@ -108,10 +109,16 @@ export function applyClassPick(c: CampaignState, playerId: string, classId: Clas
   if (!(playerId in c.classPicks)) return { error: 'You are not in this campaign.' }
   const taken = Object.entries(c.classPicks).some(([pid, cid]) => pid !== playerId && cid === classId)
   if (taken) return { error: 'That class is already claimed.' }
+  // V3 §2: pick one of the class's four Staffs. Omitted → the class's first
+  // Staff (compat for old callers; the client always sends one).
+  const staffs = staffsOf(classId)
+  const staff = staffId ? staffs.find(st => st.id === staffId) : staffs[0]
+  if (staffId && !staff) return { error: 'That Staff does not belong to this class.' }
   c.classPicks[playerId] = classId
   const hero = c.heroes.find(h => h.playerId === playerId)!
   hero.classId = classId
-  clog(c, `${hero.playerName} will march as the ${CLASSES[classId].name}.`)
+  hero.staffId = staff?.id
+  clog(c, `${hero.playerName} will march as the ${CLASSES[classId].name}${staff ? ` — Staff: ${staff.name}` : ''}.`)
 
   if (Object.values(c.classPicks).every(v => v !== null)) {
     const { r, done } = rng(c)
@@ -120,11 +127,27 @@ export function applyClassPick(c: CampaignState, playerId: string, classId: Clas
     // bought (Caravan) or won (Lair / gate spoils). Heroes set out bare.
     done()
     setupChapterDeck(c)
+    grantC2Rungs(c)   // a run starting inside C2 lights the home rung immediately
     c.phase = 'road'
     clog(c, `🗺 The road to ${c.chapter === 1 ? 'the First Ascension' : 'the Broken Court'} unfolds. Choose your path.`)
     logNodeCT(c)
   }
   return {}
+}
+
+// V3 §2 (slice 4): entering Continent 2 lights each hero's HOME-suit path C2
+// rung — a single ability, the ladder's first rung. The reveal animation is a
+// placeholder log line (Gab styles it later). C3/C4 rungs + the other three
+// paths stay visible-but-locked; C2-clear unlocks them at the meta layer (slice 9).
+function grantC2Rungs(c: CampaignState) {
+  if (!EXPERIMENTS.ascendingDeck || continentOf(c.chapter) !== 2) return
+  for (const h of c.heroes) {
+    if (h.pathC2) continue
+    const ladder = homeLadder(h.classId)
+    if (!ladder) continue
+    h.pathC2 = ladder.id
+    clog(c, `✨ PATH REVEALED — ${h.playerName} lights ${ladder.name} (${ladder.theme}): ${ladder.c2}`)
+  }
 }
 
 // Launch the scripted onboarding tutorial: force a solo Sentinel, skip class
@@ -1604,6 +1627,7 @@ export function applyContinueChapter(c: CampaignState, playerId: string, hostId:
   // chapter counter increments BEFORE the map build (ascending-deck canon:
   // buildMap receives the new chapter number)
   c.chapter = c.chapter + 1
+  grantC2Rungs(c)   // crossing the continent seam lights the home-path C2 rung
 
   // chapter-scoped state resets
   c.exiledCards = []
@@ -1657,19 +1681,29 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
   const myHeroIndex = c.heroes.findIndex(h => h.playerId === forPlayerId)
   const s = c.encounter
 
-  const heroes: ClientHero[] = c.heroes.map((h, i) => ({
-    playerId: h.playerId,
-    playerName: h.playerName,
-    classId: h.classId,
-    picked: c.phase !== 'class_select' || c.classPicks[h.playerId] !== null,
-    className: CLASSES[h.classId].name,
-    abilityText: CLASSES[h.classId].abilityText +
-      (CLASSES[h.classId].siegeText ? ` ⚔ Siege: ${CLASSES[h.classId].siegeText}` : ''),
-    alive: h.alive,
-    relics: h.relicIds.map(rid => ({ id: rid, name: getItem(rid).name, text: getItem(rid).text, tier: getItem(rid).tier })),
-    handSize: s ? s.hands[i]!.length : (c.deck?.hands[i]?.length ?? 0),
-    isCurrentPlayer: !!s && s.currentPlayerIndex === i && s.outcome === 'active',
-  }))
+  const heroes: ClientHero[] = c.heroes.map((h, i) => {
+    const staff = getStaff(h.staffId)
+    const rung = getLadder(h.pathC2)
+    return {
+      playerId: h.playerId,
+      playerName: h.playerName,
+      classId: h.classId,
+      picked: c.phase !== 'class_select' || c.classPicks[h.playerId] !== null,
+      className: CLASSES[h.classId].name,
+      // V3 (ascending): identity = Staff + path rung; the legacy passive +
+      // siege line only shows on non-ascending (quick-canon) campaigns.
+      abilityText: EXPERIMENTS.ascendingDeck
+        ? (staff ? `Staff — ${staff.name}: ${staff.text}` : CLASSES[h.classId].abilityText)
+        : CLASSES[h.classId].abilityText +
+          (CLASSES[h.classId].siegeText ? ` ⚔ Siege: ${CLASSES[h.classId].siegeText}` : ''),
+      alive: h.alive,
+      relics: h.relicIds.map(rid => ({ id: rid, name: getItem(rid).name, text: getItem(rid).text, tier: getItem(rid).tier })),
+      handSize: s ? s.hands[i]!.length : (c.deck?.hands[i]?.length ?? 0),
+      isCurrentPlayer: !!s && s.currentPlayerIndex === i && s.outcome === 'active',
+      staff: staff ? { id: staff.id, name: staff.name, text: staff.text } : null,
+      pathRung: rung ? { id: rung.id, name: rung.name, suit: rung.suit, text: rung.c2 } : null,
+    }
+  })
 
   let map: ClientCampaignState['map'] = null
   if (c.map) {

@@ -102,6 +102,37 @@ export const NODE_LABELS: Record<string, string> = {
   event: 'Event', recruit: 'Recruit', draft: 'Draft', unknown: '???',
 }
 
+// ── V3 §2 — client mirror of the Staff roster (server: campaign/paths.ts) ────
+// ClassSelect offers the class's four at pick time; EncounterBoard shows the
+// activation button for the activated ones.
+export interface StaffChoice { id: string; name: string; text: string; activated?: boolean; usesCard?: boolean }
+export const STAFF_CHOICES: Record<string, StaffChoice[]> = {
+  sentinel: [
+    { id: 'hold-the-line', name: 'Hold the Line', activated: true, text: 'Once per enemy: replay your best discard Spade for shield only (it stays in the discard).' },
+    { id: 'reinforce', name: 'Reinforce', text: 'Combos may include ONE Spade of adjacent rank (±1).' },
+    { id: 'footwork', name: 'Footwork', activated: true, usesCard: true, text: 'Once per enemy: bury a hand Spade to the Tavern bottom, draw 1.' },
+    { id: 'parry', name: 'Parry', activated: true, usesCard: true, text: 'Once per enemy, while paying a counter: a hand Spade blocks (its value reduces the payment).' },
+  ],
+  executioner: [
+    { id: 'steady-hand', name: 'Steady Hand', activated: true, text: 'Toggle: your next play does NOT double Clubs — control the total, land the exact.' },
+    { id: 'whetstone', name: 'Whetstone', text: 'Once per enemy: a 1–2 overshoot is shaved to the exact kill automatically.' },
+    { id: 'bloodletting', name: 'Bloodletting', activated: true, usesCard: true, text: 'Once per enemy: discard a card to add HALF its value to your next attack.' },
+    { id: 'field-promotion', name: 'Field Promotion', text: 'Recruits enter your HAND instead of the Tavern.' },
+  ],
+  quartermaster: [
+    { id: 'dovetail', name: 'Dovetail', text: 'Combos may include ONE card of adjacent rank (±1).' },
+    { id: 'ace-in-the-hole', name: 'Ace in the Hole', activated: true, text: 'Toggle: your next Ace pair copies its partner’s rank.' },
+    { id: 'stockpile', name: 'Stockpile', text: 'Once per enemy: keep one EXTRA card from an overdraw pool.' },
+    { id: 'provisioner', name: 'Provisioner', activated: true, usesCard: true, text: 'Once per enemy: discard a card, then draw 1.' },
+  ],
+  surgeon: [
+    { id: 'triage', name: 'Triage', text: 'Your recoveries return the HIGHEST-value cards from the discard.' },
+    { id: 'last-rites', name: 'Last Rites', text: 'Once per enemy: the best recovered card goes straight to your HAND.' },
+    { id: 'transfuse', name: 'Transfuse', activated: true, text: 'Toggle, once per enemy: your next Heart shields instead of recovering.' },
+    { id: 'field-dressing', name: 'Field Dressing', text: 'Once per enemy: your first recovery recovers 1 extra card.' },
+  ],
+}
+
 // ascending-deck Step 5 — client mirror of the locked class level-1 signatures
 // (server: content.ts CLASS_SIGNATURES + SIGNATURE_CARDS). Used by ClassSelect to
 // show "which cards a class stamps" before you pick (select-by-cards UX).

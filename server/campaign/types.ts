@@ -180,6 +180,9 @@ export interface Hero {
   classId: ClassId
   alive: boolean
   relicIds: string[]        // up to RELIC_SLOTS relics per hero; a further one forces a release
+  // V3 §2 — class = path + Staff (slice 4)
+  staffId?: string          // the selected Staff (one of the class's four; swaps at Fallen Heroes)
+  pathC2?: string           // ladder id of the granted C2 rung (home path; lit on entering C2)
 }
 
 export type CampaignPhase =
@@ -467,6 +470,9 @@ export interface ClientHero {
   relics: { id: string; name: string; text: string; tier: ItemTier }[]
   handSize: number
   isCurrentPlayer: boolean
+  // V3 §2: the selected Staff + the lit C2 path rung (if entered C2)
+  staff?: { id: string; name: string; text: string } | null
+  pathRung?: { id: string; name: string; suit: string; text: string } | null
 }
 
 export interface ClientRoadNode {

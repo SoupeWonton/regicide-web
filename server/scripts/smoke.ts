@@ -836,10 +836,10 @@ console.log('Test E: ascending-deck flag-on — tokens (signatures, spend/hold, 
   drive(c, { cheatKill: false, stopAt: ['encounter'], budget: 80 })
   assert(c.phase === 'encounter', `reached encounter (${c.phase})`)
 
-  // (a) class signature stamped at run start: Sentinel → Plate on 3♠/4♠/5♠
-  assert((c.cardTokens?.['S3'] ?? []).some(t => t.defId === 'plate'), 'Sentinel signature: Plate on 3♠')
-  assert((c.cardTokens?.['S5'] ?? []).some(t => t.defId === 'plate'), 'Sentinel signature: Plate on 5♠')
-  ok('ascending-deck: class signature stamped at run start (Sentinel Plate ×3)')
+  // (a) Decision 1 (2026-07-01): starting decks are IDENTICAL — no class
+  // signature stamps, no pre-applied grafts. Class identity = Staff + path.
+  assert(Object.keys(c.cardTokens ?? {}).length === 0, 'no signature tokens at run start (identical decks — Decision 1)')
+  ok('ascending-deck: identical A–5 start — no class signature stamps (Decision 1)')
 
   // (b) value helpers: spend vs hold deltas read the catalog
   stampToken(c, 'S2', { defId: 'hone' })       // +1 spend
@@ -1186,6 +1186,92 @@ console.log('Test I: royal gates — 4-royal gates, royal graft (cap 10), keep-d
   assert(ownedK.length === 1 && ownedK[0] === crown, `exactly one King kept — the crown (${ownedK.join(',')})`)
   assert(c.phase === 'campaign_won', `King Gate cleared + crowned = V3.0 victory (got ${c.phase})`)
   ok('royal gates: King Gate crown — keep 1 of 4 → campaign won')
+
+  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
+  EXPERIMENTS.provinceMode = LIVE_PROVINCE
+}
+
+// ── Test J: V3 §2 — classes: Staff pick, Staff effects, C2 home rung ─────────
+console.log('Test J: classes — Staff pick, identical start, Staff effects, C2 home rung')
+{
+  EXPERIMENTS.ascendingDeck = true
+  EXPERIMENTS.provinceMode = false
+  const { applyStaffUse } = await import('../campaign/encounter')
+  const { staffsOf } = await import('../campaign/paths')
+  const { physicalByPrinted: pbp } = await import('../campaign/cards')
+
+  // (a) Staff pick: one of the class's four; a foreign Staff is rejected
+  const c = createCampaign([{ id: P1, name: 'Gab' }], 1, 'staff-pick', kingdom).campaign!
+  assert(staffsOf('sentinel').length === 4, 'Sentinel offers 4 Staffs')
+  assert(!!applyClassPick(c, P1, 'sentinel', 'whetstone').error, 'a Staff from another class is rejected')
+  assert(!applyClassPick(c, P1, 'sentinel', 'footwork').error, 'class + Staff pick locks in')
+  assert(c.heroes[0]!.staffId === 'footwork', 'hero carries the picked Staff')
+  assert(c.heroes[0]!.pathC2 === undefined, 'no path rung lit in C1')
+  ok('classes: Staff pick — one of your class’s four (16 total)')
+
+  // (b) Footwork (activated Staff): bury a hand Spade + draw 1, once per enemy
+  drive(c, { cheatKill: false, stopAt: ['encounter'], budget: 80 })
+  const s = c.encounter!
+  while (s.turnPhase === 'setup') applySetupReorder(c, s.setupPeek!.playerId, s.setupPeek!.cards.map((_, i) => i))
+  s.turnPhase = 'play'
+  s.currentPlayerIndex = 0
+  s.hands[0] = [
+    { suit: 'S', rank: '3', id: pbp(c, 'S3')!.physicalId },
+    { suit: 'H', rank: '2', id: pbp(c, 'H2')!.physicalId },
+  ]
+  assert(!applyStaffUse(c, P1, 0).error, 'Footwork fires')
+  assert(s.tavern[0]!.suit === 'S' && s.tavern[0]!.rank === '3', 'the Spade is buried at the Tavern bottom')
+  assert(!!applyStaffUse(c, P1, 0).error, 'Footwork is once per enemy')
+  ok('classes: activated Staff (Footwork) — bury + draw, once per enemy')
+
+  // (c) Whetstone (auto Staff): a 1–2 overshoot is shaved to the exact kill
+  const cw = createCampaign([{ id: P1, name: 'Gab' }], 1, 'staff-whet', kingdom).campaign!
+  applyClassPick(cw, P1, 'executioner', 'whetstone')
+  drive(cw, { cheatKill: false, stopAt: ['encounter'], budget: 80 })
+  const sw = cw.encounter!
+  while (sw.turnPhase === 'setup') applySetupReorder(cw, sw.setupPeek!.playerId, sw.setupPeek!.cards.map((_, i) => i))
+  sw.modifierId = null
+  delete sw.flags['enemy.guard']
+  const we = sw.currentEnemy!
+  we.card = { suit: 'D', rank: '7', id: 'enemy-d7' }
+  we.hp = 3; we.attack = 0; we.shield = 0
+  sw.turnPhase = 'play'
+  sw.currentPlayerIndex = 0
+  sw.hands[0] = [{ suit: 'S', rank: '4', id: pbp(cw, 'S4')!.physicalId }]
+  const rw = applyEncounterPlay(cw, P1, [0])   // 4 dmg vs 3 HP → Whetstone shaves to exact
+  assert(!rw.error, `whetstone play: ${rw.error}`)
+  assert((cw.ownedCards ?? []).includes('D7'), `Whetstone shaved the overshoot — exact kill recruited D7 (owned: ${(cw.ownedCards ?? []).join(',')})`)
+  ok('classes: Whetstone — 1–2 overshoot auto-shaved to the exact kill')
+
+  // (d) entering C2 lights the HOME rung; Depot = hand size +2 (old QM +1 retired)
+  const kd4 = loadKingdom()
+  kd4.unlockedChapters = [1, 2, 3, 4]
+  kd4.unlockedClasses = ['sentinel', 'quartermaster', 'surgeon', 'executioner', 'commander', 'warden']
+  const cd4 = createCampaign([{ id: P1, name: 'Gab' }], 4, 'rung-depot', kd4).campaign!
+  applyClassPick(cd4, P1, 'quartermaster', 'stockpile')
+  assert(cd4.heroes[0]!.pathC2 === 'depot', `C2 lights the home rung (QM → Depot, got ${cd4.heroes[0]!.pathC2})`)
+  assert(maxHandSize(cd4, 0) === 10, `Depot: solo hand cap 8 + 2 = 10 (got ${maxHandSize(cd4, 0)})`)
+  ok('classes: C2 grants the home-path rung — Depot hand size +2 (legacy passives retired)')
+
+  // (e) Field Promotion (Staff): an exact-kill recruit goes straight to hand
+  const ce = createCampaign([{ id: P1, name: 'Gab' }], 1, 'staff-promo', kingdom).campaign!
+  applyClassPick(ce, P1, 'executioner', 'field-promotion')
+  drive(ce, { cheatKill: false, stopAt: ['encounter'], budget: 80 })
+  const se = ce.encounter!
+  while (se.turnPhase === 'setup') applySetupReorder(ce, se.setupPeek!.playerId, se.setupPeek!.cards.map((_, i) => i))
+  se.modifierId = null
+  delete se.flags['enemy.guard']
+  const ee = se.currentEnemy!
+  ee.card = { suit: 'D', rank: '6', id: 'enemy-d6' }
+  ee.hp = 2; ee.attack = 0; ee.shield = 0
+  se.turnPhase = 'play'
+  se.currentPlayerIndex = 0
+  se.hands[0] = [{ suit: 'S', rank: '2', id: pbp(ce, 'S2')!.physicalId }]
+  const re = applyEncounterPlay(ce, P1, [0])   // 2 dmg vs 2 HP → exact recruit
+  assert(!re.error, `field-promotion play: ${re.error}`)
+  assert(se.hands[0]!.some(cd => cd.suit === 'D' && cd.rank === '6'), 'the recruit entered the HAND (Field Promotion)')
+  assert(!se.tavern.some(cd => cd.suit === 'D' && cd.rank === '6'), 'the recruit did not slide under the Tavern')
+  ok('classes: Field Promotion — recruits enter the hand')
 
   EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
   EXPERIMENTS.provinceMode = LIVE_PROVINCE

@@ -2,11 +2,12 @@ import type { Card, Enemy, Suit } from '../types'
 import { cardValue, cardLabel, suitSymbol, enemyStats, isNumberRank, numberEnemyStats, jesterCount } from '../deck'
 import { createRng } from '../rng'
 import type { CampaignState, CampaignTurnPhase, EncounterState, EncounterTier, EncounterEvent } from './types'
-import { getEncounterDef, getItem, encountersOf, BOSS_MODIFIERS, CLASSES, CLASS_SIGNATURES, SIGNATURE_CARDS } from './content'
+import { getEncounterDef, getItem, encountersOf, BOSS_MODIFIERS, CLASSES } from './content'
 import { EXPERIMENTS, CURATION_CUT } from './experiments'
 import { appendGameLog } from './store'
 import { spendDelta, holdDelta, cardSuits, leverBonus, markDamage, hasKeyword, rekeyCardTokens } from './tokens'
 import { syncCardRegistry, effectiveFace, registerLogicalCard, physicalById, applyGraft } from './cards'
+import { getStaff } from './paths'
 import { tutorialEnemies, tutorialEnemyMeta, tutorialBlocksPlay, tutorialBlocksDiscard, tutorialBlocksGraft, recordTutorialPlay } from './tutorial'
 
 /** Returns the continent number for a given chapter. Inlined to avoid circular import with campaign.ts. */
@@ -56,8 +57,11 @@ export function maxHandSize(c: CampaignState, heroIdx?: number): number {
   // Hoard (mythic): the OWNER's hand cap +2 (the coast-vanilla comfort relic)
   if (heroIdx !== undefined && c.heroes[heroIdx]?.alive && c.heroes[heroIdx]!.relicIds.includes('r-hoard')) size += 2
   // Quartermaster: hand cap +1 for the Quartermaster's OWN hand (playtest
-  // canon 2026-06-11: class powers affect only the player running the class)
-  if (heroIdx !== undefined && c.heroes[heroIdx]?.alive && c.heroes[heroIdx]!.classId === 'quartermaster') size += 1
+  // canon 2026-06-11). V3 (ascending): retired — class identity = Staff + path
+  // (Decision 1); the ♦ path's Depot rung is the V3 hand-size power.
+  if (heroIdx !== undefined && c.heroes[heroIdx]?.alive && !EXPERIMENTS.ascendingDeck && c.heroes[heroIdx]!.classId === 'quartermaster') size += 1
+  // V3 §2 — Depot (Quartermaster ♦ home path, C2 rung): hand size +2
+  if (heroIdx !== undefined && c.heroes[heroIdx]?.alive && c.heroes[heroIdx]!.pathC2 === 'depot') size += 2
   return Math.max(2, size)
 }
 
@@ -105,21 +109,9 @@ export function setupChapterDeck(c: CampaignState) {
   // flag (superseded by the small start canon). Recruited number-cards carry
   // in via c.ownedCards — they are injected back into the tavern on setup.
   if (EXPERIMENTS.ascendingDeck) {
-    // Stamp each class's level-1 signature tokens once, at run start (ch1).
-    // First tokens of the run → empty cardTokens means not yet signed.
-    if (c.chapter === 1 && Object.keys(c.cardTokens ?? {}).length === 0) {
-      c.cardTokens ??= {}
-      for (const hi of aliveIndices(c)) {
-        const cls = c.heroes[hi]!.classId
-        const sig = CLASS_SIGNATURES[cls] ?? []
-        const slots = SIGNATURE_CARDS[cls] ?? []
-        for (let i = 0; i < sig.length && i < slots.length; i++) {
-          const cardId = slots[i]!
-          ;(c.cardTokens[cardId] ??= []).push(sig[i]!)
-        }
-        if (sig.length) clog(c, `✒ ${c.heroes[hi]!.playerName} (${CLASSES[cls].name}) stamps ${sig.length} signature tokens.`)
-      }
-    }
+    // (Class signature stamping retired — Decision 1, 2026-07-01: starting
+    // decks are IDENTICAL for all classes; class identity = Staff + home path.
+    // CLASS_SIGNATURES content survives in content.ts until the slice-9 delete.)
     // §F: the deck is built FROM the physical registry — the A–5 start plus
     // every recruit each yield one runtime card carrying its EFFECTIVE face and
     // its physicalId as Card.id, so identity survives deck rebuilds (the old
@@ -633,6 +625,17 @@ function revealNextEnemy(c: CampaignState, s: EncounterState) {
   if (s.modifierId === 'blackwall-captain') s.flags['enemy.guard'] = 3
 
   s.currentEnemy = enemy
+
+  // V3 §2 — Bastion (Sentinel ♠ C2 rung): the carried excess shield lands on
+  // the incoming enemy (computed at the previous kill — see resolveKill).
+  const bastionCarry = (s.flags['bastionCarry'] as number) ?? 0
+  if (EXPERIMENTS.ascendingDeck && bastionCarry > 0) {
+    enemy.shield += bastionCarry
+    s.flags['bastionCarry'] = 0
+    clog(c, `   🏰 Bastion: ${bastionCarry} shield carries forward.`)
+    ev(s, 'proc', `🏰 Bastion +${bastionCarry} shield`, 'gold')
+  }
+
   clog(c, `⚔️ New enemy: ${cardLabel(card)} — ${enemy.hp} HP / ${enemy.attack} ATK${s.flags['enemy.guard'] ? ' / Guard 3' : ''}`)
 }
 
@@ -671,8 +674,9 @@ function resolveDiamonds(c: CampaignState, s: EncounterState, playerIdx: number,
     }
   }
   // class / relic / memory access boosts
-  // owner-only (playtest canon 2026-06-11): only the Quartermaster's own Diamonds proc
-  const qmActive = c.heroes[playerIdx]!.classId === 'quartermaster'
+  // owner-only (playtest canon 2026-06-11): only the Quartermaster's own Diamonds proc.
+  // V3 (ascending): retired — class identity = Staff + path (Decision 1).
+  const qmActive = !EXPERIMENTS.ascendingDeck && c.heroes[playerIdx]!.classId === 'quartermaster'
   // Quartermaster: +1 draw ONCE PER FIGHT (canon 2026-06-15 — was once per enemy,
   // which snowballed the multi-enemy number gates). `qmDiamondFight` has no
   // `enemy.` prefix so it survives enemy resets; a fresh encounter clears it.
@@ -760,16 +764,47 @@ function resolveHearts(c: CampaignState, s: EncounterState, playerIdx: number, a
     amount *= 2
     clog(c, '   🏰 Castle Hearts: recovery doubled.')
   }
-  // owner-only (playtest canon 2026-06-11): only the Surgeon's own Hearts proc
-  const surgeonActive = c.heroes[playerIdx]!.classId === 'surgeon'
+  // owner-only (playtest canon 2026-06-11): only the Surgeon's own Hearts proc.
+  // V3 (ascending): retired — class identity = Staff + path (Decision 1).
+  const surgeonActive = !EXPERIMENTS.ascendingDeck && c.heroes[playerIdx]!.classId === 'surgeon'
   if (surgeonActive && once(s, 'enemy.surgeonHeart')) { amount += 1; clog(c, '   ⚕️ Surgeon: +1 recovery.'); ev(s, 'proc', '⚕️ Surgeon +1 recovery', 'gold') }
+
+  const holder = c.heroes[playerIdx]!
+  // V3 Staff — Field Dressing: the first recovery each enemy recovers 1 extra.
+  if (EXPERIMENTS.ascendingDeck && holder.staffId === 'field-dressing' && once(s, 'enemy.fieldDressing')) {
+    amount += 1
+    clog(c, '   🩹 Field Dressing: +1 recovery.')
+    ev(s, 'proc', '🩹 Field Dressing +1', 'gold')
+  }
 
   const toRecover = Math.min(amount, s.discard.length)
   if (toRecover > 0) {
-    const recovered = s.discard.splice(0, toRecover)
-    const { r, done } = rng(c)
-    s.tavern.unshift(...r.shuffle(recovered))
-    done()
+    // V3 Staff — Triage: recover the HIGHEST-value cards instead of the oldest
+    // (placeholder for the full pick-your-cards UI — ⚑ contracts doc).
+    let recovered: Card[]
+    if (EXPERIMENTS.ascendingDeck && holder.staffId === 'triage') {
+      const byValue = s.discard.map((cd, i) => ({ i, v: cardValue(cd.rank) }))
+        .sort((a, b) => b.v - a.v).slice(0, toRecover).map(x => x.i).sort((a, b) => b - a)
+      recovered = byValue.map(i => s.discard.splice(i, 1)[0]!)
+      clog(c, '   🩺 Triage: the best cards return.')
+    } else {
+      recovered = s.discard.splice(0, toRecover)
+    }
+    // V3 Staff — Last Rites: once per enemy, the best recovered card goes
+    // straight to the hand (cap permitting) instead of the Tavern.
+    if (EXPERIMENTS.ascendingDeck && holder.staffId === 'last-rites' && recovered.length
+        && s.hands[playerIdx]!.length < maxHandSize(c, playerIdx) && once(s, 'enemy.lastRites')) {
+      recovered.sort((a, b) => cardValue(b.rank) - cardValue(a.rank))
+      const best = recovered.shift()!
+      s.hands[playerIdx]!.push(best)
+      clog(c, `   ⚱️ Last Rites: ${cardLabel(best)} returns to your hand.`)
+      ev(s, 'proc', `⚱️ Last Rites — ${cardLabel(best)} to hand`, 'gold')
+    }
+    if (recovered.length) {
+      const { r, done } = rng(c)
+      s.tavern.unshift(...r.shuffle(recovered))
+      done()
+    }
   }
   clog(c, `   ♥ Recovered ${toRecover} card${toRecover !== 1 ? 's' : ''} into the Tavern.`)
   ev(s, 'suit', `♥ ${toRecover} back to the Tavern`, 'info')
@@ -781,11 +816,18 @@ function resolveSpades(c: CampaignState, s: EncounterState, playerIdx: number, a
   if (leverExtra) { clog(c, `   ♠ Plate: +${leverExtra} shield.`); ev(s, 'proc', `♠ Plate +${leverExtra}`, 'gold') }
   const holder = c.heroes[playerIdx]!
   // Sentinel — Spade Commit: all-Spade turn gains +3; mixed-suit turn gains nothing.
-  // Decision: commit to Spades for max shield, or mix suits for recovery/draw/damage.
-  if (holder.classId === 'sentinel' && s.lastPlayed.every(cd => cd.suit === 'S')) {
+  // V3 (ascending): retired — class identity = Staff + path (Decision 1).
+  if (!EXPERIMENTS.ascendingDeck && holder.classId === 'sentinel' && s.lastPlayed.every(cd => cd.suit === 'S')) {
     bonus += 3; clog(c, '   🛡 Sentinel: Spade commit — +3 shield.'); ev(s, 'proc', '🛡 Sentinel +3', 'gold')
   }
   // (Spade axis-engine relics retired 2026-06-14 — that role is the Plate token.)
+
+  // V3 §2 — Bastion bookkeeping: count Spade CARDS that fed this enemy's shield
+  // (the C2 rung carries excess shield forward, 1 per Spade card — see resolveKill).
+  if (EXPERIMENTS.ascendingDeck) {
+    const spadeCards = s.lastPlayed.filter(cd => (cardSuits(c, cd)).has('S')).length
+    s.flags['enemy.spadeCards'] = ((s.flags['enemy.spadeCards'] as number) ?? 0) + spadeCards
+  }
 
   enemy.shield += amount + bonus
   // spade-reactive modifiers
@@ -820,7 +862,12 @@ function scryTopTavern(c: CampaignState, s: EncounterState) {
 
 // ── Core actions ─────────────────────────────────────────────────────────────
 
-function validateCampaignCombo(cards: Card[], maxTotal = 10): string | null {
+/**
+ * `adjacent` (V3 Staffs Reinforce/Dovetail): a same-rank combo may include ONE
+ * card of adjacent rank (±1) — 'S' restricts that card to Spades (Reinforce),
+ * 'any' allows any suit (Dovetail). Ace pairs and the combo cap are unchanged.
+ */
+function validateCampaignCombo(cards: Card[], maxTotal = 10, adjacent?: 'S' | 'any'): string | null {
   if (cards.length === 0) return 'No cards selected.'
   if (cards.length === 1) return null
   if (cards.some(card => card.rank === 'Jo')) return 'Jesters must be played alone.'
@@ -828,7 +875,21 @@ function validateCampaignCombo(cards: Card[], maxTotal = 10): string | null {
   const nonAces = cards.filter(card => card.rank !== 'A')
   if (aces.length === 1 && nonAces.length === 1) return null
   if (aces.length > 1) return 'Only one Ace per combo.'
-  if (new Set(cards.map(card => card.rank)).size > 1) return 'Cards must share a rank (or pair with an Ace).'
+  if (new Set(cards.map(card => card.rank)).size > 1) {
+    if (!adjacent || aces.length > 0) return 'Cards must share a rank (or pair with an Ace).'
+    const counts = new Map<string, number>()
+    for (const card of cards) counts.set(card.rank, (counts.get(card.rank) ?? 0) + 1)
+    if (counts.size !== 2) return 'Cards must share a rank (or pair with an Ace).'
+    const [a, b] = [...counts.entries()]
+    const [minorRank] = (a![1] <= b![1] ? a : b)!
+    const [majorRank] = (a![1] <= b![1] ? b : a)!
+    const minorCount = Math.min(a![1], b![1])
+    const minorCard = cards.find(card => card.rank === minorRank)!
+    if (minorCount !== 1
+      || Math.abs(cardValue(majorRank) - cardValue(minorRank)) !== 1
+      || (adjacent === 'S' && minorCard.suit !== 'S'))
+      return 'Cards must share a rank (or pair with an Ace).'
+  }
   if (cards.reduce((t, card) => t + cardValue(card.rank), 0) > maxTotal) return `Combo total exceeds ${maxTotal}.`
   return null
 }
@@ -846,7 +907,12 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   const cards = sorted.map(i => hand[i]!).reverse()
   // Combat Cache relic: matched combos may total up to 12 instead of 10.
   const comboMax = c.heroes[pi]!.relicIds.includes('r-combat-cache') ? 12 : 10
-  const comboError = validateCampaignCombo(cards, comboMax)
+  // V3 Staffs — Reinforce (one adjacent Spade) / Dovetail (one adjacent card)
+  const adjacent = EXPERIMENTS.ascendingDeck
+    ? (c.heroes[pi]!.staffId === 'reinforce' ? 'S' as const
+      : c.heroes[pi]!.staffId === 'dovetail' ? 'any' as const : undefined)
+    : undefined
+  const comboError = validateCampaignCombo(cards, comboMax, adjacent)
   if (comboError) return { error: comboError }
   // Tutorial rail: while a gated beat highlights a card, bounce off-script plays.
   const tutBlock = tutorialBlocksPlay(c, s, hand, cards.map(cd => cd.id))
@@ -884,6 +950,16 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   const tok = EXPERIMENTS.ascendingDeck   // token effects gated by the flag
   const hasRelic = (id: string) => hero.relicIds.includes(id)
   let base = cards.reduce((sum, card) => sum + cardValue(card.rank), 0)
+  // V3 Staff — Ace in the Hole (armed): the Ace copies its partner's rank.
+  if (tok && s.flags[flagKey('staff.ace', pi)] && cards.length === 2) {
+    const partner = cards.find(cd => cd.rank !== 'A')
+    if (cards.some(cd => cd.rank === 'A') && partner) {
+      s.flags[flagKey('staff.ace', pi)] = false
+      base += cardValue(partner.rank) - 1
+      clog(c, `   🂡 Ace in the Hole: the Ace plays as a ${partner.rank} (base ${base}).`)
+      ev(s, 'proc', `🂡 Ace copies ${partner.rank}`, 'gold')
+    }
+  }
   if (tok) {
     let sd = cards.reduce((sum, card) => sum + spendDelta(c, card), 0)
     // Catalyst (mythic bridge): once per turn, the value tokens on your FIRST play
@@ -933,6 +1009,16 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   }
   if (immuneBlocked) clog(c, `   ${suitSymbol(enemy.card.suit)} power blocked by enemy immunity.`)
 
+  // V3 Staff — Transfuse (armed, once per enemy): the Heart forgoes its
+  // recovery and adds the play's value as shield instead.
+  if (tok && s.flags[flagKey('staff.transfuse', pi)] && activeSuits.has('H')) {
+    s.flags[flagKey('staff.transfuse', pi)] = false
+    activeSuits.delete('H')
+    enemy.shield += base
+    clog(c, `   💉 Transfuse: recovery forgone — +${base} shield (total ${enemy.shield}).`)
+    ev(s, 'proc', `💉 Transfuse +${base} shield`, 'gold')
+  }
+
   // Lever-magnitude token bonuses (only count cards that actually fire that suit).
   const plateB = tok ? leverBonus(c, cards, 'shield', 'S') : 0
   const drawB = tok ? leverBonus(c, cards, 'draw', 'D') : 0
@@ -940,9 +1026,25 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   const edgeB = tok ? leverBonus(c, cards, 'edge', 'C') : 0
 
   let damage = base
-  if (activeSuits.has('C')) { damage *= 2; clog(c, `   ♣ Damage doubled: ${base} → ${damage}.`); ev(s, 'suit', `♣ DOUBLE! ${base} → ${damage}`, 'blood', true) }
+  let clubDouble = activeSuits.has('C')
+  // V3 Staff — Steady Hand (armed): the Club strikes at base value (no double).
+  if (tok && clubDouble && s.flags[flagKey('staff.steady', pi)]) {
+    s.flags[flagKey('staff.steady', pi)] = false
+    clubDouble = false
+    clog(c, '   ✋ Steady Hand: the Club holds at base value.')
+    ev(s, 'proc', '✋ Steady Hand — no double', 'info')
+  }
+  if (clubDouble) { damage *= 2; clog(c, `   ♣ Damage doubled: ${base} → ${damage}.`); ev(s, 'suit', `♣ DOUBLE! ${base} → ${damage}`, 'blood', true) }
   if (activeSuits.has('C') && edgeB) { damage += edgeB * 2; clog(c, `   ♣ Edge: +${edgeB * 2} damage → ${damage}.`); ev(s, 'proc', `♣ Edge +${edgeB * 2}`, 'gold') }
   if (tok) { const md = markDamage(c, cards); if (md) { damage += md; clog(c, `   ✦ Mark: +${md} damage → ${damage}.`); ev(s, 'proc', `✦ Mark +${md}`, 'gold') } }
+  // V3 Staff — Bloodletting (armed): + half the sacrificed card's value.
+  const bloodArm = tok ? ((s.flags[flagKey('staff.blood', pi)] as number) ?? 0) : 0
+  if (bloodArm > 0) {
+    damage += bloodArm
+    s.flags[flagKey('staff.blood', pi)] = 0
+    clog(c, `   🗡 Bloodletting: +${bloodArm} damage → ${damage}.`)
+    ev(s, 'proc', `🗡 Bloodletting +${bloodArm}`, 'gold')
+  }
   if (s.flags[flagKey('keenEdge', pi)]) { damage *= 2; s.flags[flagKey('keenEdge', pi)] = false; clog(c, `   ✨ Keen Edge: damage doubled → ${damage}.`); ev(s, 'proc', `✨ Keen Edge ×2 → ${damage}`, 'gold', true) }
   if (s.flags[flagKey('crownbreaker', pi)]) { damage *= 3; s.flags[flagKey('crownbreaker', pi)] = false; clog(c, `   👑 Crownbreaker: damage tripled → ${damage}.`); ev(s, 'proc', `👑 Crownbreaker ×3 → ${damage}`, 'gold', true) }
 
@@ -981,13 +1083,21 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   }
 
   // ── Damage + threshold abilities ──────────────────────────────────────────
+  // V3 Staff — Whetstone (auto, once per enemy): a 1–2 overshoot is shaved
+  // down to the exact kill.
+  if (tok && hero.staffId === 'whetstone' && damage > enemy.hp && damage - enemy.hp <= 2 && once(s, 'enemy.whetstone')) {
+    clog(c, `   🪨 Whetstone: ${damage} shaved to ${enemy.hp} — the exact kill.`)
+    ev(s, 'proc', '🪨 Whetstone — exact', 'gold', true)
+    damage = enemy.hp
+  }
   enemy.hp -= damage
   ev(s, 'damage', `💥 ${damage} damage`, 'blood', true)
-  // owner-only (playtest canon 2026-06-11): only the Executioner's own attacks finish
-  const execActive = hero.classId === 'executioner'
+  // owner-only (playtest canon 2026-06-11): only the Executioner's own attacks finish.
+  // V3 (ascending): retired — class identity = Staff + path (Decision 1).
+  const execActive = !EXPERIMENTS.ascendingDeck && hero.classId === 'executioner'
   // Siege upgrade — Regicide: in the castle, the Executioner's OWN attacks
-  // finish royals from 1-4 HP (still once per enemy).
-  const regicideWindow = s.tier === 'boss' && !EXPERIMENTS.provinceMode && hero.classId === 'executioner' && enemy.hp >= 1 && enemy.hp <= 4
+  // finish royals from 1-4 HP (still once per enemy). V3: sieges retired.
+  const regicideWindow = s.tier === 'boss' && !EXPERIMENTS.provinceMode && !EXPERIMENTS.ascendingDeck && hero.classId === 'executioner' && enemy.hp >= 1 && enemy.hp <= 4
   if (regicideWindow && once(s, 'enemy.execFinish')) {
     clog(c, `   🪓 REGICIDE! The Executioner finishes the royal from ${enemy.hp} HP.`)
     ev(s, 'proc', '🪓 REGICIDE — finished!', 'gold', true)
@@ -1052,6 +1162,15 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
   s.defeatedCount++
   const numberEnemy = isNumberRank(enemy.card.rank)
 
+  // V3 §2 — Bastion (Sentinel ♠ C2 rung): excess Spade shield beyond the
+  // enemy's attack carries to the next enemy — 1 shield per Spade card played
+  // against this one, capped by the excess (pin: contracts/staffs-and-ladders.md).
+  if (EXPERIMENTS.ascendingDeck && c.heroes.some(h => h.alive && h.pathC2 === 'bastion')) {
+    const excess = enemy.shield - enemy.attack
+    const spadeCards = (s.flags['enemy.spadeCards'] as number) ?? 0
+    if (excess > 0 && spadeCards > 0) s.flags['bastionCarry'] = Math.min(spadeCards, excess)
+  }
+
   // ── Token kill-triggers (Banner / Bloodprice) on the cards that landed it ──
   if (EXPERIMENTS.ascendingDeck && s.lastPlayed.length) {
     if (hasKeyword(c, s.lastPlayed, 'banner')) {
@@ -1092,11 +1211,22 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
       // §F: the recruit gets its physical identity now — the runtime card that
       // slides under the Tavern carries the physicalId from this moment on.
       enemy.card.id = registerLogicalCard(c, cardId).physicalId
-      s.tavern.unshift(enemy.card)
       c.ownedCards = [...(c.ownedCards ?? []), cardId]
       s.flags['exactKills'] = ((s.flags['exactKills'] as number) ?? 0) + 1
-      clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} recruited — slides under the Tavern.`)
-      ev(s, 'kill', `✨ RECRUIT — ${cardLabel(enemy.card)} joins the Tavern`, 'gold', true)
+      // V3 §2 — Field Promotion (Staff) / Conscript C2 (Executioner ♣ rung):
+      // the recruit enters the killer's HAND instead (hand-cap permitting).
+      const killer = c.heroes[killerIdx]!
+      const toHand = (killer.staffId === 'field-promotion' || killer.pathC2 === 'conscript')
+        && s.hands[killerIdx]!.length < maxHandSize(c, killerIdx)
+      if (toHand) {
+        s.hands[killerIdx]!.push(enemy.card)
+        clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} recruited — straight to ${killer.playerName}'s hand.`)
+        ev(s, 'kill', `✨ RECRUIT — ${cardLabel(enemy.card)} to hand`, 'gold', true)
+      } else {
+        s.tavern.unshift(enemy.card)
+        clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} recruited — slides under the Tavern.`)
+        ev(s, 'kill', `✨ RECRUIT — ${cardLabel(enemy.card)} joins the Tavern`, 'gold', true)
+      }
       if (c.tutorial) s.flags['tut.recruited'] = true
     } else if (exact) {
       // Replacement graft (V3 §1): an exact kill on a card you already own
@@ -1315,8 +1445,8 @@ function counterattack(c: CampaignState, s: EncounterState, pi: number): { error
     clog(c, '   🪝 Hooked Blades: 1 damage becomes 2.')
   }
   // Sentinel siege ultimate — Hold the Gate: once per castle, a counterattack
-  // against the Sentinel is fully negated.
-  if (net > 0 && s.tier === 'boss' && c.heroes[pi]!.classId === 'sentinel' && once(s, 'ult.sentinel')) {
+  // against the Sentinel is fully negated. V3 (ascending): sieges retired (§2).
+  if (net > 0 && s.tier === 'boss' && !EXPERIMENTS.ascendingDeck && c.heroes[pi]!.classId === 'sentinel' && once(s, 'ult.sentinel')) {
     net = 0
     clog(c, '🛡 HOLD THE GATE! The Sentinel turns the blow aside completely.')
     ev(s, 'proc', '🛡 HOLD THE GATE — negated', 'gold', true)
@@ -1351,8 +1481,8 @@ function counterattack(c: CampaignState, s: EncounterState, pi: number): { error
   }
 
   // Warden siege ultimate — Deathward: once per castle, the first death is
-  // prevented; the hero discards what they can and stands.
-  if (coverable < needed && s.tier === 'boss' && !EXPERIMENTS.provinceMode &&
+  // prevented; the hero discards what they can and stands. V3: sieges retired.
+  if (coverable < needed && s.tier === 'boss' && !EXPERIMENTS.provinceMode && !EXPERIMENTS.ascendingDeck &&
       c.heroes.some(h => h.alive && h.classId === 'warden') && once(s, 'ult.warden')) {
     clog(c, `🕯 DEATHWARD! The Warden pulls ${hero.playerName} back from the brink.`)
     ev(s, 'proc', '🕯 DEATHWARD — death prevented', 'gold', true)
@@ -1396,6 +1526,19 @@ export function applyEncounterDiscard(c: CampaignState, playerId: string, cardIn
   ev(s, 'info', `${c.heroes[pi]!.playerName} pays ${total} in cards`, 'plain')
   s.discardNeeded = 0
   if (c.tutorial) s.flags['tut.discarded'] = true
+
+  // V3 §2 — Renewal (Surgeon ♥ C2 rung): paying 3+ cards recovers 1 — the best
+  // card in the discard returns to the Tavern (bottom).
+  if (EXPERIMENTS.ascendingDeck && c.heroes[pi]!.pathC2 === 'renewal' && cards.length >= 3 && s.discard.length > 0) {
+    let best = 0
+    for (let i = 1; i < s.discard.length; i++)
+      if (cardValue(s.discard[i]!.rank) > cardValue(s.discard[best]!.rank)) best = i
+    const [back] = s.discard.splice(best, 1)
+    s.tavern.unshift(back!)
+    clog(c, `   ♻ Renewal: ${cardLabel(back!)} returns to the Tavern.`)
+    ev(s, 'proc', `♻ Renewal — ${cardLabel(back!)} recovered`, 'gold')
+  }
+
   advanceTurn(c, s)
   return {}
 }
@@ -1415,10 +1558,19 @@ export function applyKeepDrawn(c: CampaignState, playerId: string, keepIndices: 
   if (pool.length === 0) return { error: 'Draw pool is empty.' }
 
   // Diamonds cap by empty hand slots; a spell (Tactical Surge) sets a fixed cap.
-  const keepMax = s.drawSelectCap ?? (maxHandSize(c, pi) - s.hands[pi]!.length)
+  let keepMax = s.drawSelectCap ?? (maxHandSize(c, pi) - s.hands[pi]!.length)
+  // V3 Staff — Stockpile: once per enemy, keep one EXTRA card from the pool
+  // (exceed the hand cap by 1; consumed only when actually used).
+  const stockpile = EXPERIMENTS.ascendingDeck && c.heroes[pi]!.staffId === 'stockpile'
+    && !s.flags['enemy.stockpileUsed'] && s.drawSelectCap === undefined
+  if (stockpile) keepMax += 1
   const unique = [...new Set(keepIndices)]
   if (unique.some(i => i < 0 || i >= pool.length)) return { error: 'Invalid pool index.' }
   if (unique.length > keepMax) return { error: `Can keep at most ${keepMax} cards.` }
+  if (stockpile && unique.length === keepMax) {
+    s.flags['enemy.stockpileUsed'] = true
+    clog(c, '   📦 Stockpile: one extra card kept.')
+  }
 
   // validate-then-mutate
   beginEvents(s)
@@ -1536,6 +1688,130 @@ export function applyGraftSelect(
   s.pendingGraft = undefined
   advanceAfterNumberKill(c, s, g.heroIdx)
   return {}
+}
+
+/**
+ * V3 §2 — Staff activation (slice 4). One generic action drives every
+ * activated Staff; semantics pinned in contracts/staffs-and-ladders.md.
+ * `cardIndex` targets a hand card for the Staffs that spend one.
+ */
+export function applyStaffUse(c: CampaignState, playerId: string, cardIndex?: number): { error?: string } {
+  const s = c.encounter
+  if (!s || s.outcome !== 'active') return { error: 'No active encounter.' }
+  if (!EXPERIMENTS.ascendingDeck) return { error: 'Staffs are not active.' }
+  const pi = c.heroes.findIndex(h => h.playerId === playerId)
+  if (pi < 0) return { error: 'You are not in this campaign.' }
+  const hero = c.heroes[pi]!
+  const staff = getStaff(hero.staffId)
+  if (!staff) return { error: 'No Staff selected.' }
+  if (!staff.activated) return { error: `${staff.name} is always on — nothing to activate.` }
+  if (pi !== s.currentPlayerIndex) return { error: 'Not your turn.' }
+  const hand = s.hands[pi]!
+  const target = cardIndex !== undefined && cardIndex >= 0 && cardIndex < hand.length ? hand[cardIndex]! : undefined
+
+  // Parry is the one Staff that fires while PAYING a counterattack.
+  if (staff.id === 'parry') {
+    if (s.turnPhase !== 'discard') return { error: 'Parry fires while paying a counterattack.' }
+    if (!once(s, 'enemy.parry')) return { error: 'Parry is spent for this enemy.' }
+    if (!target || target.suit !== 'S' || target.rank === 'Jo') { delete s.flags['enemy.parry']; return { error: 'Parry needs a Spade from your hand.' } }
+    beginEvents(s)
+    const v = cardValue(target.rank)
+    hand.splice(cardIndex!, 1)
+    s.discard.push(target)
+    if (s.currentEnemy) s.currentEnemy.shield += v
+    s.flags['enemy.spadeCards'] = ((s.flags['enemy.spadeCards'] as number) ?? 0) + 1
+    s.discardNeeded = Math.max(0, s.discardNeeded - v)
+    clog(c, `   🤺 Parry! ${cardLabel(target)} turns the blow — payment reduced by ${v} (${s.discardNeeded} left).`)
+    ev(s, 'proc', `🤺 Parry −${v}`, 'gold', true)
+    if (s.discardNeeded === 0) { clog(c, '🛡 The blow is fully turned aside.'); advanceTurn(c, s) }
+    return {}
+  }
+
+  if (s.turnPhase !== 'play') return { error: 'Staffs activate during your play phase.' }
+
+  switch (staff.id) {
+    case 'hold-the-line': {   // once/enemy: best discard Spade shields (stays in discard)
+      if (!s.currentEnemy) return { error: 'No enemy to block.' }
+      if (s.flags['enemy.holdTheLine']) return { error: 'Hold the Line is spent for this enemy.' }
+      const spades = s.discard.filter(cd => cd.suit === 'S' && cd.rank !== 'Jo')
+      if (!spades.length) return { error: 'No Spade in the discard to replay.' }
+      s.flags['enemy.holdTheLine'] = true
+      beginEvents(s)
+      const best = spades.reduce((a, b) => (cardValue(b.rank) > cardValue(a.rank) ? b : a))
+      const v = cardValue(best.rank)
+      s.currentEnemy.shield += v
+      s.flags['enemy.spadeCards'] = ((s.flags['enemy.spadeCards'] as number) ?? 0) + 1
+      clog(c, `   🛡 Hold the Line: ${cardLabel(best)} stands again — +${v} shield (total ${s.currentEnemy.shield}).`)
+      ev(s, 'proc', `🛡 Hold the Line +${v}`, 'gold')
+      return {}
+    }
+    case 'footwork': {        // once/enemy: bury a hand Spade, draw 1
+      if (s.flags['enemy.footwork']) return { error: 'Footwork is spent for this enemy.' }
+      if (!target || target.suit !== 'S' || target.rank === 'Jo') return { error: 'Footwork buries a Spade from your hand.' }
+      s.flags['enemy.footwork'] = true
+      beginEvents(s)
+      hand.splice(cardIndex!, 1)
+      s.tavern.unshift(target)   // Tavern bottom (drawn last)
+      const got = drawForHero(c, s, pi, 1)
+      clog(c, `   👣 Footwork: ${cardLabel(target)} buried — drew ${got}.`)
+      ev(s, 'proc', `👣 Footwork — bury + draw ${got}`, 'gold')
+      return {}
+    }
+    case 'steady-hand': {     // toggle: next play doesn't double Clubs
+      beginEvents(s)
+      const armed = !s.flags[flagKey('staff.steady', pi)]
+      s.flags[flagKey('staff.steady', pi)] = armed
+      clog(c, `   ✋ Steady Hand ${armed ? 'armed — the next Club holds at base value' : 'disarmed'}.`)
+      ev(s, 'proc', `✋ Steady Hand ${armed ? 'armed' : 'off'}`, 'info')
+      return {}
+    }
+    case 'bloodletting': {    // once/enemy: sacrifice a card, +half value next attack
+      if (s.flags['enemy.bloodletting']) return { error: 'Bloodletting is spent for this enemy.' }
+      if (!target || target.rank === 'Jo') return { error: 'Bloodletting sacrifices a card from your hand.' }
+      const add = Math.floor(cardValue(target.rank) / 2)
+      if (add <= 0) return { error: 'That card is too small to bleed.' }
+      s.flags['enemy.bloodletting'] = true
+      beginEvents(s)
+      hand.splice(cardIndex!, 1)
+      s.discard.push(target)
+      s.flags[flagKey('staff.blood', pi)] = add
+      clog(c, `   🗡 Bloodletting: ${cardLabel(target)} spent — +${add} on your next attack.`)
+      ev(s, 'proc', `🗡 Bloodletting +${add} armed`, 'gold')
+      return {}
+    }
+    case 'ace-in-the-hole': { // toggle: next Ace pair copies its partner's rank
+      beginEvents(s)
+      const armed = !s.flags[flagKey('staff.ace', pi)]
+      s.flags[flagKey('staff.ace', pi)] = armed
+      clog(c, `   🂡 Ace in the Hole ${armed ? 'armed — the next Ace pair copies its partner' : 'disarmed'}.`)
+      ev(s, 'proc', `🂡 Ace in the Hole ${armed ? 'armed' : 'off'}`, 'info')
+      return {}
+    }
+    case 'provisioner': {     // once/enemy: discard a card, draw 1
+      if (s.flags['enemy.provisioner']) return { error: 'Provisioner is spent for this enemy.' }
+      if (!target || target.rank === 'Jo') return { error: 'Provisioner discards a card from your hand.' }
+      s.flags['enemy.provisioner'] = true
+      beginEvents(s)
+      hand.splice(cardIndex!, 1)
+      s.discard.push(target)
+      const got = drawForHero(c, s, pi, 1)
+      clog(c, `   📦 Provisioner: ${cardLabel(target)} out — drew ${got}.`)
+      ev(s, 'proc', `📦 Provisioner — dig 1`, 'gold')
+      return {}
+    }
+    case 'transfuse': {       // once/enemy toggle: next Heart shields instead of recovering
+      if (s.flags['enemy.transfused']) return { error: 'Transfuse is spent for this enemy.' }
+      beginEvents(s)
+      const armed = !s.flags[flagKey('staff.transfuse', pi)]
+      s.flags[flagKey('staff.transfuse', pi)] = armed
+      if (armed) s.flags['enemy.transfused'] = true
+      else delete s.flags['enemy.transfused']
+      clog(c, `   💉 Transfuse ${armed ? 'armed — the next Heart shields instead of recovering' : 'disarmed'}.`)
+      ev(s, 'proc', `💉 Transfuse ${armed ? 'armed' : 'off'}`, 'info')
+      return {}
+    }
+  }
+  return { error: 'That Staff has no activation.' }
 }
 
 export function applyEncounterYield(c: CampaignState, playerId: string): { error?: string } {

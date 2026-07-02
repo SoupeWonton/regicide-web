@@ -67,6 +67,9 @@ export interface ClientHero {
   relics: ItemView[]
   handSize: number
   isCurrentPlayer: boolean
+  // V3 §2: the selected Staff + the lit C2 path rung (once C2 is reached)
+  staff?: { id: string; name: string; text: string } | null
+  pathRung?: { id: string; name: string; suit: string; text: string } | null
 }
 
 export interface ClientRoadNode {
