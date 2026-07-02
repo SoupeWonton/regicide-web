@@ -1,7 +1,22 @@
-import type { Card, ClientToken } from '../../types'
+import type { Card, ClientToken, ClientPhysicalCard } from '../../types'
 
 export function logicalId(c: { suit: string; rank: string }): string {
   return `${c.suit}${c.rank}`
+}
+
+// ── §F card-state (V3.0): printed vs effective display ──────────────────────
+
+/** The physical card behind a runtime deck card (Card.id === physicalId). */
+export function physicalOf(
+  map: Record<string, ClientPhysicalCard> | undefined,
+  card: { id: string },
+): ClientPhysicalCard | null {
+  return map?.[card.id] ?? null
+}
+
+/** True when the card's effective face differs from its printed face. */
+export function isGrafted(pc: ClientPhysicalCard | null): boolean {
+  return !!pc && (pc.printed.suit !== pc.effective.suit || pc.printed.rank !== pc.effective.rank)
 }
 
 /** Tokens stamped on a card, from a projected cardTokens map. */

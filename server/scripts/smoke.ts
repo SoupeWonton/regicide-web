@@ -947,6 +947,91 @@ console.log('Test G: ascending-deck — Sanctum Rites (Foresight / Blessing / Cl
   EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
+// ── Test H: §F card-state model (V3.0 slice 1) ───────────────────────────────
+console.log('Test H: §F card-state — physical ids, printed vs effective, provenance, schema')
+{
+  EXPERIMENTS.ascendingDeck = true
+  EXPERIMENTS.provinceMode = false
+  const { CAMPAIGN_SCHEMA_VERSION, applyGraft, moveGraft, effectiveFace, physicalById, physicalByLogical, migrateCampaign, projectPhysicalCards } = await import('../campaign/cards')
+
+  const c = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-cardstate', kingdom).campaign!
+  applyClassPick(c, P1, 'sentinel')
+
+  // (a) schema version + registry: 20 physical cards behind the A–5 start
+  assert(c.schemaVersion === CAMPAIGN_SCHEMA_VERSION, `fresh run carries schemaVersion ${CAMPAIGN_SCHEMA_VERSION} (got ${c.schemaVersion})`)
+  const reg = Object.values(c.cards ?? {})
+  assert(reg.length === 20, `registry holds the 20-card start (got ${reg.length})`)
+  assert(reg.every(pc => pc.grafts.length === 0), 'no grafts at run start')
+  const runtime = [...(c.deck?.tavern ?? []), ...(c.deck?.hands[0] ?? [])].filter(cd => cd.rank !== 'Jo')
+  assert(runtime.length === 20 && runtime.every(cd => {
+    const pc = physicalById(c, cd.id)
+    if (!pc) return false
+    const f = effectiveFace(pc)
+    return f.suit === cd.suit && f.rank === cd.rank
+  }), 'every runtime deck card is registry-backed (Card.id = physicalId, face = effective)')
+  ok('§F: fresh run → schema v2, 20 registry entries, registry-backed runtime deck')
+
+  // (b) rank graft: identity survives replacement; the printed face never changes
+  const s2 = physicalByLogical(c, 'S2')
+  assert(!!s2, 'S2 resolves through the logical shim')
+  assert(applyGraft(c, s2!.physicalId, 'rank', '7', 'kill:H7') === null, 'rank graft applies')
+  const f1 = effectiveFace(s2!)
+  assert(f1.rank === '7' && f1.suit === 'S', `effective face is now 7♠ (got ${f1.suit}${f1.rank})`)
+  assert(s2!.printed.rank === '2' && s2!.printed.suit === 'S', 'printed face unchanged (2♠)')
+  assert(physicalByLogical(c, 'S7')?.physicalId === s2!.physicalId, 'the shim resolves the NEW effective id to the SAME physical card')
+  ok('§F: rank replacement — same physicalId, printed 2♠ / effective 7♠')
+
+  // (c) royal cap: a rank graft can never make a royal (structural §3 invariant)
+  assert(applyGraft(c, s2!.physicalId, 'rank', 'J', 'royal:SK') !== null, 'rank graft to J is rejected (cap 10)')
+  assert(applyGraft(c, s2!.physicalId, 'rank', '10', 'royal:SK') === null, 'rank graft to 10 allowed')
+  ok('§F: royal cap — rank grafts top out at 10')
+
+  // (d) suit graft + provenance: the full replacement history stays on the card
+  assert(applyGraft(c, s2!.physicalId, 'suit', 'D', 'sanctum') === null, 'suit graft applies')
+  const f2 = effectiveFace(s2!)
+  assert(f2.suit === 'D' && f2.rank === '10', `effective face is 10♦ (got ${f2.suit}${f2.rank})`)
+  assert(s2!.grafts.length === 3, `provenance keeps all three grafts (got ${s2!.grafts.length})`)
+  assert(s2!.grafts[0]!.from === '2' && s2!.grafts[0]!.to === '7' && s2!.grafts[0]!.source === 'kill:H7', 'a graft records what replaced what + its source')
+  ok('§F: provenance — replacement history retained (2→7→10, S→D)')
+
+  // (e) move a graft (Sanctum): the card underneath is never lost
+  const h3 = physicalByLogical(c, 'H3')!
+  const suitGraft = s2!.grafts.find(g => g.kind === 'suit')!
+  assert(moveGraft(c, s2!.physicalId, suitGraft.seq, h3.physicalId) === null, 'suit graft moves 2♠→3♥')
+  assert(effectiveFace(s2!).suit === 'S', 'source card reverts to its underlying suit (♠)')
+  const h3f = effectiveFace(h3)
+  assert(h3f.suit === 'D' && h3f.rank === '3', `target now carries the graft (3♦, got ${h3f.suit}${h3f.rank})`)
+  assert(h3.grafts[0]!.from === 'H' && h3.grafts[0]!.source === 'sanctum', 'moved graft re-anchors `from` + keeps its source')
+  ok('§F: graft moved between cards — both faces re-derive; nothing lost')
+
+  // (f) serialization round-trip + legacy-save migration
+  saveCampaign(c)
+  const re = loadCampaign(c.id)
+  assert(re?.schemaVersion === CAMPAIGN_SCHEMA_VERSION, 'round-trip keeps the schema version')
+  const reS2 = re ? physicalById(re, s2!.physicalId) : undefined
+  assert(!!reS2 && effectiveFace(reS2).rank === '10' && reS2.printed.rank === '2', 'round-trip keeps printed + grafts (effective re-derives)')
+  const legacy = JSON.parse(JSON.stringify(re)) as CampaignState
+  delete legacy.schemaVersion
+  delete legacy.cards
+  delete legacy.cardSeq
+  legacy.ownedCards = ['C6']
+  migrateCampaign(legacy)
+  assert(legacy.schemaVersion === CAMPAIGN_SCHEMA_VERSION, 'legacy save migrates to v2')
+  assert(Object.values(legacy.cards ?? {}).length === 21, `migration registers start + owned (got ${Object.values(legacy.cards ?? {}).length})`)
+  ok('§F: serialization survives; legacy saves migrate forward')
+
+  // (g) client projection: printed vs effective display data
+  const proj = projectPhysicalCards(c)
+  const pj = proj?.[s2!.physicalId]
+  assert(!!pj && pj.printed.rank === '2' && pj.effective.rank === '10', 'projection carries printed vs effective')
+  const view = buildClientCampaign(c, P1, P1, kingdom)
+  assert(!!view.physicalCards?.[s2!.physicalId], 'client state carries the physicalCards map')
+  ok('§F: client projection — printed vs effective display data')
+
+  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
+  EXPERIMENTS.provinceMode = LIVE_PROVINCE
+}
+
 // Test T1 — onboarding tutorial launches a scripted Sentinel encounter
 {
   const wasAsc = EXPERIMENTS.ascendingDeck

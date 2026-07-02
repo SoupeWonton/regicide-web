@@ -7,6 +7,7 @@ import type {
 } from './types'
 import { CLASSES, TIER1_CLASSES, getItem, itemsOf, RELIC_SLOTS, getEncounterDef, BOSS_MODIFIERS, FORGEABLE_TOKEN_IDS, C_TIER_TOKEN_IDS, getTokenDef, RELIC_UNLOCK_ORDER, SPELL_UNLOCK_ORDER, HAILMARY_SPELL_IDS, MYTHIC_RELIC_IDS, BRIDGE_RELIC_ID, MYTHIC_PER_CONTINENT } from './content'
 import { stampToken, projectCardTokens, MAX_TOKENS_PER_CARD } from './tokens'
+import { CAMPAIGN_SCHEMA_VERSION, registerLogicalCard, projectPhysicalCards } from './cards'
 import { buildMap } from './maps'
 import {
   startEncounter, maxHandSize, setupChapterDeck, campRest, dealReplacementHand,
@@ -61,6 +62,7 @@ export function createCampaign(
   const realSeed = seed?.trim() || Math.random().toString(36).slice(2, 10)
   const c: CampaignState = {
     id: `camp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    schemaVersion: CAMPAIGN_SCHEMA_VERSION,
     name: runName?.trim().slice(0, 60) || `${players[0]!.name}'s lineage`,
     seed: realSeed,
     rngState: hashSeed(realSeed),
@@ -698,8 +700,6 @@ export function applyShopChoice(c: CampaignState, optionId: string): { error?: s
 // unrepeatable tempo is that thing. (Token / dual-type / forge-exile draft
 // archetypes depend on the Step-5 token economy and are intentionally deferred.)
 const DRAFT_TEMPO = 3
-let _dftUid = 70000
-const dftUid = () => `dft${++_dftUid}`
 
 function offerDraft(c: CampaignState) {
   // Drafts are a Continent-1 deck-steering tool. Outside Continent 1 (or with
@@ -936,7 +936,8 @@ function resolveDraftPick(c: CampaignState, pc: PendingChoice, optionId: string)
       clog(c, `🃏 Draft: ${rank}${suitSymbol(suit)} already owned — +1 token budget.`)
     } else {
       c.ownedCards = [...(c.ownedCards ?? []), cardId]
-      if (deck) deck.tavern.unshift({ suit, rank, id: dftUid() })
+      // §F: the drafted card carries its physical identity from the start
+      if (deck) deck.tavern.unshift({ suit, rank, id: registerLogicalCard(c, cardId).physicalId })
       clog(c, `🃏 Draft: ${rank}${suitSymbol(suit)} joins the deck.`)
     }
   }
@@ -1134,6 +1135,7 @@ export function checkEncounterEnd(c: CampaignState, kingdom?: KingdomState) {
             tokensGranted++
           } else {
             c.ownedCards = [...(c.ownedCards ?? []), cardId]
+            registerLogicalCard(c, cardId)   // §F identity (injected at next deck setup)
             granted++
           }
         }
@@ -1482,6 +1484,7 @@ export function backfillAct(c: CampaignState) {
       } else {
         // new card — add to ownedCards (will be injected into deck on next setupChapterDeck)
         c.ownedCards = [...owned, cardId]
+        registerLogicalCard(c, cardId)   // §F identity
         granted++
       }
     }
@@ -1717,6 +1720,7 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
     tokenBudget: c.tokenBudget,
     tokenFragments: c.tokenFragments,
     ascendingDeck: EXPERIMENTS.ascendingDeck,
+    physicalCards: projectPhysicalCards(c),
   }
 }
 

@@ -102,6 +102,41 @@ export interface ClientToken {
   text: string
 }
 
+// ── §F card-state model (V3.0 slice 1) ───────────────────────────────────────
+
+/** A card face — printed or effective. Loose strings, matching Token.suit style. */
+export interface CardFace {
+  suit: string   // C | D | H | S
+  rank: string   // A | 2…10 | J | Q | K
+}
+
+/**
+ * One replacement graft on a physical card (V3 §1 semantics: replace the rank
+ * OR the suit — never additive). Ordered by `seq`; the card's EFFECTIVE face is
+ * the printed face with each graft applied in order (the last of each kind
+ * wins). A graft is movable (Sanctum) without losing the card underneath — the
+ * printed face never changes.
+ */
+export interface GraftRecord {
+  seq: number              // application order; stable handle for Sanctum moves
+  kind: 'rank' | 'suit'
+  from: string             // what this replaced (the effective value at application time)
+  to: string               // the replacement (rank grafts: A–10 only — the royal cap)
+  source: string           // provenance, e.g. 'kill:H7', 'royal:SK', 'sanctum'
+}
+
+/**
+ * §F: a card with stable physical identity. `physicalId` survives rank/suit
+ * replacement AND deck rebuilds; `printed` is what is inked on the card and
+ * never changes; the effective face is DERIVED (cards.ts effectiveFace), never
+ * stored. Registry lives in CampaignState.cards.
+ */
+export interface PhysicalCard {
+  physicalId: string       // `pc<n>`, unique per campaign (CampaignState.cardSeq)
+  printed: CardFace
+  grafts: GraftRecord[]
+}
+
 /** A single option in a solo per-hero draft offer. */
 export interface DraftOption {
   id: string
@@ -375,6 +410,19 @@ export interface CampaignState {
   unlockedSpells?: string[]
   // cap on relic/spell-granting landmarks per chapter (extra ones give forge budget)
   itemStopsThisChapter?: number
+
+  // ── §F card-state model (V3.0 slice 1) ─────────────────────────────────────
+  // Persisted-format version. Absent = legacy v1 (logical-id keying only);
+  // 2 = physical card registry below. Bump on breaking shape changes;
+  // store.loadCampaign migrates old saves forward (cards.migrateCampaign).
+  schemaVersion?: number
+  // physicalId → card. The §F registry: canonical identity for every card the
+  // run owns (the A–5 start + recruits; royals join at the C2 gates). The
+  // legacy ownedCards/cardTokens above stay logical-id-keyed through the
+  // cards.ts shim until the additive-token systems retire (slice 9).
+  cards?: Record<string, PhysicalCard>
+  // monotonic per-campaign counter minting physicalIds and graft seqs
+  cardSeq?: number
 }
 
 // ── Kingdom (permanent unlock state) ─────────────────────────────────────────
@@ -392,6 +440,15 @@ export interface KingdomState {
 }
 
 // ── Client projections ───────────────────────────────────────────────────────
+
+/** §F projection: printed vs effective display data for one physical card.
+ * Runtime deck cards carry their physicalId as Card.id — the client joins on it. */
+export interface ClientPhysicalCard {
+  physicalId: string
+  printed: CardFace
+  effective: CardFace
+  grafts: { kind: 'rank' | 'suit'; from: string; to: string; source: string }[]
+}
 
 export interface ClientHero {
   playerId: string
@@ -508,4 +565,7 @@ export interface ClientCampaignState {
   tokenFragments?: number
   // ascending-deck mode is active (drives token UI: class-select stamps, badges)
   ascendingDeck?: boolean
+  // §F: physicalId → printed/effective faces + graft provenance. Deck cards
+  // carry their physicalId as Card.id, so any card view can join on it.
+  physicalCards?: Record<string, ClientPhysicalCard>
 }

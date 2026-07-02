@@ -3,6 +3,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import type { CampaignState, KingdomState } from './types'
 import { TIER1_CLASSES, STARTING_RELICS, STARTING_SPELLS } from './content'
+import { migrateCampaign } from './cards'
 
 // File-backed persistence (v0 canon: saves must survive reload; Kingdom unlocks
 // are permanent; campaign saves are independent from each other).
@@ -64,7 +65,9 @@ export function saveCampaign(c: CampaignState) {
 export function loadCampaign(id: string): CampaignState | null {
   ensureDirs()
   try {
-    return JSON.parse(fs.readFileSync(path.join(CAMPAIGN_DIR, `${id.replace(/[^a-zA-Z0-9_-]/g, '')}.json`), 'utf-8')) as CampaignState
+    const c = JSON.parse(fs.readFileSync(path.join(CAMPAIGN_DIR, `${id.replace(/[^a-zA-Z0-9_-]/g, '')}.json`), 'utf-8')) as CampaignState
+    // §F: forward-migrate legacy saves (schemaVersion < 2 → build the registry)
+    return migrateCampaign(c)
   } catch {
     return null
   }

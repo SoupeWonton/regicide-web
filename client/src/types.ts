@@ -124,6 +124,15 @@ export interface ClientEncounterState {
   cardTokens?: Record<string, ClientToken[]>
 }
 
+// §F card-state (V3.0): printed vs effective display data for a physical card.
+// Deck cards carry their physicalId as Card.id — join on it (campaign/cards.ts).
+export interface ClientPhysicalCard {
+  physicalId: string
+  printed: { suit: string; rank: string }
+  effective: { suit: string; rank: string }
+  grafts: { kind: 'rank' | 'suit'; from: string; to: string; source: string }[]
+}
+
 // ascending-deck Step 5: a token projected for display on a card face
 export interface ClientToken {
   defId: string
@@ -202,6 +211,8 @@ export interface ClientCampaignState {
   tokenFragments?: number
   // ascending-deck mode active (drives token UI: class-select stamps, card badges)
   ascendingDeck?: boolean
+  // §F: physicalId → printed/effective faces + graft provenance
+  physicalCards?: Record<string, ClientPhysicalCard>
 }
 
 export interface SaveSummary {

@@ -6,6 +6,7 @@ import { getEncounterDef, getItem, encountersOf, BOSS_MODIFIERS, CLASSES, CLASS_
 import { EXPERIMENTS, CURATION_CUT } from './experiments'
 import { appendGameLog } from './store'
 import { spendDelta, holdDelta, cardSuits, leverBonus, markDamage, hasKeyword, stampToken, MAX_TOKENS_PER_CARD } from './tokens'
+import { syncCardRegistry, effectiveFace, registerLogicalCard } from './cards'
 import { tutorialEnemies, tutorialEnemyMeta, tutorialBlocksPlay, tutorialBlocksDiscard, recordTutorialPlay } from './tutorial'
 
 /** Returns the continent number for a given chapter. Inlined to avoid circular import with campaign.ts. */
@@ -119,31 +120,26 @@ export function setupChapterDeck(c: CampaignState) {
         if (sig.length) clog(c, `✒ ${c.heroes[hi]!.playerName} (${CLASSES[cls].name}) stamps ${sig.length} signature tokens.`)
       }
     }
-    const START_RANKS: typeof PLAYER_RANKS[number][] = ['A', '2', '3', '4', '5']
+    // §F: the deck is built FROM the physical registry — the A–5 start plus
+    // every recruit each yield one runtime card carrying its EFFECTIVE face and
+    // its physicalId as Card.id, so identity survives deck rebuilds (the old
+    // per-setup uid() ids did not) and rank/suit replacement (slice 2).
+    syncCardRegistry(c)
     const cards: Card[] = []
-    for (const suit of SUITS)
-      for (const rank of START_RANKS)
-        cards.push({ suit, rank, id: uid() })
+    for (const pc of Object.values(c.cards ?? {})) {
+      const f = effectiveFace(pc)
+      cards.push({ suit: f.suit as Suit, rank: f.rank as Card['rank'], id: pc.physicalId })
+    }
     const jesters = CAMPAIGN_JESTERS[c.heroes.length] ?? 0
     for (let i = 0; i < jesters; i++) cards.push({ suit: 'C', rank: 'Jo', id: uid() })
-    // inject recruited cards from previous encounters (ownedCards → deck, if not already present)
-    // ownedCards are the canonical list; duplicates are not injected (one copy per card id).
-    const ownedIds = new Set<string>()
-    for (const cardId of c.ownedCards ?? []) {
-      if (!ownedIds.has(cardId)) {
-        ownedIds.add(cardId)
-        const suit = cardId[0] as Suit
-        const rank = cardId.slice(1) as typeof PLAYER_RANKS[number]
-        cards.push({ suit, rank, id: uid() })
-      }
-    }
+    const recruited = (c.ownedCards ?? []).length
     const tavern = r.shuffle(cards)
     c.deck = { tavern, discard: [], hands: c.heroes.map(() => []) }
     for (const hi of aliveIndices(c))
       for (let i = 0; i < maxHandSize(c, hi); i++)
         if (c.deck.tavern.length) c.deck.hands[hi]!.push(c.deck.tavern.pop()!)
     done()
-    clog(c, `🃏 Ascending Deck: ${cards.length - jesters} cards (A–5 + ${ownedIds.size} recruited). Hands drawn.`)
+    clog(c, `🃏 Ascending Deck: ${cards.length - jesters} cards (A–5 + ${recruited} recruited). Hands drawn.`)
     return
   }
 
@@ -1087,7 +1083,10 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
       return
     }
     if (exact && !alreadyOwned) {
-      // First time recruiting this number-enemy: card enters the Tavern
+      // First time recruiting this number-enemy: card enters the Tavern.
+      // §F: the recruit gets its physical identity now — the runtime card that
+      // slides under the Tavern carries the physicalId from this moment on.
+      enemy.card.id = registerLogicalCard(c, cardId).physicalId
       s.tavern.unshift(enemy.card)
       c.ownedCards = [...(c.ownedCards ?? []), cardId]
       s.flags['exactKills'] = ((s.flags['exactKills'] as number) ?? 0) + 1
