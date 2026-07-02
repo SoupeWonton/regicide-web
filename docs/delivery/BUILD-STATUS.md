@@ -21,7 +21,7 @@ acceptance gate passes (smoke ✅ + typecheck ✅ + slice smoke case + commit). 
 | 5 | Forgiveness — opening ♦ guarantee; 4-part Camp (incl. block 10); auto seam reset | ☑ done | `a527755` | ♦ swap-in at every deal; Camp arms double+10 block; seams carry hands (§F ids) + top-up 5 |
 | 6 | Spells — gauntlet + bracelet; agnostic 50/50 fragments; consume-to-empty; Forge tier-up | ☑ done | `b2bf6fb` | `spells.ts` crystals; pool = `tokenFragments`; legacy spell offers dried up; pins → [`contracts/spells.md`](contracts/spells.md) |
 | 7 | Equipment — 4 named slots + bag; `relic_v1_design_3.0` (29); free swaps | ☑ done | `08aff7c` | `relics.ts` pool, all 29 working; Lair pick-of-2 + Caravan pay-from-hand (cost 8); pins → [`contracts/relics.md`](contracts/relics.md) |
-| 8 | Landmarks + provinces — roster (Hunt = NEW), chapter→province, C2 mirrors C1, recap | ☐ not started | — | |
+| 8 | Landmarks + provinces — roster (Hunt = NEW), chapter→province, C2 mirrors C1, recap | ☑ done | `b708741` | C2 = cont2-p1/p2/p3 (one gate each, crown @ ch6); Hunt/Rearrange/Consecrate/Fallen Heroes live; wager placeholder |
 | 9 | Meta/lineage + cutover — lineage wipe, no save/resume, §11 deletes, e2e run | ☐ not started | — | deletes only here |
 
 **Definition of done:** fresh `npm run dev` → class+Staff select → C1 (3 provinces,
@@ -31,6 +31,14 @@ collected for Landry's playtest.
 
 ## Session log
 
+- **2026-07-02 (g)** — **slice 8 landed** (`b708741`): landmarks + provinces. C2 =
+  three provinces (`cont2-p1/p2/p3`, one chapter-keyed gate each; tier-duel roads;
+  Fallen Heroes opens P2; crown at ch6 = victory; seams through ch5). New verbs: Hunt
+  (C1-only quarry fight), Sanctum Rearrange (2 §F graft moves/visit), Shrine
+  Consecrate (seeded permanent transmutes), Fallen Heroes Staff swap. Legacy rites off
+  the offer path. Province wording player-facing; God-of-Luck wager placeholder.
+  Tests: N added; D/I re-pinned to the 3-province arc. Gates: smoke ✅ · vue-tsc ✅.
+  **Next: slice 9 (meta/lineage + cutover deletes + e2e).**
 - **2026-07-02 (f)** — **slice 7 landed** (`08aff7c`): equipment. `relics.ts` = the
   full 29-relic pool with working semantics; bag + 4 named slots (`equip_relic`, free
   between fights, locked in combat); Lair = pick-of-2 raid → bag; Caravan =
