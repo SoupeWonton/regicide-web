@@ -49,3 +49,10 @@ Naming convention: `YYYY-MM-DD-short-title.md`.
   **bracelet** (4 suit holes) that previews the next spell; opens a **UI/UX doc** for Gab
   ([`delivery/plans/ui-ux-v3.0.md`](../delivery/plans/ui-ux-v3.0.md)). Gauntlet = holder (tiers
   Fragment→Half→Full); **Forge = forge** (tier-up); Staff roster = the 4 class passives — all resolved.
+- [`2026-07-01-v3.0-build-decisions.md`](2026-07-01-v3.0-build-decisions.md)
+  — **accepted**: closes **every remaining §Q build blocker** in one sweep (12 decisions): identical
+  A–5×4 starting decks; cast = consume-to-empty; graft trigger rolls no fragment; auto seam reset +
+  **four-part Camp (adds start-block 10; redraw = draw up to 5)**; C2 provinces mirror the C1 skeleton;
+  free relic swaps; uncapped fragment pool; ability/relic contracts delegated to engineering (⚑-flagged);
+  placeholder UI; **fully autonomous 9-slice build** until playtest
+  ([`delivery/plans/v3.0-build-execution.md`](../delivery/plans/v3.0-build-execution.md)).

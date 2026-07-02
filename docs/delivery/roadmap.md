@@ -23,7 +23,7 @@ last_reviewed: 2026-06-28
 | 1 | Path unlocks on C2 completion | Q31 | ✅ **Decided 2026-06-27** — clearing C2 unlocks **all** other suit paths |
 | 2 | Class = **home-suit path (C2 rung in V3.0) + a separate selectable Staff** | Q5 / Q31 | ✅ **Decided 2026-06-27** — path/Staff decoupled; siege retired; **C2 rung = a single ability**; **Staff = pick 1 of class's 4 passive signatures (16 total)**; ladder/staff content in the candidates doc |
 | 3 | **Forgiveness floor** — guaranteed opening **Diamond** | Q16 | ✅ **Decided 2026-06-27**; seam-reset shape + numbers → playtest |
-| 4 | **Road recovery / rest cadence** — **Camp = fixed three-part rest** | Q16 | ✅ **Camp resolved 2026-06-27** (reshuffle + redraw-to-5 + double first attack); magnitudes → playtest |
+| 4 | **Road recovery / rest cadence** — **Camp = fixed four-part rest** | Q16 | ✅ **Resolved 2026-06-27; revised 2026-07-01** (reshuffle + draw-up-to-5 + double first attack + **start-block 10**); auto seam reset separate (no block/double); magnitudes → playtest |
 | 5 | **Fallen Heroes** detail — swap, after C1, to **one random Staff from each of the 4 classes** | Q32 | ✅ **Decided 2026-06-27** — just a swap, no cost, repeatable |
 | 6 | **Crystal/spell layer in V3.0** | Q28 | ✅ **Decided (revised 2026-06-28)** — gauntlet holds 4 suit crystals (Fragment→Half→Full); **fragments agnostic, 50/50 drop after each encounter**, placed via the **bracelet** (between-encounter UI); **Forge = forge** (tier-up); Full → V3.5. Numbers → playtest |
 | 7 | **Overdraw-and-select** — keep or cut | Q14 | ✅ **Decided 2026-06-27** — kept as-is |

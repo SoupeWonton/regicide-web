@@ -95,7 +95,7 @@ Cast one armed suit spell (consumes it; cap one per suit per combat). The key vi
 
 Each landmark is **one sharp, telegraphed decision, one verb** — never a shop buffet:
 **Forge** (forge — fragments → next crystal tier), **Sanctum** (Rearrange — 2 transfers), **Caravan**
-(pay-from-hand for a relic), **Lair** (raid a relic), **Camp** (the 3-part rest), **Shrine**
+(pay-from-hand for a relic), **Lair** (raid a relic), **Camp** (the 4-part rest), **Shrine**
 (Consecrate), **Hunt** (C1 — pursue a recruit), **Fallen Heroes** (swap Staff — one random Staff per class).
 
 **Gab designs:** the shared "one decision" landmark card, telegraphed before commit.
@@ -117,12 +117,13 @@ province/continent boundaries should make a ~one-hour session feel complete.
 
 ## Decisions to be taken (UI/UX — Landry + Gab)
 
-These are **the only open items**; none block design starting. They are UI-shaped, not mechanics:
+> **✅ All resolved 2026-07-01** ([decision](../../decisions/2026-07-01-v3.0-build-decisions.md)) —
+> mechanics are set; Gab still owns look/feel:
 
-- **Relic swapping:** re-equip from the bag at every between-encounter screen, or only certain stops? Cost?
-- **Bracelet timing:** is a suit locked once the next encounter starts? Can a fragment move suits before committing?
-- **Fragment overflow:** what happens to fragments when a suit is at Full / no useful hole remains?
-- **One screen or two:** relic management and the bracelet on one screen, or separate stops?
+- ✅ **Relic swapping:** free re-equip from the bag at **every** between-encounter screen; no cost; locked in combat.
+- ✅ **Bracelet timing:** placement commits when the next encounter starts; fragments move freely between encounters (engineering default; Gab may revise the interaction).
+- ✅ **Fragment overflow:** unplaced fragments bank in an **uncapped bracelet pool**; suits cap at Half in V3.0 (Full progress banks silently for V3.5); nothing is lost.
+- ✅ **One screen or two:** **one** management screen, two modules (relics + bracelet) — placeholder layout; Gab restyles.
 
 *(Resolved 2026-06-28: the **Forge node stays** — verb = forge; the **Staff roster** = the four passive
 signatures per class; **gauntlet** = holder, **bracelet** = its UI.)*

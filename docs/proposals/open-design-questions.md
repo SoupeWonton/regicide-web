@@ -34,6 +34,14 @@ the question from this queue.
 > and the C3–C5 half of **Q7** stay **V3.5**. See
 > [`../decisions/2026-06-27-v3.0-question-sweep.md`](../decisions/2026-06-27-v3.0-question-sweep.md).
 
+> **Build sweep (2026-07-01): every remaining build blocker is closed or delegated.** Starting decks,
+> cast semantics, graft/fragment separation, Camp (now **four-part**, incl. start-block 10) vs the auto
+> seam reset, C2 province structure, redraw semantics, relic swap cadence, fragment banking, ability +
+> relic contract delegation, placeholder UI, and full-autonomous build scope — see
+> [`../decisions/2026-07-01-v3.0-build-decisions.md`](../decisions/2026-07-01-v3.0-build-decisions.md)
+> and [`../delivery/plans/v3.0-build-execution.md`](../delivery/plans/v3.0-build-execution.md).
+> **The V3.0 build no longer waits on any design question**; remaining tuning happens at playtest.
+
 ## Queue at a glance
 
 | Order | Question | State | Decision packet or dependency |
