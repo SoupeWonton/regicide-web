@@ -10,6 +10,7 @@ import { stampToken, projectCardTokens, MAX_TOKENS_PER_CARD } from './tokens'
 import { CAMPAIGN_SCHEMA_VERSION, registerLogicalCard, projectPhysicalCards } from './cards'
 import { staffsOf, getStaff, getLadder, homeLadder } from './paths'
 import { CRYSTALS, FRAGMENTS_PER_HALF, GAUNTLET_SUITS, gauntletOf, projectGauntlet } from './spells'
+import { V3_RELICS, RELIC_SLOT_ORDER, getV3Relic, relicBagOf, equipmentOf, relicEquipped, relicsOwned, type RelicSlot } from './relics'
 import { buildMap } from './maps'
 import {
   startEncounter, maxHandSize, setupChapterDeck, campRest, campBundle, dealReplacementHand,
@@ -34,6 +35,10 @@ function itemPool(c: CampaignState, kind: 'relic' | 'spell', tier?: 'standard' |
   // the only spell economy. Every legacy spell offer dries up under the flag
   // (the 14-entry roster survives in content.ts until the slice-9 delete).
   if (EXPERIMENTS.ascendingDeck && kind === 'spell') return []
+  // V3 §7 (slice 7): the legacy 13-relic ITEMS roster is superseded — relics
+  // now come ONLY from the Lair (raid) and the Caravan (pay-from-hand), out of
+  // relic_v1_design_3.0. Legacy relic offers dry up the same way.
+  if (EXPERIMENTS.ascendingDeck && kind === 'relic') return []
   // Gated by the run's unlocked pool (snapshotted from the Kingdom at creation).
   // Falls back to all items if the snapshot is absent (legacy saves / non-ascending).
   const unlocked = kind === 'relic' ? c.unlockedRelics : c.unlockedSpells
@@ -196,7 +201,20 @@ export function applyRoadChoose(c: CampaignState, playerId: string, nodeId: stri
   node.known = true
   clog(c, `🥾 The party commits to ${labelOf(node.kind)}.`)
   resolveNode(c, node.id, node.kind)
+  revealForkedRoad(c)
   return {}
+}
+
+// V3 §7 — Forked Road (Cloak): every reachable next node is revealed before
+// you commit. Called after movement and on equip so the map stays honest.
+export function revealForkedRoad(c: CampaignState) {
+  if (!EXPERIMENTS.ascendingDeck || !c.map || !relicEquipped(c, 'v3r-forked-road')) return
+  const cur = c.map.nodes.find(n => n.id === c.map!.currentNodeId)
+  if (!cur) return
+  for (const id of cur.next) {
+    const n = c.map.nodes.find(x => x.id === id)
+    if (n && !n.known) { n.known = true; clog(c, `🔱 Forked Road: ${labelOf(n.kind)} lies ahead.`) }
+  }
 }
 
 // Province canon: the fall of a rank gate sweeps the party forward — the road
@@ -232,6 +250,21 @@ function labelOf(kind: NodeKind): string {
 function resolveNode(c: CampaignState, nodeId: string, kind: NodeKind) {
   switch (kind) {
     case 'skirmish': case 'veteran': case 'elite':
+      // V3 §7 — Forced March (Cloak): once per province, an ordinary fight
+      // (skirmish/veteran) may be marched past — no fight, no recruit, no graft.
+      if (EXPERIMENTS.ascendingDeck && kind !== 'elite' && relicEquipped(c, 'v3r-forced-march')
+          && !(c.relicChapterUses ??= {})['v3r-forced-march']) {
+        c.phase = 'landmark'
+        c.pendingChoice = {
+          kind: 'landmark_reward', forPlayerId: null,
+          prompt: '🥾 Forced March — slip past this fight? (No recruit, no graft.)',
+          options: [
+            { id: `march:${nodeId}:${kind}`, label: 'March past', detail: 'Skip the fight entirely — once per province.' },
+            { id: `fight:${nodeId}:${kind}`, label: 'Stand and fight', detail: 'Take the fight as normal.' },
+          ],
+        }
+        return
+      }
       startEncounter(c, nodeId, kind)
       c.phase = 'encounter'
       break
@@ -364,7 +397,40 @@ function cursedCardIds(c: CampaignState): string[] {
 }
 
 // The Caravan — a MYTHIC relic, paid for by cursing all your 2s (or 3s).
+// V3 §7 (slice 7): Caravan pay-from-hand. Cost = a visible discard-total paid
+// from your ROAD hand (greedy smallest cards), Caravan Coin −2. Placeholder
+// number: CARAVAN_COST = 8 (plan §A). Bought relics land in the BAG.
+const CARAVAN_COST = 8
+
+function offerCaravanV3(c: CampaignState) {
+  const owned = relicsOwned(c)
+  const { r, done } = rng(c)
+  const pool = r.shuffle(V3_RELICS.filter(rd => !owned.has(rd.id))).slice(0, 2)
+  done()
+  const cost = Math.max(1, CARAVAN_COST - (relicEquipped(c, 'v3r-caravan-coin') ? 2 : 0))
+  const handTotal = (c.deck?.hands ?? []).flat().reduce((t, cd) => t + cardValue(cd.rank), 0)
+  const options: PendingChoice['options'] = pool
+    .filter(() => handTotal >= cost)
+    .map(rd => ({
+      id: `v3buy:${rd.id}`,
+      label: `${rd.name} (${rd.slot}) — pay ${cost} from hand`,
+      detail: rd.text,
+    }))
+  options.push({ id: 'caravan:skip', label: 'Wave the Caravan on', detail: 'Buy nothing.' })
+  if (options.length === 1) {
+    clog(c, `🐫 The Caravan's prices are beyond your hand (${handTotal}/${cost}). It moves on.`)
+    c.phase = 'road'; autoAdvanceAfterGate(c); return
+  }
+  c.phase = 'landmark'
+  c.pendingChoice = {
+    kind: 'landmark_reward', forPlayerId: null,
+    prompt: `🐫 The Caravan — a relic for a visible price (discard ${cost} of hand value).`,
+    options,
+  }
+}
+
 function offerCaravan(c: CampaignState) {
+  if (EXPERIMENTS.ascendingDeck) { offerCaravanV3(c); return }
   if (!consumeItemStop(c)) {
     c.tokenBudget = (c.tokenBudget ?? 0) + 1
     clog(c, '🐫 The Caravan has moved on — you salvage a measure of forge budget instead.')
@@ -927,6 +993,58 @@ function resolveRewardOption(c: CampaignState, optionId: string, pc: PendingChoi
   }
   if (optionId.startsWith('caravan:mythic:')) return applyCaravanMythic(c, optionId)
   if (optionId === 'lair:token') return applyLairToken(c)
+  // V3 §7 — Forced March resolution: skip the fight, or take it after all
+  if (optionId.startsWith('march:') || optionId.startsWith('fight:')) {
+    const [verb, nodeId, kind] = optionId.split(':')
+    c.pendingChoice = null
+    if (verb === 'march') {
+      ;(c.relicChapterUses ??= {})['v3r-forced-march'] = true
+      clog(c, '🥾 Forced March: the party slips past the fight — nothing gained, nothing risked.')
+      c.phase = 'road'
+      autoAdvanceAfterGate(c)
+      return {}
+    }
+    c.phase = 'road'
+    startEncounter(c, nodeId!, kind as 'skirmish' | 'veteran')
+    c.phase = 'encounter'
+    return {}
+  }
+  // V3 §7: a raided relic (Lair) drops straight into the bag
+  if (optionId.startsWith('v3relic:')) {
+    const id = optionId.slice('v3relic:'.length)
+    const def = getV3Relic(id)
+    if (def && !relicsOwned(c).has(id)) {
+      relicBagOf(c).push(id)
+      clog(c, `🏺 ${def.name} (${def.slot}) joins the bag — equip it between fights.`)
+    }
+    c.pendingChoice = null
+    c.phase = 'road'
+    autoAdvanceAfterGate(c)
+    return {}
+  }
+  // V3 §7: a Caravan purchase — pay the visible cost from the road hand
+  if (optionId.startsWith('v3buy:')) {
+    const id = optionId.slice('v3buy:'.length)
+    const def = getV3Relic(id)
+    const cost = Math.max(1, CARAVAN_COST - (relicEquipped(c, 'v3r-caravan-coin') ? 2 : 0))
+    const deck = c.deck
+    if (!def || !deck) { c.pendingChoice = null; c.phase = 'road'; return { error: 'The Caravan lost the wares.' } }
+    // pay greedily with the smallest cards across the party's road hands
+    const all: { hi: number; i: number; v: number }[] = []
+    deck.hands.forEach((hand, hi) => hand.forEach((cd, i) => { if (cd.rank !== 'Jo') all.push({ hi, i, v: cardValue(cd.rank) }) }))
+    all.sort((a, b) => a.v - b.v)
+    let paid = 0
+    const picks: { hi: number; i: number }[] = []
+    for (const x of all) { if (paid >= cost) break; picks.push(x); paid += x.v }
+    if (paid < cost) return { error: `Your hand cannot cover ${cost}.` }
+    for (const p of picks.sort((a, b) => b.i - a.i)) deck.discard.push(...deck.hands[p.hi]!.splice(p.i, 1))
+    relicBagOf(c).push(id)
+    clog(c, `🐫 Paid ${paid} from hand — ${def.name} (${def.slot}) joins the bag.`)
+    c.pendingChoice = null
+    c.phase = 'road'
+    autoAdvanceAfterGate(c)
+    return {}
+  }
   // V3 §6: Forge tier-up — a sandbagged hole rises to its Half crystal
   if (optionId.startsWith('forgeup:')) {
     const su = optionId.slice('forgeup:'.length)
@@ -1185,6 +1303,11 @@ export function checkEncounterEnd(c: CampaignState, kingdom?: KingdomState) {
   }
 
   if (s.outcome === 'won') {
+    // V3 §7 — Interest (Ring): a fight paid without a single discard arms +1
+    // card at the next fight's start.
+    if (EXPERIMENTS.ascendingDeck && relicEquipped(c, 'v3r-interest') && !s.flags['paidDiscard'])
+      c.interestNext = true
+
     // V3 §6 (slice 6): the agnostic fragment — a 50/50 roll after each won
     // encounter (with redundancy conversions, the only fragment sources).
     if (EXPERIMENTS.ascendingDeck && !c.tutorial) {
@@ -1268,6 +1391,26 @@ export function checkEncounterEnd(c: CampaignState, kingdom?: KingdomState) {
     if (node.kind === 'lair') {
       const { r, done } = rng(c)
       c.encounter = null
+      // V3 §7 (slice 7): the Lair is the relic RAID — the dangerous fight pays
+      // one of two pool relics into the bag (the primary relic source).
+      if (EXPERIMENTS.ascendingDeck) {
+        const owned = relicsOwned(c)
+        const pool = r.shuffle(V3_RELICS.filter(rd => !owned.has(rd.id))).slice(0, 2)
+        done()
+        if (!pool.length) {
+          c.tokenFragments = (c.tokenFragments ?? 0) + 1
+          clog(c, '🕸 The Lair holds nothing new — a fragment glints instead (+1).')
+          c.phase = 'road'
+          return
+        }
+        c.phase = 'landmark'
+        c.pendingChoice = {
+          kind: 'landmark_reward', forPlayerId: null,
+          prompt: '🕸 The Lair’s hoard lies open — claim one relic for the bag.',
+          options: pool.map(rd => ({ id: `v3relic:${rd.id}`, label: `${rd.name} (${rd.slot})`, detail: rd.text })),
+        }
+        return
+      }
       const ownedR = new Set(c.heroes.flatMap(h => h.relicIds))
       const options: { id: string; label: string; detail?: string }[] = []
       const mythic = mythicCapLeft(c) > 0 ? r.shuffle(MYTHIC_RELIC_IDS.filter(m => !ownedR.has(m)))[0] : undefined
@@ -1422,6 +1565,39 @@ export function applyBraceletPlace(c: CampaignState, playerId: string, suit: str
   return {}
 }
 
+/**
+ * V3 §7 (slice 7): equip/unequip a relic between encounters — free at every
+ * between-encounter screen, locked in combat (Decision 7). `relicId: null`
+ * empties the slot back into the bag.
+ */
+export function applyEquipRelic(c: CampaignState, playerId: string, slot: string, relicId: string | null): { error?: string } {
+  if (!EXPERIMENTS.ascendingDeck) return { error: 'The equipment slots are not active.' }
+  if (c.phase === 'encounter') return { error: 'Relics are locked during a fight.' }
+  if (!c.heroes.some(h => h.playerId === playerId)) return { error: 'You are not in this campaign.' }
+  if (!RELIC_SLOT_ORDER.includes(slot as RelicSlot)) return { error: 'Unknown slot.' }
+  const equipment = equipmentOf(c)
+  const bag = relicBagOf(c)
+  const current = equipment[slot as RelicSlot]
+  if (relicId === null) {
+    if (!current) return { error: 'That slot is already empty.' }
+    delete equipment[slot as RelicSlot]
+    bag.push(current)
+    clog(c, `🎒 ${getV3Relic(current)?.name ?? current} returns to the bag.`)
+    return {}
+  }
+  const def = getV3Relic(relicId)
+  if (!def) return { error: 'Unknown relic.' }
+  if (def.slot !== slot) return { error: `${def.name} is a ${def.slot} relic.` }
+  const bagIdx = bag.indexOf(relicId)
+  if (bagIdx < 0) return { error: 'That relic is not in the bag.' }
+  bag.splice(bagIdx, 1)
+  if (current) bag.push(current)
+  equipment[slot as RelicSlot] = relicId
+  clog(c, `🎽 ${def.name} equipped (${def.slot})${current ? ` — ${getV3Relic(current)?.name} returns to the bag` : ''}.`)
+  revealForkedRoad(c)   // an equipped Forked Road takes effect immediately
+  return {}
+}
+
 export function applyBreakCamp(c: CampaignState, playerId: string, hostId: string): { error?: string } {
   if (c.phase !== 'camp') return { error: 'Not at camp.' }
   if (playerId !== hostId) return { error: 'The host breaks camp.' }
@@ -1571,13 +1747,18 @@ function finalizeRoyalKeep(c: CampaignState, rk: NonNullable<PendingChoice['roya
   // §F: kept royals become real deck cards — minted physical identities,
   // owned, and shuffled into the live tavern at seeded positions.
   const { r, done } = rng(c)
+  const muster = relicEquipped(c, 'v3r-muster')   // V3 §7: kept royals ride the top
   for (const id of kept) {
     if (!(c.ownedCards ?? []).includes(id)) c.ownedCards = [...(c.ownedCards ?? []), id]
     const pcard = registerLogicalCard(c, id)
-    if (c.deck) c.deck.tavern.splice(r.int(c.deck.tavern.length + 1), 0,
-      { suit: id[0] as Suit, rank: id.slice(1) as Card['rank'], id: pcard.physicalId })
+    const runtime = { suit: id[0] as Suit, rank: id.slice(1) as Card['rank'], id: pcard.physicalId }
+    if (c.deck) {
+      if (muster) c.deck.tavern.push(runtime)
+      else c.deck.tavern.splice(r.int(c.deck.tavern.length + 1), 0, runtime)
+    }
   }
   done()
+  if (muster && kept.length) clog(c, '🎺 Muster: your royals ride at the top of the Tavern.')
   const left = rk.pool.filter(id => !kept.includes(id))
   clog(c, rk.rank === 'K'
     ? `👑 ${kept.map(cardLabelFromId).join(', ')} is crowned — the crown rides in your deck. The other Kings abdicate.`
@@ -1724,6 +1905,7 @@ export function applyContinueChapter(c: CampaignState, playerId: string, hostId:
   c.gamblerWagerUsed = false
   c.ironReprieveUsed = false
   c.itemStopsThisChapter = 0   // relic/spell-stop budget refreshes each chapter
+  c.relicChapterUses = {}      // V3 §7: once-per-province relic uses refresh
 
   const { r, done } = rng(c)
   c.map = buildMap(c.chapter, r)
@@ -1844,7 +2026,14 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
       eventSeq: s.eventSeq,
       wagerArmed: s.wagerArmedBy !== null,
       canWager: !!me && me.classId === 'gambler' && me.alive && !s.flags['gamblerWagerUsed'] && s.outcome === 'active',
-      activatableRelics: me ? me.relicIds.filter(r => activatable.includes(r) && !s.flags[`relicUsed:${r}:${myHeroIndex}`]) : [],
+      // V3 §7: the equipped pool's activated relics (combat ones only — the
+      // road-activated pair surfaces on the equipment panel instead)
+      activatableRelics: EXPERIMENTS.ascendingDeck
+        ? Object.values(equipmentOf(c)).filter((id): id is string => {
+            const def = getV3Relic(id ?? undefined)
+            return !!def?.activated && !def.road
+          })
+        : (me ? me.relicIds.filter(r => activatable.includes(r) && !s.flags[`relicUsed:${r}:${myHeroIndex}`]) : []),
       myBoosts: computeBoosts(c, s, myHeroIndex),
       // pile contents are public knowledge, but SORTED — draw order stays hidden
       tavernCards: sortedPile(s.tavern),
@@ -1938,6 +2127,20 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
     ascendingDeck: EXPERIMENTS.ascendingDeck,
     physicalCards: projectPhysicalCards(c),
     gauntlet: EXPERIMENTS.ascendingDeck ? projectGauntlet(c) : undefined,
+    // V3 §7: the bag + the four named slots
+    relicBag: EXPERIMENTS.ascendingDeck
+      ? relicBagOf(c).map(id => {
+          const d = getV3Relic(id)!
+          return { id, slot: d.slot, name: d.name, text: d.text }
+        })
+      : undefined,
+    relicSlots: EXPERIMENTS.ascendingDeck
+      ? Object.fromEntries(RELIC_SLOT_ORDER.map(slot => {
+          const id = equipmentOf(c)[slot]
+          const d = getV3Relic(id)
+          return [slot, d ? { id: d.id, name: d.name, text: d.text, activated: !!d.activated } : null]
+        }))
+      : undefined,
   }
 }
 

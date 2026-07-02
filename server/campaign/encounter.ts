@@ -7,8 +7,9 @@ import { EXPERIMENTS, CURATION_CUT } from './experiments'
 import { appendGameLog } from './store'
 import { spendDelta, holdDelta, cardSuits, leverBonus, markDamage, hasKeyword, rekeyCardTokens } from './tokens'
 import { syncCardRegistry, effectiveFace, registerLogicalCard, physicalById, applyGraft } from './cards'
-import { getStaff } from './paths'
+import { getStaff, HOME_SUIT } from './paths'
 import { CRYSTALS, RALLY_CAP, gauntletOf, crystalOf } from './spells'
+import { getV3Relic, relicEquipped } from './relics'
 import { tutorialEnemies, tutorialEnemyMeta, tutorialBlocksPlay, tutorialBlocksDiscard, tutorialBlocksGraft, recordTutorialPlay } from './tutorial'
 
 /** Returns the continent number for a given chapter. Inlined to avoid circular import with campaign.ts. */
@@ -63,6 +64,8 @@ export function maxHandSize(c: CampaignState, heroIdx?: number): number {
   if (heroIdx !== undefined && c.heroes[heroIdx]?.alive && !EXPERIMENTS.ascendingDeck && c.heroes[heroIdx]!.classId === 'quartermaster') size += 1
   // V3 §2 — Depot (Quartermaster ♦ home path, C2 rung): hand size +2
   if (heroIdx !== undefined && c.heroes[heroIdx]?.alive && c.heroes[heroIdx]!.pathC2 === 'depot') size += 2
+  // V3 §7 — Hoard (Ring): hand size +2 (team equipment, solo scope)
+  if (EXPERIMENTS.ascendingDeck && relicEquipped(c, 'v3r-hoard')) size += 2
   return Math.max(2, size)
 }
 
@@ -537,6 +540,16 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
   if (EXPERIMENTS.ascendingDeck && !c.tutorial) {
     if (c.campBlockNext) { s.flags['campBlock'] = c.campBlockNext; c.campBlockNext = undefined }
     if (c.campDoubleNext) { s.flags['campDouble'] = true; c.campDoubleNext = undefined }
+    // V3 §7 — Vanguard (Cloak): the first enemy's first counterattack is skipped
+    if (relicEquipped(c, 'v3r-vanguard')) s.flags['vanguardReady'] = true
+    // V3 §7 — Scout Ahead (Cloak): the lineup is laid bare every fight
+    if (relicEquipped(c, 'v3r-scout-ahead')) s.flags['foreseen'] = true
+    // V3 §7 — Interest (Ring): a discard-free previous fight pays out now
+    if (c.interestNext) {
+      c.interestNext = undefined
+      const got = drawForHero(c, s, heroesAlive[0]!, 1)
+      if (got) clog(c, '💰 Interest: a clean fight pays out — +1 card.')
+    }
   }
 
   // Shrine blessing: hand cap +1 for this encounter, each hero draws 1 now
@@ -1079,8 +1092,23 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
     ev(s, 'proc', '🏅 Duel Charm +3', 'gold')
   }
 
+  // V3 §7 — Bloodlust (Amulet, armed): the next play deals +3.
+  if (tok && s.flags['bloodlustArmed']) {
+    s.flags['bloodlustArmed'] = false
+    base += 3
+    clog(c, '   🩸 Bloodlust: +3 damage.')
+    ev(s, 'proc', '🩸 Bloodlust +3', 'gold')
+  }
+
   // Effective suits: under the flag a card fires its base/transmuted suit + grafts.
-  const immuneSuit = enemy.immunityNullified ? null : enemy.card.suit
+  // V3 §7 — Unbinding (Amulet, armed): this play ignores the enemy's immunity.
+  const unbound = tok && s.flags['unbindArmed'] === true
+  if (unbound) {
+    s.flags['unbindArmed'] = false
+    clog(c, '   ⛓️ Unbinding: the immunity is ignored for this play.')
+    ev(s, 'proc', '⛓️ Unbound', 'gold')
+  }
+  const immuneSuit = enemy.immunityNullified || unbound ? null : enemy.card.suit
   const activeSuits = new Set<string>()
   let immuneBlocked = false
   for (const card of cards) {
@@ -1244,6 +1272,97 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   return counterattack(c, s, pi)
 }
 
+// ── V3 §7: the recruit pipeline (slice 7) ────────────────────────────────────
+// Registers §F identity + ownership, applies the Hat-relic shaping (Press-gang
+// home-suit rewrite, Battlefield Promotion first-recruit +1 rank, Plunder swap),
+// routes the card (hand via Field Promotion/Conscript · Tavern top via Black
+// Standard · Tavern bottom default), then the recruit riders (Apprentice draw,
+// Rallying Cry recovery). Pins: contracts/relics.md.
+const RANK_SEQ = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+function stepRank(rank: string, delta: number): string | null {
+  const i = RANK_SEQ.indexOf(rank)
+  if (i < 0) return null
+  const j = i + delta
+  return j >= 0 && j < RANK_SEQ.length ? RANK_SEQ[j]! : null
+}
+
+function recruitCard(c: CampaignState, s: EncounterState, killerIdx: number, card: Card, cardId: string, opts?: { conscripted?: boolean }) {
+  const pc = registerLogicalCard(c, cardId)
+  card.id = pc.physicalId
+  c.ownedCards = [...(c.ownedCards ?? []), cardId]
+  const killer = c.heroes[killerIdx]!
+
+  // Conscription: the overkilled conscript enters one rank DOWN
+  if (opts?.conscripted) {
+    const down = stepRank(effectiveFace(pc).rank, -1)
+    if (down && applyGraft(c, pc.physicalId, 'rank', down, 'relic:conscription') === null)
+      clog(c, `   ⛓ Conscription: the conscript enters diminished — a ${down}.`)
+  }
+  // Press-gang: the recruit arrives rewritten to the class's home suit
+  const home = HOME_SUIT[killer.classId]
+  if (relicEquipped(c, 'v3r-press-gang') && home && effectiveFace(pc).suit !== home) {
+    if (applyGraft(c, pc.physicalId, 'suit', home, 'relic:press-gang') === null)
+      clog(c, `   🪖 Press-gang: the recruit is pressed into ${suitSymbol(home as Suit)}.`)
+  }
+  // Battlefield Promotion: the first recruit of the fight enters one rank up
+  if (relicEquipped(c, 'v3r-battlefield-promotion') && once(s, 'promotionDone')) {
+    const up = stepRank(effectiveFace(pc).rank, +1)
+    if (up && applyGraft(c, pc.physicalId, 'rank', up, 'relic:battlefield-promotion') === null)
+      clog(c, `   🎖 Battlefield Promotion: the recruit enters as a ${up}.`)
+  }
+  { // reflect any rewrite on the runtime card
+    const f = effectiveFace(pc)
+    card.suit = f.suit as Suit
+    card.rank = f.rank as Card['rank']
+  }
+  // Plunder: trade the recruit's POSITION for a stronger same-suit discard card
+  let incoming = card
+  if (relicEquipped(c, 'v3r-plunder')) {
+    let best = -1
+    for (let i = 0; i < s.discard.length; i++) {
+      const d = s.discard[i]!
+      if (d.suit !== card.suit || d.rank === 'Jo') continue
+      if (cardValue(d.rank) > cardValue(card.rank) && (best < 0 || cardValue(d.rank) > cardValue(s.discard[best]!.rank))) best = i
+    }
+    if (best >= 0) {
+      const [swap] = s.discard.splice(best, 1)
+      s.discard.push(card)
+      incoming = swap!
+      clog(c, `   🏴‍☠️ Plunder: ${cardLabel(swap!)} steps up; the recruit waits in the discard.`)
+    }
+  }
+  // Routing: hand (Field Promotion Staff / Conscript rung) → Tavern top
+  // (Black Standard) → Tavern bottom (default)
+  const toHand = (killer.staffId === 'field-promotion' || killer.pathC2 === 'conscript')
+    && s.hands[killerIdx]!.length < maxHandSize(c, killerIdx)
+  if (toHand) {
+    s.hands[killerIdx]!.push(incoming)
+    clog(c, `✨ Exact kill! ${cardLabel(card)} recruited — straight to ${killer.playerName}'s hand.`)
+    ev(s, 'kill', `✨ RECRUIT — ${cardLabel(card)} to hand`, 'gold', true)
+  } else if (relicEquipped(c, 'v3r-black-standard')) {
+    s.tavern.push(incoming)
+    clog(c, `✨ Exact kill! ${cardLabel(card)} recruited — under the Black Standard it rides your next draw.`)
+    ev(s, 'kill', `✨ RECRUIT — ${cardLabel(card)} to the Tavern TOP`, 'gold', true)
+  } else {
+    s.tavern.unshift(incoming)
+    clog(c, `✨ Exact kill! ${cardLabel(card)} recruited — slides under the Tavern.`)
+    ev(s, 'kill', `✨ RECRUIT — ${cardLabel(card)} joins the Tavern`, 'gold', true)
+  }
+  // Riders
+  if (relicEquipped(c, 'v3r-apprentice')) {
+    const got = drawForHero(c, s, killerIdx, 1)
+    if (got) clog(c, '   🧑‍🏫 Apprentice: the recruit teaches — draw 1.')
+  }
+  if (relicEquipped(c, 'v3r-rallying-cry') && s.discard.length) {
+    let best = 0
+    for (let i = 1; i < s.discard.length; i++)
+      if (cardValue(s.discard[i]!.rank) > cardValue(s.discard[best]!.rank)) best = i
+    const [back] = s.discard.splice(best, 1)
+    s.tavern.unshift(back!)
+    clog(c, `   📣 Rallying Cry: ${cardLabel(back!)} returns to the Tavern.`)
+  }
+}
+
 function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exact: boolean) {
   const enemy = s.currentEnemy!
   s.defeatedCount++
@@ -1294,26 +1413,8 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
       return
     }
     if (exact && !alreadyOwned) {
-      // First time recruiting this number-enemy: card enters the Tavern.
-      // §F: the recruit gets its physical identity now — the runtime card that
-      // slides under the Tavern carries the physicalId from this moment on.
-      enemy.card.id = registerLogicalCard(c, cardId).physicalId
-      c.ownedCards = [...(c.ownedCards ?? []), cardId]
       s.flags['exactKills'] = ((s.flags['exactKills'] as number) ?? 0) + 1
-      // V3 §2 — Field Promotion (Staff) / Conscript C2 (Executioner ♣ rung):
-      // the recruit enters the killer's HAND instead (hand-cap permitting).
-      const killer = c.heroes[killerIdx]!
-      const toHand = (killer.staffId === 'field-promotion' || killer.pathC2 === 'conscript')
-        && s.hands[killerIdx]!.length < maxHandSize(c, killerIdx)
-      if (toHand) {
-        s.hands[killerIdx]!.push(enemy.card)
-        clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} recruited — straight to ${killer.playerName}'s hand.`)
-        ev(s, 'kill', `✨ RECRUIT — ${cardLabel(enemy.card)} to hand`, 'gold', true)
-      } else {
-        s.tavern.unshift(enemy.card)
-        clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} recruited — slides under the Tavern.`)
-        ev(s, 'kill', `✨ RECRUIT — ${cardLabel(enemy.card)} joins the Tavern`, 'gold', true)
-      }
+      recruitCard(c, s, killerIdx, enemy.card, cardId)
       if (c.tutorial) s.flags['tut.recruited'] = true
     } else if (exact) {
       // Replacement graft (V3 §1): an exact kill on a card you already own
@@ -1342,6 +1443,10 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
       }
       clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} already owned — nothing to rewrite.`)
       ev(s, 'kill', `✅ ${cardLabel(enemy.card)} DEFEATED`, 'gold', true)
+    } else if (!alreadyOwned && relicEquipped(c, 'v3r-conscription')) {
+      // V3 §7 — Conscription (Hat): an overkill still recruits the card,
+      // entering one rank down instead of being lost.
+      recruitCard(c, s, killerIdx, enemy.card, cardId, { conscripted: true })
     } else {
       // Overkill: golden rule — you get nothing but the kill. (Unrecruited tier
       // cards are still completed by the chapter-end backfill.)
@@ -1488,6 +1593,24 @@ function applyKeepTurnPenalties(c: CampaignState, s: EncounterState, killerIdx: 
 
 function counterattack(c: CampaignState, s: EncounterState, pi: number): { error?: string } {
   const enemy = s.currentEnemy!
+
+  // V3 §7 — Second Wind (Amulet, armed): NO counterattack — the turn continues.
+  if (EXPERIMENTS.ascendingDeck && s.flags['secondWind']) {
+    s.flags['secondWind'] = false
+    clog(c, '   🌬 Second Wind: no counterattack — act again.')
+    ev(s, 'proc', '🌬 SECOND WIND — extra turn', 'gold', true)
+    return {}
+  }
+  // V3 §7 — Vanguard (Cloak): the fight's first counterattack is skipped
+  // while the FIRST enemy still stands.
+  if (EXPERIMENTS.ascendingDeck && s.flags['vanguardReady'] && s.defeatedCount === 0) {
+    s.flags['vanguardReady'] = false
+    clog(c, '   🛡 Vanguard: the first blow never lands.')
+    ev(s, 'proc', '🛡 Vanguard — counter skipped', 'gold')
+    advanceTurn(c, s)
+    return {}
+  }
+
   let attack = enemy.attack
 
   // pending bonuses
@@ -1514,6 +1637,23 @@ function counterattack(c: CampaignState, s: EncounterState, pi: number): { error
   if (s.modifierId === 'blackwall-captain') {
     const g = (s.flags['enemy.guard'] as number) ?? 0
     if (g > 0) { attack += 1; s.flags['enemy.guard'] = g - 1; clog(c, '   ⚫ Guard consumed: +1 counterattack.') }
+  }
+
+  // V3 §7 — Debt (Ring): the borrowed cards are paid back at the counter
+  if (EXPERIMENTS.ascendingDeck) {
+    const owed = (s.flags['debtOwed'] as number) ?? 0
+    if (owed > 0) {
+      attack += 1
+      s.flags['debtOwed'] = owed - 1
+      clog(c, '   💸 Debt: this payment costs +1.')
+    }
+    // V3 §7 — Aegis (Amulet, armed): the next counterattack is reduced by 5
+    if (s.flags['aegisArmed']) {
+      s.flags['aegisArmed'] = false
+      attack = Math.max(0, attack - 5)
+      clog(c, '   🛡 Aegis: the counterattack is reduced by 5.')
+      ev(s, 'proc', '🛡 Aegis −5', 'gold')
+    }
   }
 
   let net = Math.max(0, attack - enemy.shield)
@@ -1560,6 +1700,14 @@ function counterattack(c: CampaignState, s: EncounterState, pi: number): { error
   const hero = c.heroes[pi]!
 
   if (needed === 0) { advanceTurn(c, s); return {} }
+
+  // V3 §7 — Last Coin (Ring): the first time your hand empties, draw 3 —
+  // checked here so the payout can save you from an unpayable counter.
+  if (EXPERIMENTS.ascendingDeck && relicEquipped(c, 'v3r-last-coin')
+      && s.hands[pi]!.length === 0 && once(s, 'lastCoinDone')) {
+    const got = drawForHero(c, s, pi, 3)
+    if (got) { clog(c, `   🪙 Last Coin: an empty hand refills — draw ${got}.`); ev(s, 'proc', `🪙 Last Coin +${got}`, 'gold') }
+  }
 
   // death checks with mitigation chain (HOLD value: tokens can boost/lower soak)
   const coverable = s.hands[pi]!.reduce((t, card) => t + cardValue(card.rank) + (EXPERIMENTS.ascendingDeck ? holdDelta(c, card) : 0), 0)
@@ -1615,6 +1763,7 @@ export function applyEncounterDiscard(c: CampaignState, playerId: string, cardIn
   beginEvents(s)
   for (const i of sorted) hand.splice(i, 1)
   s.discard.push(...cards)
+  s.flags['paidDiscard'] = true   // V3 §7 — Interest tracks discard-free fights
   clog(c, `${c.heroes[pi]!.playerName} discards ${cards.map(cardLabel).join(', ')} (${total}/${s.discardNeeded}).`)
   ev(s, 'info', `${c.heroes[pi]!.playerName} pays ${total} in cards`, 'plain')
   s.discardNeeded = 0
@@ -2208,7 +2357,195 @@ export function applyCastSpell(c: CampaignState, playerId: string, spellId: stri
 
 const ACTIVATABLE_RELIC_IDS = ['r-bone-thread', 'r-sainted-scalpel']
 
+/**
+ * V3 §7 (slice 7): activations for the equipped relic pool. Combat relics fire
+ * in your play phase (Slip Away too); Bedroll / Requisition Writ fire on the
+ * ROAD (once per province). Once-per-fight flags are plain; once-per-enemy
+ * flags carry the `enemy.` prefix (auto-reset at each reveal).
+ */
+function applyV3RelicActivate(c: CampaignState, playerId: string, relicId?: string): { error?: string } {
+  const pi = c.heroes.findIndex(h => h.playerId === playerId)
+  if (pi < 0 || !c.heroes[pi]!.alive) return { error: 'You are not in this campaign.' }
+  const equipped = Object.values(c.relicEquipment ?? {}).filter((id): id is string => !!id)
+  const activatable = equipped.filter(id => getV3Relic(id)?.activated)
+  const relic = relicId && activatable.includes(relicId) ? relicId
+    : activatable.length === 1 ? activatable[0]!
+    : undefined
+  if (!relic) return { error: activatable.length ? 'Choose which relic to activate.' : 'No activatable relic equipped.' }
+  const def = getV3Relic(relic)!
+  const s = c.encounter
+
+  // ── Road activations (once per province) ───────────────────────────────────
+  if (def.road) {
+    if (c.phase !== 'road' || !c.deck) return { error: `${def.name} is used on the road.` }
+    c.relicChapterUses ??= {}
+    if (c.relicChapterUses[relic]) return { error: `${def.name} is spent for this province.` }
+    if (relic === 'v3r-bedroll') {
+      if (!c.deck.discard.length) return { error: 'The discard is empty — nothing to reshuffle.' }
+      const { r, done } = rng(c)
+      c.deck.tavern = r.shuffle([...c.deck.tavern, ...c.deck.discard.splice(0)])
+      done()
+      c.relicChapterUses[relic] = true
+      clog(c, '🛏 Bedroll: the discard reshuffles into the Tavern — no Camp needed.')
+      return {}
+    }
+    if (relic === 'v3r-requisition-writ') {
+      const hand = c.deck.hands[pi] ?? []
+      const sortable = hand.map((cd, i) => ({ cd, i })).filter(x => x.cd.rank !== 'Jo')
+        .sort((a, b) => cardValue(a.cd.rank) - cardValue(b.cd.rank))
+      if (sortable.length < 2) return { error: 'You need two cards to convert.' }
+      const picks = sortable.slice(0, 2).map(x => x.i).sort((a, b) => b - a)
+      for (const i of picks) c.deck.discard.push(...hand.splice(i, 1))
+      c.tokenFragments = (c.tokenFragments ?? 0) + 1
+      c.relicChapterUses[relic] = true
+      clog(c, `📜 Requisition Writ: two cards converted — +1 fragment (${c.tokenFragments} banked).`)
+      return {}
+    }
+    return { error: 'That relic has no road use.' }
+  }
+
+  // ── Combat activations ──────────────────────────────────────────────────────
+  if (!s || s.outcome !== 'active') return { error: 'No active encounter.' }
+  if (pi !== s.currentPlayerIndex || s.turnPhase !== 'play') return { error: 'Activate relics during your play phase.' }
+  const onceFight = (key: string) => { if (s.flags[key]) return false; s.flags[key] = true; return true }
+  const hand = s.hands[pi]!
+
+  switch (relic) {
+    case 'v3r-slip-away': {
+      const total = hand.reduce((t, cd) => t + cardValue(cd.rank), 0)
+      if (total < 5) return { error: 'You need 5+ of hand value to slip away.' }
+      beginEvents(s)
+      // pay 5+ with the smallest cards
+      const order = hand.map((cd, i) => ({ cd, i })).sort((a, b) => cardValue(a.cd.rank) - cardValue(b.cd.rank))
+      let paid = 0
+      const idxs: number[] = []
+      for (const { cd, i } of order) { if (paid >= 5) break; idxs.push(i); paid += cardValue(cd.rank) }
+      for (const i of idxs.sort((a, b) => b - a)) s.discard.push(...hand.splice(i, 1))
+      s.outcome = 'retreated'
+      s.turnPhase = 'over'
+      clog(c, `🌫 Slip Away: ${paid} paid — the party melts into the dark. The enemy stands.`)
+      ev(s, 'info', '🌫 SLIP AWAY — retreat', 'info', true)
+      return {}
+    }
+    case 'v3r-debt': {
+      if (!onceFight('relic.debt')) return { error: 'Debt is spent for this fight.' }
+      beginEvents(s)
+      const got = drawForHero(c, s, pi, 2)
+      s.flags['debtOwed'] = 2
+      clog(c, `💸 Debt: draw ${got} now — your next two payments cost +1 each.`)
+      ev(s, 'relic', `💸 Debt +${got}`, 'gold')
+      return {}
+    }
+    case 'v3r-liquidate': {
+      if (!hand.length) return { error: 'No card to liquidate.' }
+      if (!onceFight('relic.liquidate')) return { error: 'Liquidate is spent for this fight.' }
+      beginEvents(s)
+      let low = 0
+      for (let i = 1; i < hand.length; i++) if (cardValue(hand[i]!.rank) < cardValue(hand[low]!.rank)) low = i
+      const [gone] = hand.splice(low, 1)
+      s.discard.push(gone!)
+      const got = drawForHero(c, s, pi, 2)
+      clog(c, `🪙 Liquidate: ${cardLabel(gone!)} sold — draw ${got}.`)
+      ev(s, 'relic', `🪙 Liquidate +${got}`, 'gold')
+      return {}
+    }
+    case 'v3r-double-or-nothing': {
+      if (!hand.length) return { error: 'No hand to gamble.' }
+      if (!onceFight('relic.don')) return { error: 'Double or Nothing is spent for this fight.' }
+      beginEvents(s)
+      const n = hand.length
+      s.discard.push(...hand.splice(0))
+      const got = drawForHero(c, s, pi, n + 1)
+      clog(c, `🎲 Double or Nothing: ${n} discarded — drew ${got}.`)
+      ev(s, 'relic', `🎲 ${n} → ${got}`, 'gold', true)
+      return {}
+    }
+    case 'v3r-sainted-scalpel': {
+      if (!onceFight('relic.scalpel')) return { error: 'Sainted Scalpel is spent for this fight.' }
+      beginEvents(s)
+      const n = Math.min(6, s.discard.length)
+      if (n) {
+        const { r, done } = rng(c)
+        s.tavern.unshift(...r.shuffle(s.discard.splice(0, n)))
+        done()
+      }
+      const got = drawForHero(c, s, pi, 1)
+      clog(c, `⚕️ Sainted Scalpel: ${n} recovered, drew ${got}.`)
+      ev(s, 'relic', `⚕️ Scalpel — ${n} back`, 'gold')
+      return {}
+    }
+    case 'v3r-unbinding': {
+      if (s.flags['enemy.unbindUsed']) return { error: 'Unbinding is spent for this enemy.' }
+      s.flags['enemy.unbindUsed'] = true
+      beginEvents(s)
+      s.flags['unbindArmed'] = true
+      clog(c, '⛓️ Unbinding armed: your next play ignores the immunity.')
+      ev(s, 'relic', '⛓️ Unbinding armed', 'gold')
+      return {}
+    }
+    case 'v3r-second-wind': {
+      if (!onceFight('relic.secondwind')) return { error: 'Second Wind is spent for this fight.' }
+      beginEvents(s)
+      s.flags['secondWind'] = true
+      clog(c, '🌬 Second Wind armed: your next play triggers no counterattack.')
+      ev(s, 'relic', '🌬 Second Wind armed', 'gold')
+      return {}
+    }
+    case 'v3r-aegis': {
+      if (s.flags['enemy.aegisUsed']) return { error: 'Aegis is spent for this enemy.' }
+      s.flags['enemy.aegisUsed'] = true
+      beginEvents(s)
+      s.flags['aegisArmed'] = true
+      clog(c, '🛡 Aegis armed: the next counterattack is reduced by 5.')
+      ev(s, 'relic', '🛡 Aegis armed', 'gold')
+      return {}
+    }
+    case 'v3r-bloodlust': {
+      if (s.flags['enemy.bloodlustUsed']) return { error: 'Bloodlust is spent for this enemy.' }
+      s.flags['enemy.bloodlustUsed'] = true
+      beginEvents(s)
+      s.flags['bloodlustArmed'] = true
+      clog(c, '🩸 Bloodlust armed: your next play deals +3.')
+      ev(s, 'relic', '🩸 Bloodlust armed', 'gold')
+      return {}
+    }
+    case 'v3r-echo': {
+      if (!s.currentEnemy) return { error: 'No enemy to strike.' }
+      if (!s.discard.length) return { error: 'The discard is empty.' }
+      if (!onceFight('relic.echo')) return { error: 'Echo is spent for this fight.' }
+      beginEvents(s)
+      let best = 0
+      for (let i = 1; i < s.discard.length; i++)
+        if (cardValue(s.discard[i]!.rank) > cardValue(s.discard[best]!.rank)) best = i
+      const card = s.discard[best]!
+      const v = cardValue(card.rank)
+      s.currentEnemy.hp -= v
+      clog(c, `🔊 Echo: ${cardLabel(card)} strikes again for ${v} (value only).`)
+      ev(s, 'relic', `🔊 Echo — ${v} damage`, 'gold', true)
+      if (s.currentEnemy.hp <= 0) resolveKill(c, s, pi, s.currentEnemy.hp === 0)
+      return {}
+    }
+    case 'v3r-lodestone': {
+      if (!s.tavern.length) return { error: 'The Tavern is empty.' }
+      if (hand.length >= maxHandSize(c, pi)) return { error: 'Your hand is full.' }
+      if (!onceFight('relic.lodestone')) return { error: 'Lodestone is spent for this fight.' }
+      beginEvents(s)
+      let best = 0
+      for (let i = 1; i < s.tavern.length; i++)
+        if (cardValue(s.tavern[i]!.rank) > cardValue(s.tavern[best]!.rank)) best = i
+      const [card] = s.tavern.splice(best, 1)
+      hand.push(card!)
+      clog(c, `🧲 Lodestone: ${cardLabel(card!)} is pulled to your hand.`)
+      ev(s, 'relic', `🧲 Lodestone — ${cardLabel(card!)}`, 'gold')
+      return {}
+    }
+  }
+  return { error: 'That relic has no activation.' }
+}
+
 export function applyActivateRelic(c: CampaignState, playerId: string, targetIndex?: number, relicId?: string): { error?: string } {
+  // V3 §7 (slice 7): the equipped pool replaces the legacy relic set entirely.
+  if (EXPERIMENTS.ascendingDeck) return applyV3RelicActivate(c, playerId, relicId)
   const s = c.encounter
   if (!s || s.outcome !== 'active') return { error: 'No active encounter.' }
   const pi = c.heroes.findIndex(h => h.playerId === playerId)

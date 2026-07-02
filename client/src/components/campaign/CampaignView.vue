@@ -195,6 +195,15 @@ function act(action: Record<string, unknown>) {
   socket.emit('campaign_action', { code: props.code, action })
 }
 
+// V3 §7: the road-activated Cloak/Ring utilities (once per province)
+const ROAD_ACTIVATED = ['v3r-bedroll', 'v3r-requisition-writ']
+const roadActivatable = computed(() => {
+  const slots = props.state.relicSlots
+  if (!slots || props.state.phase !== 'road') return []
+  return Object.values(slots)
+    .filter((r): r is { id: string; name: string; text: string; activated: boolean } => !!r && ROAD_ACTIVATED.includes(r.id))
+})
+
 // persistent hand: the deck carries across road encounters (camp rests reset
 // it). Only shown once the chapter's first fight has happened — before that
 // the hand is fresh and the strip is just noise.
@@ -489,6 +498,40 @@ function heroTooltip(h: ClientHero): string {
       <p class="text-[9px] text-center text-base-content/40">
         First fragment lights a castable spell · more sandbag toward the Forge's tier-up · casting empties the hole.
       </p>
+    </div>
+
+    <!-- V3 §7: equipment — bag → four named slots (free between encounters) -->
+    <div v-if="(phase === 'road' || phase === 'camp' || phase === 'chapter_complete') && state.ascendingDeck && state.relicSlots"
+      class="rounded-box border border-warning/20 bg-base-200/50 px-3 py-2 max-w-lg mx-auto w-full space-y-1.5">
+      <p class="text-[10px] uppercase tracking-[0.2em] text-warning/60 text-center">
+        🏺 Equipment — free swaps until the next fight
+      </p>
+      <div class="grid grid-cols-4 gap-1.5">
+        <div v-for="slot in ['hat', 'amulet', 'ring', 'cloak']" :key="slot"
+          class="rounded border border-base-content/10 bg-base-100/60 p-1.5 text-center space-y-1">
+          <div class="text-[9px] uppercase tracking-wider text-base-content/50">{{ slot }}</div>
+          <button v-if="state.relicSlots[slot]"
+            class="btn btn-xs btn-ghost w-full h-auto py-1 leading-tight normal-case"
+            :title="state.relicSlots[slot]!.text + ' — tap to unequip'"
+            @click="act({ type: 'equip_relic', slot, relicId: null })"
+          >{{ state.relicSlots[slot]!.name }}</button>
+          <div v-else class="text-[9px] text-base-content/30 py-1">— empty —</div>
+        </div>
+      </div>
+      <div v-if="state.relicBag?.length" class="flex flex-wrap gap-1 justify-center">
+        <button v-for="r in state.relicBag" :key="r.id"
+          class="btn btn-xs btn-outline btn-warning normal-case"
+          :title="`${r.text} — tap to equip (${r.slot})`"
+          @click="act({ type: 'equip_relic', slot: r.slot, relicId: r.id })"
+        >{{ r.name }} · {{ r.slot }}</button>
+      </div>
+      <div v-if="roadActivatable.length" class="flex justify-center gap-1">
+        <button v-for="r in roadActivatable" :key="r.id"
+          class="btn btn-xs btn-outline btn-accent normal-case"
+          :title="r.text"
+          @click="act({ type: 'activate_relic', relicId: r.id })"
+        >⚡ {{ r.name }}</button>
+      </div>
     </div>
 
     <!-- Party strip (road) — hover a hero for class/relic details -->

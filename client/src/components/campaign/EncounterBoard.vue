@@ -54,6 +54,15 @@ function castGauntlet(su: string) {
   act({ type: 'cast_spell', spellId: `gauntlet:${su}` })
 }
 
+// V3 §7 — combat relic activations (Amulet + the Ring/Cloak fight utilities)
+const combatRelics = computed(() => {
+  const slots = props.state.relicSlots
+  const ids = enc.value.activatableRelics ?? []
+  if (!slots) return []
+  return Object.values(slots)
+    .filter((r): r is { id: string; name: string; text: string; activated: boolean } => !!r && ids.includes(r.id))
+})
+
 // V3 §2 — activated-Staff button (placeholder UI). Parry fires while paying a
 // counterattack; every other activated Staff fires in your play phase.
 const myStaff = computed(() => {
@@ -855,6 +864,14 @@ const netAttack = computed(() => {
               :title="`${hole.text} (cast = the crystal empties; once per suit per fight)`"
               @click="castGauntlet(su)"
             >💠 {{ suitSymbol(su) }} {{ hole.name }}{{ hole.tier >= 2 ? ' ★' : '' }}</button>
+            <!-- V3 §7: equipped-relic activations -->
+            <button
+              v-for="r in combatRelics" :key="r.id"
+              class="btn btn-xs btn-outline btn-accent"
+              :disabled="!inPlay"
+              :title="r.text"
+              @click="act({ type: 'activate_relic', relicId: r.id })"
+            >🏺 {{ r.name }}</button>
           </div>
 
           <!-- floating action: bottom-center of the arena (never covers the

@@ -219,6 +219,9 @@ export interface ClientCampaignState {
   // V3 §6: the gauntlet per suit — tier (0 empty / 1 Fragment / 2 Half),
   // invested fragments, current spell name/text, live castability
   gauntlet?: Record<string, { tier: 0 | 1 | 2; frags: number; name: string; text: string; castable: boolean }>
+  // V3 §7: relic bag + the four named slots (hat/amulet/ring/cloak)
+  relicBag?: { id: string; slot: string; name: string; text: string }[]
+  relicSlots?: Record<string, { id: string; name: string; text: string; activated: boolean } | null>
 }
 
 export interface SaveSummary {

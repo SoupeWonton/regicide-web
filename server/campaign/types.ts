@@ -379,6 +379,15 @@ export interface CampaignState {
   campDoubleNext?: boolean
   campBlockNext?: number
 
+  // ── V3 §7 (slice 7): relics — the BAG (found, unequipped) and the four
+  // named slots (hat/amulet/ring/cloak, one relic each; solo-scope equipment).
+  // Swaps are free between encounters, locked in combat (Decision 7). The
+  // legacy Hero.relicIds model survives for non-ascending runs until slice 9.
+  relicBag?: string[]
+  relicEquipment?: Partial<Record<'cloak' | 'ring' | 'hat' | 'amulet', string>>
+  // Interest (Ring): armed when a whole fight was paid without discards
+  interestNext?: boolean
+
   // ── V3 §6 (slice 6): the gauntlet — four suit holes fed by agnostic
   // fragments (pool = tokenFragments, repointed from the retired shop).
   // tier: 0 none · 1 Fragment (castable) · 2 Half (strongest castable; the
@@ -595,4 +604,7 @@ export interface ClientCampaignState {
   // V3 §6: the gauntlet per suit — tier (0/1/2), invested fragments, spell
   // name/text for the current tier, and whether it can be cast right now.
   gauntlet?: Record<string, { tier: 0 | 1 | 2; frags: number; name: string; text: string; castable: boolean }>
+  // V3 §7: relic bag + the four named slots (equipped relic or null each)
+  relicBag?: { id: string; slot: string; name: string; text: string }[]
+  relicSlots?: Record<string, { id: string; name: string; text: string; activated: boolean } | null>
 }

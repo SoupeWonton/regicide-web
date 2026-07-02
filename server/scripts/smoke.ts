@@ -1403,6 +1403,77 @@ console.log('Test L: spells — fragment drop, bracelet, Forge tier-up, gauntlet
   EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
+// ── Test M: V3 §7 — relics: bag + 4 named slots, free swaps, acquisition, effects ─
+console.log('Test M: relics — bag + slots, free swaps, Caravan pay-from-hand, activations')
+{
+  EXPERIMENTS.ascendingDeck = true
+  EXPERIMENTS.provinceMode = false
+  const { applyEquipRelic } = await import('../campaign/campaign')
+  const { relicBagOf, equipmentOf } = await import('../campaign/relics')
+  const { applyActivateRelic } = await import('../campaign/encounter')
+
+  const c = createCampaign([{ id: P1, name: 'Gab' }], 1, 'relic-1', kingdom).campaign!
+  applyClassPick(c, P1, 'sentinel', 'footwork')
+
+  // (a) Lair grant → the BAG (never auto-equipped)
+  c.phase = 'landmark'
+  c.pendingChoice = { kind: 'landmark_reward', forPlayerId: null, prompt: 'x', options: [{ id: 'v3relic:v3r-hoard', label: 'x' }] }
+  assert(!applyChoice(c, P1, 'v3relic:v3r-hoard', P1).error, 'lair relic grant resolves')
+  assert(relicBagOf(c).includes('v3r-hoard'), 'the relic lands in the bag')
+  ok('relics: Lair raid pays into the bag')
+
+  // (b) equip: slot-match enforced; Hoard = hand cap +2
+  const capBefore = maxHandSize(c, 0)
+  assert(!!applyEquipRelic(c, P1, 'hat', 'v3r-hoard').error, 'a Ring relic cannot go in the Hat slot')
+  assert(!applyEquipRelic(c, P1, 'ring', 'v3r-hoard').error, 'equip into the Ring slot resolves')
+  assert(equipmentOf(c)['ring'] === 'v3r-hoard' && !relicBagOf(c).includes('v3r-hoard'), 'equipped and out of the bag')
+  assert(maxHandSize(c, 0) === capBefore + 2, `Hoard: hand cap +2 (${capBefore} → ${maxHandSize(c, 0)})`)
+  ok('relics: four named slots, one each — Hoard works')
+
+  // (c) swaps are free between fights (swap + unequip both return to the bag)
+  relicBagOf(c).push('v3r-interest')
+  assert(!applyEquipRelic(c, P1, 'ring', 'v3r-interest').error, 'swap resolves')
+  assert(equipmentOf(c)['ring'] === 'v3r-interest' && relicBagOf(c).includes('v3r-hoard'), 'swap returns the old relic to the bag')
+  assert(!applyEquipRelic(c, P1, 'ring', null).error, 'unequip resolves')
+  assert(!equipmentOf(c)['ring'] && relicBagOf(c).includes('v3r-interest'), 'unequip returns it to the bag')
+  ok('relics: free swaps at the between-encounter screen (Decision 7)')
+
+  // (d) Caravan: pay-from-hand — the price comes out of the road hand
+  const handBefore = c.deck!.hands[0]!.length
+  const discBefore = c.deck!.discard.length
+  c.phase = 'landmark'
+  c.pendingChoice = { kind: 'landmark_reward', forPlayerId: null, prompt: 'x', options: [{ id: 'v3buy:v3r-vanguard', label: 'x' }] }
+  assert(!applyChoice(c, P1, 'v3buy:v3r-vanguard', P1).error, 'caravan purchase resolves')
+  assert(relicBagOf(c).includes('v3r-vanguard'), 'the bought relic lands in the bag')
+  assert(c.deck!.hands[0]!.length < handBefore && c.deck!.discard.length > discBefore, 'the visible price came out of the hand')
+  ok('relics: Caravan pay-from-hand — no wallet, cards are the cost')
+
+  // (e) locked in combat; Amulet activation works (Bloodlust +3)
+  relicBagOf(c).push('v3r-bloodlust')
+  assert(!applyEquipRelic(c, P1, 'amulet', 'v3r-bloodlust').error, 'amulet equipped')
+  drive(c, { cheatKill: false, stopAt: ['encounter'], budget: 80 })
+  const s = c.encounter!
+  while (s.turnPhase === 'setup') applySetupReorder(c, s.setupPeek!.playerId, s.setupPeek!.cards.map((_, i) => i))
+  assert(!!applyEquipRelic(c, P1, 'amulet', null).error, 'relics are LOCKED during a fight')
+  s.turnPhase = 'play'
+  s.currentPlayerIndex = 0
+  s.modifierId = null
+  delete s.flags['enemy.guard']
+  delete s.flags['campDouble']
+  assert(!applyActivateRelic(c, P1, undefined, 'v3r-bloodlust').error, 'Bloodlust activates')
+  const en = s.currentEnemy!
+  en.hp = 50
+  en.shield = 0
+  s.hands[0] = [{ suit: 'H', rank: '3', id: 'rm-h3' }]
+  const before = en.hp
+  assert(!applyEncounterPlay(c, P1, [0]).error, 'play with Bloodlust armed')
+  assert(before - en.hp === 6, `Bloodlust: 3♥ deals 3+3 (dealt ${before - en.hp})`)
+  ok('relics: combat lock + Amulet activation (Bloodlust +3)')
+
+  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
+  EXPERIMENTS.provinceMode = LIVE_PROVINCE
+}
+
 // Test T1 — onboarding tutorial launches a scripted Sentinel encounter
 {
   const wasAsc = EXPERIMENTS.ascendingDeck
