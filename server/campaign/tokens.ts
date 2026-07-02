@@ -79,6 +79,21 @@ export function stampToken(c: CampaignState, cardId: string, token: Token): stri
   return null
 }
 
+/**
+ * §F shim: a replacement graft changed a card's effective logical id — move its
+ * legacy token list to the new key so stamped tokens (class signatures, forge
+ * marks) ride the physical card. If the new face already has tokens the lists
+ * merge (two physical cards sharing an effective face share the legacy key —
+ * an accepted interim wart until slice 9 rekeys tokens by physicalId).
+ */
+export function rekeyCardTokens(c: CampaignState, fromId: string, toId: string) {
+  if (fromId === toId || !c.cardTokens) return
+  const list = c.cardTokens[fromId]
+  if (!list?.length) return
+  delete c.cardTokens[fromId]
+  c.cardTokens[toId] = [...(c.cardTokens[toId] ?? []), ...list]
+}
+
 // ── Client projection ────────────────────────────────────────────────────────
 
 function tone(d: NonNullable<ReturnType<typeof getTokenDef>>): ClientToken['tone'] {

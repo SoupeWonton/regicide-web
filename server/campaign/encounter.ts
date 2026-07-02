@@ -1,13 +1,13 @@
 import type { Card, Enemy, Suit } from '../types'
 import { cardValue, cardLabel, suitSymbol, enemyStats, isNumberRank, numberEnemyStats, jesterCount } from '../deck'
 import { createRng } from '../rng'
-import type { CampaignState, CampaignTurnPhase, EncounterState, EncounterTier, EncounterEvent, Token } from './types'
+import type { CampaignState, CampaignTurnPhase, EncounterState, EncounterTier, EncounterEvent } from './types'
 import { getEncounterDef, getItem, encountersOf, BOSS_MODIFIERS, CLASSES, CLASS_SIGNATURES, SIGNATURE_CARDS } from './content'
 import { EXPERIMENTS, CURATION_CUT } from './experiments'
 import { appendGameLog } from './store'
-import { spendDelta, holdDelta, cardSuits, leverBonus, markDamage, hasKeyword, stampToken, MAX_TOKENS_PER_CARD } from './tokens'
-import { syncCardRegistry, effectiveFace, registerLogicalCard } from './cards'
-import { tutorialEnemies, tutorialEnemyMeta, tutorialBlocksPlay, tutorialBlocksDiscard, recordTutorialPlay } from './tutorial'
+import { spendDelta, holdDelta, cardSuits, leverBonus, markDamage, hasKeyword, rekeyCardTokens } from './tokens'
+import { syncCardRegistry, effectiveFace, registerLogicalCard, physicalById, applyGraft } from './cards'
+import { tutorialEnemies, tutorialEnemyMeta, tutorialBlocksPlay, tutorialBlocksDiscard, tutorialBlocksGraft, recordTutorialPlay } from './tutorial'
 
 /** Returns the continent number for a given chapter. Inlined to avoid circular import with campaign.ts. */
 function continentOf(chapter: number): number { return Math.ceil(chapter / 3) }
@@ -1094,22 +1094,31 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
       ev(s, 'kill', `✨ RECRUIT — ${cardLabel(enemy.card)} joins the Tavern`, 'gold', true)
       if (c.tutorial) s.flags['tut.recruited'] = true
     } else if (exact) {
-      // Exact kill on a card you already own → permanent graft onto a hand card.
+      // Replacement graft (V3 §1): an exact kill on a card you already own
+      // rewrites the RANK or the SUIT of one held card to the slain card's —
+      // never +1, never a second suit. Royal grafts cap the value at 10 (§3).
+      // Decision 3 (2026-07-01): the graft trigger grants no fragment.
       s.flags['exactKills'] = ((s.flags['exactKills'] as number) ?? 0) + 1
-      // Only pause if the killer holds at least one card with room for a token.
+      const graftRank = cardValue(enemy.card.rank) >= 10 ? '10' : enemy.card.rank
+      // Only pause if a held card can take a meaningful rewrite: it must be
+      // registry-backed (§F — jesters/phantoms cannot graft) and differ from
+      // the slain face in rank or suit.
       const hand = s.hands[killerIdx] ?? []
-      const hasRoom = hand.some(card =>
-        (c.cardTokens?.[`${card.suit}${card.rank}`]?.length ?? 0) < MAX_TOKENS_PER_CARD)
-      if (hasRoom) {
+      const hasTarget = hand.some(card => !!physicalById(c, card.id)
+        && (card.rank !== graftRank || card.suit !== enemy.card.suit))
+      if (hasTarget) {
         s.currentEnemy = null
-        s.pendingGraft = { heroIdx: killerIdx, suit: enemy.card.suit }
+        s.pendingGraft = {
+          heroIdx: killerIdx, suit: enemy.card.suit, rank: graftRank,
+          slain: `${enemy.card.suit}${enemy.card.rank}`,
+        }
         s.turnPhase = 'graft_select'
-        clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} already owned — reinforce a card you hold.`)
-        ev(s, 'kill', `⚔ GRAFT — choose a card to reinforce`, 'gold', true)
+        clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} already owned — rewrite a card you hold.`)
+        ev(s, 'kill', `⚔ GRAFT — rewrite a card you hold`, 'gold', true)
         if (c.tutorial) s.flags['tut.grafted'] = true
         return   // PAUSE: applyGraftSelect resumes via advanceAfterNumberKill
       }
-      clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} already owned — no card free to reinforce.`)
+      clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} already owned — nothing to rewrite.`)
       ev(s, 'kill', `✅ ${cardLabel(enemy.card)} DEFEATED`, 'gold', true)
     } else {
       // Overkill: golden rule — you get nothing but the kill. (Unrecruited tier
@@ -1427,9 +1436,12 @@ function advanceAfterNumberKill(c: CampaignState, s: EncounterState, killerIdx: 
 }
 
 /**
- * Resolve a graft_select pause: a redundant exact-kill permanently stamps a token
- * onto a chosen hand card. mode 'value' → flat +1 (Hone); 'suit' → add the slain
- * card's suit (Graft). cardIndex < 0 declines the graft. Resumes the post-kill flow.
+ * Resolve a graft_select pause — replacement semantics (V3 §1): the slain
+ * card's face rewrites one held card. mode 'value' → the target's RANK becomes
+ * the slain rank (royal-capped at 10); 'suit' → the target's SUIT becomes the
+ * slain suit. The rewrite is recorded as §F graft provenance on the physical
+ * card (movable at the Sanctum); the printed face never changes.
+ * cardIndex < 0 declines the graft. Resumes the post-kill flow.
  */
 export function applyGraftSelect(
   c: CampaignState, playerId: string, cardIndex: number, mode: 'value' | 'suit',
@@ -1456,18 +1468,29 @@ export function applyGraftSelect(
   if (cardIndex >= hand.length) return { error: 'Invalid card.' }
   if (mode !== 'value' && mode !== 'suit') return { error: 'Choose value or suit.' }
   const target = hand[cardIndex]!
-  const targetId = `${target.suit}${target.rank}`
-  const token: Token = mode === 'value'
-    ? { defId: 'hone' }
-    : { defId: 'graft', suit: g.suit as Suit }
-  // validate-then-mutate: stampToken rejects (and does not mutate) a full card.
-  const err = stampToken(c, targetId, token)
+  const pc = physicalById(c, target.id)
+  if (!pc) return { error: 'That card cannot take a graft.' }   // jesters / phantom cards
+  const tut = tutorialBlocksGraft(c, target)
+  if (tut) return { error: tut }
+  const oldLabel = cardLabel(target)
+  const oldLogical = `${target.suit}${target.rank}`
+  // validate-then-mutate: applyGraft rejects a no-op rewrite without mutating.
+  const err = mode === 'value'
+    ? applyGraft(c, target.id, 'rank', g.rank, `kill:${g.slain}`)
+    : applyGraft(c, target.id, 'suit', g.suit, `kill:${g.slain}`)
   if (err) return { error: err }
 
+  // Reflect the new effective face on the live hand card, and carry any legacy
+  // stamped tokens (class signatures, forge marks) to the new logical key.
+  const f = effectiveFace(pc)
+  target.suit = f.suit as Suit
+  target.rank = f.rank as Card['rank']
+  rekeyCardTokens(c, oldLogical, `${f.suit}${f.rank}`)
+
   beginEvents(s)
-  const label = mode === 'value' ? '+1 value' : `+${suitSymbol(g.suit as Suit)}`
-  clog(c, `   ⚔ Graft: ${cardLabel(target)} reinforced (${label}).`)
-  ev(s, 'kill', `⚔ GRAFT — ${cardLabel(target)} ${label}`, 'gold', true)
+  const label = mode === 'value' ? `value → ${g.rank}` : `suit → ${suitSymbol(g.suit as Suit)}`
+  clog(c, `   ⚔ Graft: ${oldLabel} becomes ${cardLabel(target)} (${label}).`)
+  ev(s, 'kill', `⚔ GRAFT — ${oldLabel} ➜ ${cardLabel(target)}`, 'gold', true)
   s.pendingGraft = undefined
   advanceAfterNumberKill(c, s, g.heroIdx)
   return {}

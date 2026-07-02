@@ -7,7 +7,6 @@
 import { createCampaign, applyClassPick, applyRoadChoose, applyChoice, applyDeathVote, applyBreakCamp, beginReplacement, applyContinueChapter, buildClientCampaign, checkEncounterEnd, startTutorial } from '../campaign/campaign'
 import { advanceTutorialStep } from '../campaign/tutorial'
 import { applyEncounterPlay, applyEncounterDiscard, applyEncounterYield, applyEncounterChooseNext, applySetupReorder, applyCastSpell, applyKeepDrawn, applyGraftSelect, maxHandSize } from '../campaign/encounter'
-import { MAX_TOKENS_PER_CARD } from '../campaign/tokens'
 import { loadKingdom, saveCampaign, loadCampaign } from '../campaign/store'
 import { cardValue } from '../deck'
 import { EXPERIMENTS } from '../campaign/experiments'
@@ -87,14 +86,18 @@ function drive(c: CampaignState, opts: { cheatKill: boolean; budget?: number; st
           step(c, pid2, () => applyKeepDrawn(c, pid2, keepIdxs), 'keep drawn')
           break
         }
-        // ascending-deck: redundant-kill graft — reinforce the first hand card with room
+        // replacement graft: rewrite the first valid hand card (value mode if the
+        // rank differs, else suit mode), or decline when nothing can change
         if (s.turnPhase === 'graft_select') {
-          const gi = s.pendingGraft!.heroIdx
-          const gpid = c.heroes[gi]!.playerId
-          const ghand = s.hands[gi] ?? []
-          const idx = ghand.findIndex(card =>
-            (c.cardTokens?.[`${card.suit}${card.rank}`]?.length ?? 0) < MAX_TOKENS_PER_CARD)
-          step(c, gpid, () => applyGraftSelect(c, gpid, idx, 'value'), 'graft select')
+          const g = s.pendingGraft!
+          const gpid = c.heroes[g.heroIdx]!.playerId
+          const ghand = s.hands[g.heroIdx] ?? []
+          const backed = (card: { id: string }) => !!c.cards?.[card.id]
+          const vIdx = ghand.findIndex(card => backed(card) && card.rank !== g.rank)
+          const sIdx = ghand.findIndex(card => backed(card) && card.suit !== g.suit && card.rank !== 'Jo')
+          if (vIdx >= 0) step(c, gpid, () => applyGraftSelect(c, gpid, vIdx, 'value'), 'graft select')
+          else if (sIdx >= 0) step(c, gpid, () => applyGraftSelect(c, gpid, sIdx, 'suit'), 'graft select')
+          else step(c, gpid, () => applyGraftSelect(c, gpid, -1, 'value'), 'graft decline')
           break
         }
         const pi = s.currentPlayerIndex
@@ -469,11 +472,12 @@ console.log('Test A: ascending-deck flag-on — overdraw-and-select')
   EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
-// ── Test A2: ascending-deck — redundant exact-kill grafts onto a hand card ───
-console.log('Test A2: ascending-deck — redundant exact-kill → permanent graft')
+// ── Test A2: replacement graft (V3 §1) — redundant exact-kill rewrites a card ─
+console.log('Test A2: replacement graft — redundant exact-kill rewrites a held card')
 {
   EXPERIMENTS.ascendingDeck = true
   EXPERIMENTS.provinceMode = false
+  const { physicalByPrinted, physicalById, effectiveFace } = await import('../campaign/cards')
 
   const c = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-graft', kingdom).campaign!
   applyClassPick(c, P1, 'sentinel')
@@ -485,31 +489,53 @@ console.log('Test A2: ascending-deck — redundant exact-kill → permanent graf
   const pi = s.currentPlayerIndex
   const pid = c.heroes[pi]!.playerId
   // Force a redundant exact-kill: rewrite the live enemy to an OWNED low card
-  // (D2, value 2 ≤ 5 ⇒ alreadyOwned) at 2 HP, give a 2♠ to land it exactly and a
-  // 4♥ to receive the graft. ♠ adds no damage, so 2 dmg ⇒ enemy.hp 0 ⇒ exact.
+  // (D2, value 2 ≤ 5 ⇒ alreadyOwned) at 2 HP; hand = the real 2♠ (to land the
+  // exact kill) + the real 4♥ (to receive the graft) — registry-backed ids.
   s.modifierId = null
   delete s.flags['enemy.guard']
   const enemy = s.currentEnemy!
   enemy.card = { suit: 'D', rank: '2', id: 'enemy-d2' }
   enemy.hp = 2
   s.turnPhase = 'play'
+  const s2pc = physicalByPrinted(c, 'S2')!
+  const h4pc = physicalByPrinted(c, 'H4')!
+  const c2pc = physicalByPrinted(c, 'C2')!   // same-rank probe for the no-op guard
   s.hands[pi] = [
-    { suit: 'S', rank: '2', id: 'kill-s2' },
-    { suit: 'H', rank: '4', id: 'graft-h4' },
+    { suit: 'S', rank: '2', id: s2pc.physicalId },
+    { suit: 'H', rank: '4', id: h4pc.physicalId },
+    { suit: 'C', rank: '2', id: c2pc.physicalId },
   ]
-  const before = c.cardTokens?.['H4']?.length ?? 0
+  const fragsBefore = c.tokenFragments ?? 0
   const rp = applyEncounterPlay(c, pid, [0])   // 2♠ → 2 dmg → exact kill on owned D2
   assert(!rp.error, `play to exact-kill: ${rp.error}`)
   assert(s.turnPhase === 'graft_select', `redundant exact-kill pauses for graft (got ${s.turnPhase})`)
-  assert(s.pendingGraft?.suit === 'D', `pendingGraft carries the slain suit (got ${s.pendingGraft?.suit})`)
-  const gIdx = s.hands[pi]!.findIndex(card => card.id === 'graft-h4')
-  const rg = applyGraftSelect(c, pid, gIdx, 'suit')   // graft the D suit onto 4♥
+  assert(s.pendingGraft?.suit === 'D' && s.pendingGraft?.rank === '2',
+    `pendingGraft carries the slain face (got ${s.pendingGraft?.suit}${s.pendingGraft?.rank})`)
+
+  // a no-op rewrite is rejected: the 2♣'s rank is already the slain rank (2)
+  const c2Idx = s.hands[pi]!.findIndex(card => card.id === c2pc.physicalId)
+  assert(c2Idx >= 0, 'no-op probe (2♣) still in hand after the kill')
+  assert(!!applyGraftSelect(c, pid, c2Idx, 'value').error, 'same-rank rewrite is rejected (no-op guard)')
+
+  // suit graft: 4♥ becomes 4♦ — the physical card underneath is unchanged
+  const gIdx = s.hands[pi]!.findIndex(card => card.id === h4pc.physicalId)
+  const rg = applyGraftSelect(c, pid, gIdx, 'suit')
   assert(!rg.error, `graft select: ${rg.error}`)
-  assert((c.cardTokens?.['H4']?.length ?? 0) === before + 1, 'graft stamped one token on H4')
+  const h4f = effectiveFace(h4pc)
+  assert(h4f.suit === 'D' && h4f.rank === '4', `4♥ plays as 4♦ now (got ${h4f.suit}${h4f.rank})`)
+  assert(h4pc.printed.suit === 'H', 'printed face unchanged (♥ underneath)')
+  assert(h4pc.grafts[0]?.source === 'kill:D2', `provenance records the slain card (got ${h4pc.grafts[0]?.source})`)
+  const liveCard = s.hands[pi]!.find(card => card.id === h4pc.physicalId)
+  assert(liveCard?.suit === 'D' && liveCard?.rank === '4', 'live hand card reflects the new effective face')
+  assert(physicalById(c, h4pc.physicalId) === h4pc, 'physicalId stable through the rewrite')
+  // replacement stamps NO additive token, and the trigger grants NO fragment (Decision 3)
+  assert((c.cardTokens?.['H4']?.length ?? 0) === 0 && (c.cardTokens?.['D4'] ?? []).every(t => t.defId !== 'hone' && t.defId !== 'graft'),
+    'no additive hone/graft token stamped by the kill trigger')
+  assert((c.tokenFragments ?? 0) === fragsBefore, 'no fragment on the graft trigger (Decision 3)')
   // phase resumes to combat unless that kill ended the encounter (won → checkEncounterEnd transitions)
   assert(s.turnPhase !== 'graft_select' || s.outcome === 'won', `graft_select phase resolved (got ${s.turnPhase}/${s.outcome})`)
   assert(s.pendingGraft === undefined, 'pendingGraft cleared after selection')
-  ok('ascending-deck: redundant exact-kill → permanent graft onto a hand card')
+  ok('replacement graft: exact kill on an owned card rewrites a held card (suit → ♦)')
 
   EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
   EXPERIMENTS.provinceMode = LIVE_PROVINCE
@@ -1088,7 +1114,14 @@ console.log('Test H: §F card-state — physical ids, printed vs effective, prov
         r = applyEncounterDiscard(t, P1, pick)
       } else if (s.turnPhase === 'draw_select') {
         r = applyKeepDrawn(t, P1, (s.drawPool ?? []).map((_, k) => k).slice(0, proj.drawSelectKeep ?? 0))
-      } else if (s.turnPhase === 'graft_select') r = applyGraftSelect(t, P1, 0, 'value')
+      } else if (s.turnPhase === 'graft_select') {
+        // replacement graft on the rail: rewrite a FODDER card whose rank differs
+        // (tool cards are guarded — tutorialBlocksGraft — so later beats survive)
+        const { isFodder } = await import('../campaign/tutorial')
+        const g = s.pendingGraft!
+        const idx = hand.findIndex(cd => !!t.cards?.[cd.id] && cd.rank !== g.rank && isFodder(cd))
+        r = applyGraftSelect(t, P1, idx, 'value')
+      }
       else break
       assert(!r.error, `T2 step ${i} @${s.turnPhase}: ${r.error}`)
       if (t.encounter) advanceTutorialStep(t, t.encounter)

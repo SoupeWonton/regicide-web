@@ -6,6 +6,7 @@
 // beat highlights a specific card. See docs/design/tutorial-onboarding-*.md.
 import type { Card, Suit } from '../types'
 import type { CampaignState, EncounterState } from './types'
+import { registerLogicalCard } from './cards'
 
 let seq = 0
 const tc = (suit: Suit, rank: Card['rank']): Card => ({ suit, rank, id: `tut-${seq++}` })
@@ -36,7 +37,7 @@ export function tutorialEnemyMeta(card: Card): TutEnemy | undefined {
 // The "tools" — the cards each beat needs. Everything else is fodder you pay
 // counters with. Keyed by suit+rank (the deck has no duplicate identities here).
 const TOOL_IDS = new Set(['H4', 'C2', 'D3', 'S6', 'D5', 'S3', 'H2', 'D4', 'SA', 'CJo'])
-const isFodder = (cd: Card) => !TOOL_IDS.has(`${cd.suit}${cd.rank}`)
+export const isFodder = (cd: Card) => !TOOL_IDS.has(`${cd.suit}${cd.rank}`)
 
 function tutorialHand(): Card[] {
   return [
@@ -65,6 +66,11 @@ function tutorialTavern(): Card[] {
 export function buildTutorialDeck(c: CampaignState) {
   const hands = c.heroes.map((_, i) => (i === 0 ? tutorialHand() : []))
   c.deck = { tavern: tutorialTavern(), discard: [], hands }
+  // §F: register the fixed cards so the graft beat can rewrite one (the deck
+  // has no duplicate faces, so printed-face registration is safe). Jesters
+  // keep their script ids — they are not graftable.
+  for (const cd of [...c.deck.tavern, ...hands.flat()])
+    if (cd.rank !== 'Jo') cd.id = registerLogicalCard(c, `${cd.suit}${cd.rank}`).physicalId
 }
 
 // ── Beat runner ───────────────────────────────────────────────────────────────
@@ -86,7 +92,7 @@ const BEATS: TutorialBeat[] = [
   { line: '♦ Diamonds draw — refill your hand before you pay.', highlight: { suit: 'D', rank: '3' }, flag: 'tut.played.D3', gate: true },
   { line: '♠ Spades shield — blunt the next blow. Block now, pay less.', highlight: { suit: 'S', rank: '6' }, flag: 'tut.played.S6', gate: true },
   { line: 'An exact kill recruits the card. Hit this one for exactly 5 — it joins your deck.', highlight: { suit: 'D', rank: '5' }, flag: 'tut.recruited', gate: true },
-  { line: 'Kill a card you already own and you reinforce one in hand instead — a graft. Add +value or its suit.', highlight: { suit: 'S', rank: '3' }, flag: 'tut.grafted', gate: true },
+  { line: 'Kill a card you already own and you graft instead — rewrite one held card’s value or suit to the slain card’s. Permanent.', highlight: { suit: 'S', rank: '3' }, flag: 'tut.grafted', gate: true },
   { line: '♥ Hearts recover spent cards from the discard — this is why you never run dry.', highlight: { suit: 'H', rank: '2' }, flag: 'tut.played.H2', gate: true },
   { line: 'An Ace pairs with any card, adding its value. Play it before the seal falls.', highlight: { rank: 'A' }, flag: 'tut.played.SA', gate: true },
   { line: 'The Gatekeeper is a crown — it seals ♦. Play your Diamond and watch its draw fizzle.', highlight: { suit: 'D', rank: '4' }, flag: 'tut.played.D4', gate: true },
@@ -147,6 +153,15 @@ export function tutorialBeatProjection(c: CampaignState, s: EncounterState, hand
 export function tutorialDiscardHints(c: CampaignState, s: EncounterState, hand: Card[]): string[] | undefined {
   if (!c.tutorial || s.turnPhase !== 'discard') return undefined
   return hand.filter(isFodder).map(cd => cd.id)
+}
+
+/** Replacement grafts rewrite a card's FACE — on the rail that could destroy a
+ * tool a later beat needs (e.g. the 2♥ Hearts lesson). Only fodder may take
+ * the tutorial's graft. */
+export function tutorialBlocksGraft(c: CampaignState, target: Card): string | undefined {
+  if (!c.tutorial) return undefined
+  if (!isFodder(target)) return 'Graft onto a spare card — the Steward needs your tools intact.'
+  return undefined
 }
 
 /** Block paying a counter with a needed tool card — unless no fodder is left (never softlock). */

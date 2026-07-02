@@ -110,10 +110,10 @@ export interface ClientEncounterState {
   drawPool?: Card[]
   // how many of the drawPool the viewing hero may keep
   drawSelectKeep?: number
-  // ascending-deck: redundant exact-kill graft picker — the slain card's suit
-  // (offered as the +suit option; +value is always a flat +1). Present only for
-  // the hero choosing, during graft_select.
-  graftSelect?: { suit: string }
+  // Replacement graft (V3 §1): the slain card's suit + royal-capped rank —
+  // the player rewrites one held card's value OR suit to these. Present only
+  // for the hero choosing, during graft_select.
+  graftSelect?: { suit: string; rank: string }
   // scripted tutorial: current guide beat (line + which hand card to highlight)
   tutorialBeat?: { line: string; highlightCardId?: string; step: number; total: number }
   // scripted tutorial: render the current enemy as a Training Dummy (no suit)

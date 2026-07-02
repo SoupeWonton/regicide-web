@@ -287,10 +287,11 @@ export interface EncounterState {
   // (limit = empty hand slots); Tactical Surge sets a fixed cap ("keep 2 of 5").
   drawSelectCap?: number
 
-  // ascending-deck: a redundant exact-kill pauses to graft onto a hand card.
-  // Only populated when turnPhase === 'graft_select'. `suit` is the slain card's
-  // suit (offered for the +suit graft); the +value graft is a flat +1 (Hone).
-  pendingGraft?: { heroIdx: number; suit: string }
+  // Replacement graft (V3 §1): a redundant exact-kill pauses to rewrite one
+  // held card. Only populated when turnPhase === 'graft_select'. `suit`/`rank`
+  // are the slain card's face (rank already royal-capped at 10); `slain` is the
+  // slain card's printed label for provenance (e.g. 'D2', 'SK').
+  pendingGraft?: { heroIdx: number; suit: string; rank: string; slain: string }
 
   // scripted tutorial: index into the beat list (campaign/tutorial.ts).
   tutorialStep?: number
@@ -512,9 +513,10 @@ export interface ClientEncounterState {
   drawPool?: Card[]
   // how many of the drawPool the viewing hero may keep (empty slots, or a spell cap)
   drawSelectKeep?: number
-  // ascending-deck: present during graft_select for the hero choosing — the slain
-  // card's suit (for the +suit option). The +value option is always a flat +1.
-  graftSelect?: { suit: string } | undefined
+  // Replacement graft (V3 §1): present during graft_select for the hero
+  // choosing — the slain card's suit + royal-capped rank. The player rewrites
+  // one held card's value OR suit to these.
+  graftSelect?: { suit: string; rank: string } | undefined
   // scripted tutorial: the current guide beat (line + which hand card to highlight)
   tutorialBeat?: { line: string; highlightCardId?: string; step: number; total: number }
   // scripted tutorial: render the current enemy as a Training Dummy (no suit)

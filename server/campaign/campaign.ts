@@ -1642,7 +1642,7 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
         : undefined,
       // ascending-deck: graft picker — only the hero who landed the kill chooses
       graftSelect: s.turnPhase === 'graft_select' && s.pendingGraft?.heroIdx === myHeroIndex
-        ? { suit: s.pendingGraft.suit }
+        ? { suit: s.pendingGraft.suit, rank: s.pendingGraft.rank }
         : undefined,
       // scripted tutorial: the current guide beat for the viewing hero
       tutorialBeat: tutorialBeatProjection(c, s, myHeroIndex >= 0 ? s.hands[myHeroIndex]! : []),

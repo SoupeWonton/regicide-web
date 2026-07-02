@@ -43,11 +43,19 @@ const inDrawSelect = computed(() =>
   enc.value.turnPhase === 'draw_select' && enc.value.drawPool !== undefined && isMyTurn.value)
 const drawPoolSelected = ref<number[]>([])
 
-// ascending-deck: redundant exact-kill graft picker (reinforce a hand card).
-// Only the hero who landed the kill chooses; graftSelect carries the slain suit.
+// Replacement graft (V3 §1): rewrite one held card's value OR suit to the
+// slain card's face. Only the hero who landed the kill chooses; graftSelect
+// carries the slain suit + royal-capped rank. A no-op rewrite (same rank /
+// same suit) and jesters are not offered.
 const inGraftSelect = computed(() =>
   enc.value.turnPhase === 'graft_select' && enc.value.graftSelect !== undefined)
 const graftCardIdx = ref<number | null>(null)
+const graftTarget = computed(() =>
+  graftCardIdx.value === null ? null : hand.value[graftCardIdx.value] ?? null)
+const canGraftValue = computed(() => !!graftTarget.value
+  && graftTarget.value.rank !== 'Jo' && graftTarget.value.rank !== enc.value.graftSelect?.rank)
+const canGraftSuit = computed(() => !!graftTarget.value
+  && graftTarget.value.rank !== 'Jo' && graftTarget.value.suit !== enc.value.graftSelect?.suit)
 
 // Overdraw pool shown grouped by suit (S,H,C,D) then rank low→high, jesters
 // always last — same ordering as the hand's "Sort by suit". Each entry keeps
@@ -664,15 +672,15 @@ const netAttack = computed(() => {
       </p>
     </OverlayModal>
 
-    <!-- Ascending-deck: redundant exact-kill graft — reinforce a card you hold -->
+    <!-- Replacement graft (V3 §1): rewrite one held card to the slain card's face -->
     <OverlayModal v-if="enc.turnPhase === 'graft_select'" tone="primary">
       <template v-if="inGraftSelect">
         <p class="text-sm font-semibold text-center">
-          ⚔ Exact kill on a card you already hold — reinforce one of yours
+          ⚔ Exact kill on a card you already own — graft it onto one of yours
         </p>
         <p class="text-[11px] text-center text-base-content/60">
-          Tap a card, then add <b class="text-success">+1 value</b> or its
-          <b class="text-info">{{ suitSymbol(enc.graftSelect!.suit) }}</b> suit. Permanent.
+          Tap a card, then rewrite its <b class="text-success">value to {{ enc.graftSelect!.rank }}</b> or its
+          <b class="text-info">suit to {{ suitSymbol(enc.graftSelect!.suit) }}</b>. Permanent.
         </p>
         <div class="flex gap-2 justify-center flex-wrap">
           <button
@@ -701,9 +709,11 @@ const netAttack = computed(() => {
           </button>
         </div>
         <div class="flex gap-2 justify-center">
-          <button class="btn btn-primary btn-sm" :disabled="graftCardIdx === null" @click="confirmGraft('value')">+1 value</button>
-          <button class="btn btn-primary btn-sm" :disabled="graftCardIdx === null" @click="confirmGraft('suit')">
-            +{{ suitSymbol(enc.graftSelect!.suit) }} suit
+          <button class="btn btn-primary btn-sm" :disabled="!canGraftValue" @click="confirmGraft('value')">
+            value → {{ enc.graftSelect!.rank }}
+          </button>
+          <button class="btn btn-primary btn-sm" :disabled="!canGraftSuit" @click="confirmGraft('suit')">
+            suit → {{ suitSymbol(enc.graftSelect!.suit) }}
           </button>
           <button class="btn btn-ghost btn-sm" @click="declineGraft">Skip</button>
         </div>
