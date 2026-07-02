@@ -22,15 +22,31 @@ acceptance gate passes (smoke ✅ + typecheck ✅ + slice smoke case + commit). 
 | 6 | Spells — gauntlet + bracelet; agnostic 50/50 fragments; consume-to-empty; Forge tier-up | ☑ done | `b2bf6fb` | `spells.ts` crystals; pool = `tokenFragments`; legacy spell offers dried up; pins → [`contracts/spells.md`](contracts/spells.md) |
 | 7 | Equipment — 4 named slots + bag; `relic_v1_design_3.0` (29); free swaps | ☑ done | `08aff7c` | `relics.ts` pool, all 29 working; Lair pick-of-2 + Caravan pay-from-hand (cost 8); pins → [`contracts/relics.md`](contracts/relics.md) |
 | 8 | Landmarks + provinces — roster (Hunt = NEW), chapter→province, C2 mirrors C1, recap | ☑ done | `b708741` | C2 = cont2-p1/p2/p3 (one gate each, crown @ ch6); Hunt/Rearrange/Consecrate/Fallen Heroes live; wager placeholder |
-| 9 | Meta/lineage + cutover — lineage wipe, no save/resume, §11 deletes, e2e run | ☐ not started | — | deletes only here |
+| 9 | Meta/lineage + cutover — lineage wipe, no save/resume, §11 deletes, e2e run | ☑ done | `e619628` | v3 kingdom wipe; crown → `pathsUnlocked`; no-resume; all §11 deletes (−1069 lines); smoke+e2e green; ⚑ `ascendingDeck` guards remain textually (constant-true; hygiene collapse deferred) |
 
 **Definition of done:** fresh `npm run dev` → class+Staff select → C1 (3 provinces,
 recruit 6–10, Hunt, landmarks) → seam recap → C2 (rung reveal, 3 gates, Fallen Heroes) →
 King Gate victory; death = run over. Smoke + e2e green; contracts complete with ⚑ flags
 collected for Landry's playtest.
 
+> **✅ ALL NINE SLICES LANDED (2026-07-02).** The engine drives the full arc (smoke
+> Test D: ch1→Council→3 C2 provinces→crown victory; e2e protocol run green). ⚑ flags
+> for the playtest live in [`contracts/`](contracts/) (royal-gates ·
+> staffs-and-ladders · spells · relics). **Next: Landry's human playtest**, then the
+> deferred hygiene pass (textual collapse of the now-constant `ascendingDeck` guards).
+
 ## Session log
 
+- **2026-07-02 (h)** — **slice 9 landed** (`e619628`) — **THE BUILD IS COMPLETE.**
+  Cutover: pre-V3 kingdoms wiped on load (v3 marker; saves purged; lobby explainer);
+  crown banks `pathsUnlocked`; no mid-run save/resume (lobby lists nothing; e2e
+  re-pinned). §11 deletes all landed behind their replacements: fragment shop +
+  C-tier track + forge stamps + tokenBudget + caps · curse system + rites + legacy
+  Shrine/Caravan deal · additive-graft draft + class signatures · Tower + legacy
+  castle/province maps · provinceMode + CURATION_CUT + non-ascending branches
+  (−1069 lines). `ascendingDeck` pinned as the single default (⚑ textual guard
+  collapse deferred). Smoke suite cut over (Tests 9/G deleted; 7/8 re-pinned; Test O
+  added). Gates: smoke ✅ · vue-tsc ✅ · **e2e ✅**. **Next: human playtest.**
 - **2026-07-02 (g)** — **slice 8 landed** (`b708741`): landmarks + provinces. C2 =
   three provinces (`cont2-p1/p2/p3`, one chapter-keyed gate each; tier-duel roads;
   Fallen Heroes opens P2; crown at ch6 = victory; seams through ch5). New verbs: Hunt
