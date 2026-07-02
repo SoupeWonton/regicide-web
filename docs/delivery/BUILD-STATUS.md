@@ -20,7 +20,7 @@ acceptance gate passes (smoke ✅ + typecheck ✅ + slice smoke case + commit). 
 | 4 | Classes — A–5×4 start deck; Staff pick (16); C2 home rung; siege retired | ☑ done | `959ce58` | 16 Staffs coded + 4 home rungs; legacy passives/sieges/stamps off the V3 path; 32 pins → [`contracts/staffs-and-ladders.md`](contracts/staffs-and-ladders.md) |
 | 5 | Forgiveness — opening ♦ guarantee; 4-part Camp (incl. block 10); auto seam reset | ☑ done | `a527755` | ♦ swap-in at every deal; Camp arms double+10 block; seams carry hands (§F ids) + top-up 5 |
 | 6 | Spells — gauntlet + bracelet; agnostic 50/50 fragments; consume-to-empty; Forge tier-up | ☑ done | `b2bf6fb` | `spells.ts` crystals; pool = `tokenFragments`; legacy spell offers dried up; pins → [`contracts/spells.md`](contracts/spells.md) |
-| 7 | Equipment — 4 named slots + bag; `relic_v1_design_3.0` (29); free swaps | ☐ not started | — | contracts → `contracts/relics.md` |
+| 7 | Equipment — 4 named slots + bag; `relic_v1_design_3.0` (29); free swaps | ☑ done | `08aff7c` | `relics.ts` pool, all 29 working; Lair pick-of-2 + Caravan pay-from-hand (cost 8); pins → [`contracts/relics.md`](contracts/relics.md) |
 | 8 | Landmarks + provinces — roster (Hunt = NEW), chapter→province, C2 mirrors C1, recap | ☐ not started | — | |
 | 9 | Meta/lineage + cutover — lineage wipe, no save/resume, §11 deletes, e2e run | ☐ not started | — | deletes only here |
 
@@ -31,6 +31,14 @@ collected for Landry's playtest.
 
 ## Session log
 
+- **2026-07-02 (f)** — **slice 7 landed** (`08aff7c`): equipment. `relics.ts` = the
+  full 29-relic pool with working semantics; bag + 4 named slots (`equip_relic`, free
+  between fights, locked in combat); Lair = pick-of-2 raid → bag; Caravan =
+  pay-from-hand (cost 8 placeholder, Caravan Coin −2); legacy relic offers dried up;
+  recruit pipeline extracted (`recruitCard`) with the Hat relics; V3 activations via
+  `applyActivateRelic`. Placeholder equip panel + combat buttons. 29 pins + ⚑
+  simplifications in [`contracts/relics.md`](contracts/relics.md). Test M added.
+  Gates: smoke ✅ · vue-tsc ✅. **Next: slice 8 (landmarks + provinces).**
 - **2026-07-02 (e)** — **slice 6 landed** (`b2bf6fb`): spells. New `spells.ts` (4 suit
   crystals, Fragment+Half); gauntlet on CampaignState; pool = `tokenFragments`
   (repointed); 50/50 post-win drop; `bracelet_place` action + road/camp panel (light →
