@@ -3,7 +3,7 @@ import type { Suit, Card } from '../types'
 import { suitSymbol, cardValue } from '../deck'
 import type {
   CampaignState, ClassId, ClientCampaignState, ClientHero, ClientRoadNode,
-  Hero, KingdomState, NodeKind, PendingChoice, Token,
+  Hero, KingdomState, NodeKind, PendingChoice, RoadNode, Token,
 } from './types'
 import { CLASSES, TIER1_CLASSES, getItem, itemsOf, RELIC_SLOTS, getEncounterDef, BOSS_MODIFIERS, FORGEABLE_TOKEN_IDS, C_TIER_TOKEN_IDS, getTokenDef, RELIC_UNLOCK_ORDER, SPELL_UNLOCK_ORDER, HAILMARY_SPELL_IDS, MYTHIC_RELIC_IDS, BRIDGE_RELIC_ID, MYTHIC_PER_CONTINENT } from './content'
 import { stampToken, projectCardTokens, MAX_TOKENS_PER_CARD } from './tokens'
@@ -782,6 +782,8 @@ export function applyChoice(c: CampaignState, playerId: string, optionId: string
 
   if (pc.kind === 'shop') return applyShopChoice(c, optionId)
 
+  if (pc.kind === 'royal_keep') return applyRoyalKeep(c, pc, optionId)
+
   if (pc.kind === 'landmark_reward') {
     if (teamVote) {
       // team rewards are a secret ballot: everyone votes, majority wins,
@@ -1147,6 +1149,16 @@ export function checkEncounterEnd(c: CampaignState, kingdom?: KingdomState) {
         return
       }
 
+      // ── V3 §3: ascending C2 — a royal gate falls → the keep-decision ───────
+      // (3/2/1 pyramid). The spoils/march (intermediate gates) or the crown +
+      // victory (King Gate) resume in finalizeRoyalKeep after the picks.
+      if (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2) {
+        const gateIdx = Math.min(c.map!.nodes.filter(n => n.kind === 'boss' && n.layer < node.layer).length, 2)
+        c.encounter = null
+        presentRoyalKeep(c, (['J', 'Q', 'K'] as const)[gateIdx]!, node.id)
+        return
+      }
+
       // Province / ascending-deck: the Gates and the Courtyard are intermediate
       // gate fights — pay spoils and march on; only the Throne completes the
       // chapter. Continent 1 (ch1/ch2) uses number gates with the same flow.
@@ -1155,27 +1167,8 @@ export function checkEncounterEnd(c: CampaignState, kingdom?: KingdomState) {
         || (EXPERIMENTS.ascendingDeck && (continentOf(c.chapter) === 2
           || (continentOf(c.chapter) === 1 && c.chapter !== 3)))
       if (useProvinceBossSplit && node.next.length > 0) {
-        const { r, done } = rng(c)
-        const isCourtyard = c.map!.nodes.some(n => n.kind === 'boss' && n.layer < node.layer)
-        const pool = (isCourtyard
-          ? [...itemPool(c, 'relic', 'rare'), ...itemPool(c, 'spell', 'rare')]
-          : [...itemPool(c, 'spell', 'standard'), ...itemPool(c, 'relic', 'standard')])
-          .filter(i => !c.spells.includes(i.id) && !c.heroes.some(h => h.relicIds.includes(i.id)))
-        const options = r.shuffle(pool).slice(0, 3 + rewardBonus(c))
-        done()
         c.encounter = null
-        clog(c, isCourtyard ? '👑 The Courtyard is yours. The Throne room lies ahead.' : '🏰 The Gates have fallen. The Courtyard awaits.')
-        if (options.length) {
-          c.phase = 'landmark'
-          c.pendingChoice = {
-            kind: 'landmark_reward', forPlayerId: null,
-            prompt: isCourtyard ? 'Spoils of the Courtyard — claim a rare prize.' : 'Spoils of the Gates — choose your reward.',
-            options: options.map(i => ({ id: i.id, label: `${i.name}${i.tier === 'rare' ? ' ★' : ''}`, detail: i.text })),
-          }
-        } else {
-          c.phase = 'road'
-          autoAdvanceAfterGate(c)
-        }
+        presentGateSpoils(c, node)
         return
       }
       c.encounter = null
@@ -1385,6 +1378,109 @@ function applyReplacementPick(c: CampaignState, playerId: string, classId: strin
 }
 
 // ── Chapter transitions ──────────────────────────────────────────────────────
+
+// Intermediate gate cleared (Gates/Courtyard style): offer spoils, or march on.
+function presentGateSpoils(c: CampaignState, node: RoadNode) {
+  const { r, done } = rng(c)
+  const isCourtyard = c.map!.nodes.some(n => n.kind === 'boss' && n.layer < node.layer)
+  const pool = (isCourtyard
+    ? [...itemPool(c, 'relic', 'rare'), ...itemPool(c, 'spell', 'rare')]
+    : [...itemPool(c, 'spell', 'standard'), ...itemPool(c, 'relic', 'standard')])
+    .filter(i => !c.spells.includes(i.id) && !c.heroes.some(h => h.relicIds.includes(i.id)))
+  const options = r.shuffle(pool).slice(0, 3 + rewardBonus(c))
+  done()
+  clog(c, isCourtyard ? '👑 The Courtyard is yours. The Throne room lies ahead.' : '🏰 The Gates have fallen. The Courtyard awaits.')
+  if (options.length) {
+    c.phase = 'landmark'
+    c.pendingChoice = {
+      kind: 'landmark_reward', forPlayerId: null,
+      prompt: isCourtyard ? 'Spoils of the Courtyard — claim a rare prize.' : 'Spoils of the Gates — choose your reward.',
+      options: options.map(i => ({ id: i.id, label: `${i.name}${i.tier === 'rare' ? ' ★' : ''}`, detail: i.text })),
+    }
+  } else {
+    c.phase = 'road'
+    autoAdvanceAfterGate(c)
+  }
+}
+
+// ── V3 §3: royal gates — the 3/2/1 keep-decision ─────────────────────────────
+// A C2 gate fields all four royals of its rank; after the fight the player
+// narrows: Jack Gate keeps 3 of 4 (pick the one LEFT), Queen Gate keeps 2
+// (two sequential keep picks), King Gate keeps 1 — the crown; the other Kings
+// abdicate. Kept royals become REAL deck cards (§F minted + owned + shuffled
+// into the live tavern). Victory = the King Gate cleared + crowned.
+
+const ROYAL_KEEP: Record<'J' | 'Q' | 'K', { keep: number; mode: 'keep' | 'leave'; prompt: string }> = {
+  J: { keep: 3, mode: 'leave', prompt: '⚜ The Jack Gate falls — which Jack do you leave behind?' },
+  Q: { keep: 2, mode: 'keep', prompt: '⚜ The Queen Gate falls — which Queens follow you? Pick the first.' },
+  K: { keep: 1, mode: 'keep', prompt: '👑 The King Gate falls — which crown do you wear?' },
+}
+
+function presentRoyalKeep(c: CampaignState, rank: 'J' | 'Q' | 'K', nodeId: string) {
+  const cfg = ROYAL_KEEP[rank]
+  const pool = (['S', 'H', 'C', 'D'] as const).map(su => `${su}${rank}`)
+  c.phase = 'landmark'
+  c.pendingChoice = {
+    kind: 'royal_keep', forPlayerId: null,
+    prompt: cfg.prompt,
+    options: pool.map(id => ({
+      id,
+      label: cardLabelFromId(id),
+      detail: cfg.mode === 'leave'
+        ? 'Tap to leave this one behind — the other three join your deck.'
+        : rank === 'K'
+          ? 'Your crown — this King rides in your deck; the others abdicate.'
+          : 'This Queen joins your deck as a real card.',
+    })),
+    royalKeep: { rank, pool, kept: [], mode: cfg.mode, nodeId },
+  }
+  clog(c, cfg.prompt)
+}
+
+function applyRoyalKeep(c: CampaignState, pc: PendingChoice, optionId: string): { error?: string } {
+  const rk = pc.royalKeep
+  if (!rk) { c.pendingChoice = null; c.phase = 'road'; return { error: 'No gate decision pending.' } }
+  const cfg = ROYAL_KEEP[rk.rank]
+  if (rk.mode === 'leave') {
+    clog(c, `   ${cardLabelFromId(optionId)} is left at the gate.`)
+    return finalizeRoyalKeep(c, rk, rk.pool.filter(id => id !== optionId))
+  }
+  rk.kept.push(optionId)
+  if (rk.kept.length < cfg.keep) {
+    pc.options = pc.options.filter(o => o.id !== optionId)
+    pc.prompt = `⚜ ${cardLabelFromId(optionId)} follows you — and the next?`
+    clog(c, `   ${cardLabelFromId(optionId)} swears fealty.`)
+    return {}
+  }
+  return finalizeRoyalKeep(c, rk, rk.kept)
+}
+
+function finalizeRoyalKeep(c: CampaignState, rk: NonNullable<PendingChoice['royalKeep']>, kept: string[]): { error?: string } {
+  // §F: kept royals become real deck cards — minted physical identities,
+  // owned, and shuffled into the live tavern at seeded positions.
+  const { r, done } = rng(c)
+  for (const id of kept) {
+    if (!(c.ownedCards ?? []).includes(id)) c.ownedCards = [...(c.ownedCards ?? []), id]
+    const pcard = registerLogicalCard(c, id)
+    if (c.deck) c.deck.tavern.splice(r.int(c.deck.tavern.length + 1), 0,
+      { suit: id[0] as Suit, rank: id.slice(1) as Card['rank'], id: pcard.physicalId })
+  }
+  done()
+  const left = rk.pool.filter(id => !kept.includes(id))
+  clog(c, rk.rank === 'K'
+    ? `👑 ${kept.map(cardLabelFromId).join(', ')} is crowned — the crown rides in your deck. The other Kings abdicate.`
+    : `⚜ ${kept.map(cardLabelFromId).join(' + ')} shuffle into your deck.${left.length ? ` Left behind: ${left.map(cardLabelFromId).join(', ')}.` : ''}`)
+  c.pendingChoice = null
+  const node = c.map!.nodes.find(n => n.id === rk.nodeId)!
+  if (node.next.length === 0) {
+    // The King Gate — V3.0 victory. sessions re-syncs its kingdom from disk
+    // after every action, so a fresh load here is safe.
+    completeChapter(c, loadKingdom())
+    return {}
+  }
+  presentGateSpoils(c, node)
+  return {}
+}
 
 function completeChapter(c: CampaignState, kingdom: KingdomState) {
   if (EXPERIMENTS.provinceMode && c.chapter === 1) {

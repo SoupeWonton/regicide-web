@@ -344,9 +344,14 @@ function buildEnemyStack(tier: EncounterTier, isLair: boolean, players: number, 
   }
   const mk = (rank: 'J' | 'Q' | 'K', suits: Suit[]) => suits.map(suit => ({ suit, rank: rank as Card['rank'], id: uid() }))
   if (tier === 'boss') {
-    // province rank fight: one rank — solo fields 3 royals, parties the full 4
-    // (playtest 2026-06-11: 2-royal gates at low counts were too easy)
-    if (rankOnly) return { cards: shuffler(mk(rankOnly, shuffler([...SUITS]).slice(0, players === 1 ? 3 : 4))) }
+    // V3 §3 (ascending C2): a gate IS the full rank — all four royals fought,
+    // and the 3/2/1 keep-decision after the fight covers all four. Legacy
+    // province mode keeps the party-size split (solo 3 / party 4).
+    if (rankOnly) {
+      const fullGate = EXPERIMENTS.ascendingDeck && continentOf(chapter ?? 1) === 2
+      const suits = fullGate ? shuffler([...SUITS]) : shuffler([...SUITS]).slice(0, players === 1 ? 3 : 4)
+      return { cards: shuffler(mk(rankOnly, suits)) }
+    }
     if (EXPERIMENTS.shortCastle) {
       const ranks: ('J' | 'Q' | 'K')[] = ['J', 'Q', 'K']
       return { cards: ranks.flatMap(rank => shuffler(mk(rank, shuffler([...SUITS]).slice(0, 3)))) }
@@ -1130,6 +1135,43 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
     return
   }
 
+  // ── V3 §3: Continent-2 royals never join by kill — exact kills GRAFT ───────
+  // Royals are acquired ONLY at the gates (the 3/2/1 keep-decision). An exact
+  // kill on any C2 royal triggers a replacement graft with the value capped at
+  // 10; the body is banished either way — no tavern slide, no discard fuel
+  // (an overkilled gate royal must not sneak into the player pool).
+  if (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2) {
+    if (exact) {
+      s.flags['exactKills'] = ((s.flags['exactKills'] as number) ?? 0) + 1
+      if (s.modifierId === 'rot-ward') {
+        const pen = (s.flags['rotPenalty'] as number) ?? 2
+        if (pen > 0) s.flags['rotPenalty'] = pen - 1
+      }
+      const graftRank = '10'   // royal cap (§3)
+      const hand = s.hands[killerIdx] ?? []
+      const hasTarget = hand.some(card => !!physicalById(c, card.id)
+        && (card.rank !== graftRank || card.suit !== enemy.card.suit))
+      if (hasTarget) {
+        s.currentEnemy = null
+        s.pendingGraft = {
+          heroIdx: killerIdx, suit: enemy.card.suit, rank: graftRank,
+          slain: `${enemy.card.suit}${enemy.card.rank}`,
+        }
+        s.turnPhase = 'graft_select'
+        clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} falls — its power grafts (value capped at 10).`)
+        ev(s, 'kill', `⚔ ROYAL GRAFT — rewrite a card you hold`, 'gold', true)
+        return   // PAUSE: applyGraftSelect resumes via advanceAfterNumberKill
+      }
+      clog(c, `✨ Exact kill! ${cardLabel(enemy.card)} falls — nothing to rewrite.`)
+      ev(s, 'kill', `✅ ${cardLabel(enemy.card)} DEFEATED`, 'gold', true)
+    } else {
+      clog(c, `☠️ ${cardLabel(enemy.card)} defeated — royals swear fealty only at the gates.`)
+      ev(s, 'kill', `☠️ ${cardLabel(enemy.card)} DEFEATED`, 'gold', true)
+    }
+    advanceAfterNumberKill(c, s, killerIdx)
+    return
+  }
+
   // ── Standard royal kill resolution ───────────────────────────────────────
   if (exact) {
     s.tavern.unshift(enemy.card)
@@ -1418,10 +1460,10 @@ function advanceAfterNumberKill(c: CampaignState, s: EncounterState, killerIdx: 
   s.currentEnemy = null
   revealNextEnemy(c, s)
   if (s.outcome === 'won') {
-    // A number gate (Continent-1 boss) finishes via checkEncounterEnd's boss path;
-    // only a road recruit announces "recruit encounter cleared" here.
+    // A gate (boss) finishes via checkEncounterEnd's boss path; only a road
+    // fight announces the clear here.
     if (s.tier !== 'boss') {
-      clog(c, '🎉 Recruit encounter cleared!')
+      clog(c, '🎉 Encounter cleared!')
       ev(s, 'kill', '🎉 ENCOUNTER CLEARED', 'gold', true)
     }
   } else {

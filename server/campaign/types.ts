@@ -199,6 +199,7 @@ export interface PendingChoice {
   kind: 'landmark_reward' | 'replacement' | 'relic_full' | 'draft_pick'
        | 'forge_token' | 'forge_card'      // ascending-deck Step 5: two-step forge
        | 'shop'                            // post-Council fragment shop (4 tiers)
+       | 'royal_keep'                      // V3 §3: post-gate 3/2/1 keep-decision
   forPlayerId: string | null   // null → team vote (or host when solo)
   prompt: string
   options: { id: string; label: string; detail?: string }[]
@@ -211,6 +212,10 @@ export interface PendingChoice {
   fragmentApply?: boolean
   // true when this forge flow is a FREE stamp (Lair rare-token reward — no budget)
   freeForge?: boolean
+  // royal_keep (V3 §3): the gate's royal pool + picks so far. mode 'leave' =
+  // pick the ONE left behind (Jack Gate keeps 3); 'keep' = sequential keep
+  // picks (Queen Gate ×2, King Gate ×1 — the crown).
+  royalKeep?: { rank: 'J' | 'Q' | 'K'; pool: string[]; kept: string[]; mode: 'keep' | 'leave'; nodeId: string }
 }
 
 export interface DeathVoteState {

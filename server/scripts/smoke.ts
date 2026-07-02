@@ -1058,6 +1058,139 @@ console.log('Test H: §F card-state — physical ids, printed vs effective, prov
   EXPERIMENTS.provinceMode = LIVE_PROVINCE
 }
 
+// ── Test I: V3 §3 — C2 royal gates (full rank, royal graft cap 10, keep 3/2/1, crown) ─
+console.log('Test I: royal gates — 4-royal gates, royal graft (cap 10), keep-decision, crown victory')
+{
+  EXPERIMENTS.ascendingDeck = true
+  EXPERIMENTS.provinceMode = false
+  const { physicalByPrinted, physicalById, effectiveFace } = await import('../campaign/cards')
+  const { startEncounter } = await import('../campaign/encounter')
+
+  const kd = loadKingdom()
+  kd.unlockedChapters = [1, 2, 3, 4]
+  kd.unlockedClasses = ['sentinel', 'quartermaster', 'surgeon', 'executioner', 'commander', 'warden']
+  const c = createCampaign([{ id: P1, name: 'Gab' }], 4, 'royal-gates', kd).campaign!
+  applyClassPick(c, P1, 'sentinel')
+  const bosses = c.map!.nodes.filter(n => n.kind === 'boss').sort((a, b) => a.layer - b.layer)
+  assert(bosses.length === 3, `ch4 map has 3 gates (got ${bosses.length})`)
+
+  // helper: clear the rest of a gate with overkills (never exact, never recruit)
+  const overkillAll = (sx: NonNullable<CampaignState['encounter']>) => {
+    let guard = 30
+    while (sx.outcome === 'active' && guard-- > 0) {
+      if (sx.turnPhase === 'discard') {
+        const hand2 = sx.hands[0]!
+        const pick: number[] = []; let tot = 0
+        for (let i2 = 0; i2 < hand2.length && tot < sx.discardNeeded; i2++) { pick.push(i2); tot += cardValue(hand2[i2]!.rank) }
+        const rd = applyEncounterDiscard(c, P1, pick)
+        assert(!rd.error, `gate discard: ${rd.error}`)
+        continue
+      }
+      if (sx.turnPhase !== 'play' || !sx.currentEnemy) break
+      const en = sx.currentEnemy
+      en.hp = 1; en.attack = 0; en.shield = 0
+      sx.hands[0] = [{ suit: 'S', rank: '4', id: `ti-kill-${guard}` }]   // 4 dmg vs 1 hp = overkill
+      const r2 = applyEncounterPlay(c, P1, [0])
+      assert(!r2.error, `gate overkill play: ${r2.error}`)
+    }
+  }
+
+  // (a) the Jack Gate fields ALL FOUR Jacks (solo no longer gets 3)
+  startEncounter(c, bosses[0]!.id, 'boss')
+  c.phase = 'encounter'
+  const s = c.encounter!
+  while (s.turnPhase === 'setup') applySetupReorder(c, s.setupPeek!.playerId, s.setupPeek!.cards.map((_, i) => i))
+  const gateCards = [...(s.currentEnemy ? [s.currentEnemy.card] : []), ...s.enemyDeck]
+  assert(gateCards.length === 4 && gateCards.every(cd => cd.rank === 'J'),
+    `Jack Gate fields all four Jacks (got ${gateCards.map(cd => cd.suit + cd.rank).join(',')})`)
+  ok('royal gates: a gate is the full rank — four royals, solo included')
+
+  // (b) exact royal kill → replacement graft capped at 10; the body is banished
+  const enemy = s.currentEnemy!
+  enemy.hp = 2; enemy.attack = 0; enemy.shield = 0
+  s.turnPhase = 'play'
+  const s2pc = physicalByPrinted(c, 'S2')!
+  const h4pc = physicalByPrinted(c, 'H4')!
+  s.hands[0] = [
+    { suit: 'S', rank: '2', id: s2pc.physicalId },
+    { suit: 'H', rank: '4', id: h4pc.physicalId },
+  ]
+  const rp = applyEncounterPlay(c, P1, [0])   // 2♠ → 2 dmg → exact kill on the Jack
+  assert(!rp.error, `royal exact-kill play: ${rp.error}`)
+  assert(s.turnPhase === 'graft_select', `royal exact kill pauses for graft (got ${s.turnPhase})`)
+  assert(s.pendingGraft?.rank === '10', `royal graft value is capped at 10 (got ${s.pendingGraft?.rank})`)
+  assert(!s.tavern.some(cd => cd.rank === 'J') && !s.discard.some(cd => cd.rank === 'J'),
+    'slain royal is banished — no tavern slide, no discard fuel')
+  const gIdx = s.hands[0]!.findIndex(cd => cd.id === h4pc.physicalId)
+  assert(!applyGraftSelect(c, P1, gIdx, 'value').error, 'royal graft resolves')
+  assert(effectiveFace(h4pc).rank === '10', `4♥ became 10♥ via the royal graft (got ${effectiveFace(h4pc).rank})`)
+  ok('royal gates: exact royal kill → replacement graft (cap 10); royals never join by kill')
+
+  // (c) clear the gate → the Jack keep-decision (leave 1, keep 3)
+  overkillAll(s)
+  assert(s.outcome === 'won', `Jack Gate cleared (${s.outcome})`)
+  checkEncounterEnd(c, kd)
+  const pcJ = c.pendingChoice
+  assert(pcJ?.kind === 'royal_keep' && pcJ.royalKeep?.rank === 'J',
+    `Jack keep-decision presented (got ${pcJ?.kind}/${pcJ?.royalKeep?.rank})`)
+  assert(pcJ!.options.length === 4, 'all four Jacks on the table')
+  const leave = pcJ!.options[0]!.id
+  assert(!applyChoice(c, P1, leave, P1).error, 'leave pick resolves')
+  const ownedJ = (c.ownedCards ?? []).filter(id => id.slice(1) === 'J')
+  assert(ownedJ.length === 3 && !ownedJ.includes(leave), `three Jacks kept (${ownedJ.join(',')}); ${leave} left behind`)
+  const tavJ = (c.deck?.tavern ?? []).filter(cd => cd.rank === 'J')
+  assert(tavJ.length === 3 && tavJ.every(cd => !!physicalById(c, cd.id)),
+    'kept Jacks shuffled into the tavern as §F-backed real deck cards')
+  ok('royal gates: Jack Gate keeps 3 of 4 — kept royals are real deck cards')
+
+  // (d) Queen Gate: keep 2 of 4 via two sequential picks
+  c.pendingChoice = null
+  c.phase = 'road'
+  startEncounter(c, bosses[1]!.id, 'boss')
+  c.phase = 'encounter'
+  const sQ = c.encounter!
+  while (sQ.turnPhase === 'setup') applySetupReorder(c, sQ.setupPeek!.playerId, sQ.setupPeek!.cards.map((_, i) => i))
+  overkillAll(sQ)
+  assert(sQ.outcome === 'won', `Queen Gate cleared (${sQ.outcome})`)
+  checkEncounterEnd(c, kd)
+  const pcQ = c.pendingChoice
+  assert(pcQ?.kind === 'royal_keep' && pcQ.royalKeep?.rank === 'Q', 'Queen keep-decision presented')
+  const q1 = pcQ!.options[0]!.id
+  assert(!applyChoice(c, P1, q1, P1).error, 'first Queen pick resolves')
+  assert(c.pendingChoice?.kind === 'royal_keep' && c.pendingChoice.options.length === 3,
+    'second Queen pick pending from the remaining three')
+  const q2 = c.pendingChoice!.options[0]!.id
+  assert(!applyChoice(c, P1, q2, P1).error, 'second Queen pick resolves')
+  const ownedQ = (c.ownedCards ?? []).filter(id => id.slice(1) === 'Q')
+  assert(ownedQ.length === 2 && ownedQ.includes(q1) && ownedQ.includes(q2), `two Queens kept (${ownedQ.join(',')})`)
+  ok('royal gates: Queen Gate keeps 2 of 4 — sequential picks')
+
+  // (e) King Gate: four Kings, keep 1 — the crown — and that IS the V3.0 victory
+  c.pendingChoice = null
+  c.phase = 'road'
+  startEncounter(c, bosses[2]!.id, 'boss')
+  c.phase = 'encounter'
+  const sK = c.encounter!
+  while (sK.turnPhase === 'setup') applySetupReorder(c, sK.setupPeek!.playerId, sK.setupPeek!.cards.map((_, i) => i))
+  const kCards = [...(sK.currentEnemy ? [sK.currentEnemy.card] : []), ...sK.enemyDeck]
+  assert(kCards.length === 4 && kCards.every(cd => cd.rank === 'K'),
+    `King Gate fields four Kings (got ${kCards.map(cd => cd.suit + cd.rank).join(',')})`)
+  overkillAll(sK)
+  assert(sK.outcome === 'won', `Throne cleared (${sK.outcome})`)
+  checkEncounterEnd(c, kd)
+  const pcK = c.pendingChoice
+  assert(pcK?.kind === 'royal_keep' && pcK.royalKeep?.rank === 'K', 'crown decision presented')
+  const crown = pcK!.options[2]!.id
+  assert(!applyChoice(c, P1, crown, P1).error, 'crown pick resolves')
+  const ownedK = (c.ownedCards ?? []).filter(id => id.slice(1) === 'K')
+  assert(ownedK.length === 1 && ownedK[0] === crown, `exactly one King kept — the crown (${ownedK.join(',')})`)
+  assert(c.phase === 'campaign_won', `King Gate cleared + crowned = V3.0 victory (got ${c.phase})`)
+  ok('royal gates: King Gate crown — keep 1 of 4 → campaign won')
+
+  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
+  EXPERIMENTS.provinceMode = LIVE_PROVINCE
+}
+
 // Test T1 — onboarding tutorial launches a scripted Sentinel encounter
 {
   const wasAsc = EXPERIMENTS.ascendingDeck
