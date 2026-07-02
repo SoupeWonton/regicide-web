@@ -36,6 +36,24 @@ const isMyTurn = computed(() => props.state.myHeroIndex === enc.value.currentPla
 const inPlay = computed(() => enc.value.turnPhase === 'play' && isMyTurn.value)
 const inDiscard = computed(() => enc.value.turnPhase === 'discard' && isMyTurn.value)
 
+// V3 §6 — gauntlet cast buttons (placeholder UI). Brace (♠ Half) fires while
+// paying a counterattack; everything else in your play phase.
+const gauntletSuits = computed(() => {
+  const g = props.state.gauntlet
+  if (!g) return []
+  return ['S', 'D', 'H', 'C']
+    .map(su => ({ su, hole: g[su]! }))
+    .filter(x => x.hole && x.hole.tier > 0)
+})
+function gauntletUsable(su: string, hole: { tier: number; castable: boolean }): boolean {
+  if (!hole.castable) return false
+  const brace = su === 'S' && hole.tier >= 2
+  return brace ? inDiscard.value : inPlay.value
+}
+function castGauntlet(su: string) {
+  act({ type: 'cast_spell', spellId: `gauntlet:${su}` })
+}
+
 // V3 §2 — activated-Staff button (placeholder UI). Parry fires while paying a
 // counterattack; every other activated Staff fires in your play phase.
 const myStaff = computed(() => {
@@ -825,10 +843,18 @@ const netAttack = computed(() => {
 
           <!-- V3 §2: activated-Staff use (placeholder UI). Card-targeting
                Staffs use the single selected hand card. -->
-          <div v-if="staffUsable" class="absolute top-0 right-0 z-30">
-            <button class="btn btn-xs btn-outline btn-warning" :title="myStaff!.text" @click="useStaff">
+          <div class="absolute top-0 right-0 z-30 flex flex-col items-end gap-1">
+            <button v-if="staffUsable" class="btn btn-xs btn-outline btn-warning" :title="myStaff!.text" @click="useStaff">
               🪄 {{ myStaff!.name }}
             </button>
+            <!-- V3 §6: the gauntlet — cast a lit crystal (consumes to empty) -->
+            <button
+              v-for="{ su, hole } in gauntletSuits" :key="su"
+              class="btn btn-xs btn-outline btn-info"
+              :disabled="!gauntletUsable(su, hole)"
+              :title="`${hole.text} (cast = the crystal empties; once per suit per fight)`"
+              @click="castGauntlet(su)"
+            >💠 {{ suitSymbol(su) }} {{ hole.name }}{{ hole.tier >= 2 ? ' ★' : '' }}</button>
           </div>
 
           <!-- floating action: bottom-center of the arena (never covers the

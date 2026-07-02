@@ -8,6 +8,7 @@ import { appendGameLog } from './store'
 import { spendDelta, holdDelta, cardSuits, leverBonus, markDamage, hasKeyword, rekeyCardTokens } from './tokens'
 import { syncCardRegistry, effectiveFace, registerLogicalCard, physicalById, applyGraft } from './cards'
 import { getStaff } from './paths'
+import { CRYSTALS, RALLY_CAP, gauntletOf, crystalOf } from './spells'
 import { tutorialEnemies, tutorialEnemyMeta, tutorialBlocksPlay, tutorialBlocksDiscard, tutorialBlocksGraft, recordTutorialPlay } from './tutorial'
 
 /** Returns the continent number for a given chapter. Inlined to avoid circular import with campaign.ts. */
@@ -936,11 +937,12 @@ function scryTopTavern(c: CampaignState, s: EncounterState) {
 // ── Core actions ─────────────────────────────────────────────────────────────
 
 /**
- * `adjacent` (V3 Staffs Reinforce/Dovetail): a same-rank combo may include ONE
- * card of adjacent rank (±1) — 'S' restricts that card to Spades (Reinforce),
- * 'any' allows any suit (Dovetail). Ace pairs and the combo cap are unchanged.
+ * `adjacent` (V3): a same-rank combo may include ONE off-rank card —
+ * 'S' = an adjacent-rank (±1) Spade (Reinforce Staff), 'any' = adjacent rank
+ * any suit (Dovetail Staff), 'free' = ANY rank (Commit, the ♣ Half crystal).
+ * Ace pairs and the combo cap are unchanged.
  */
-function validateCampaignCombo(cards: Card[], maxTotal = 10, adjacent?: 'S' | 'any'): string | null {
+function validateCampaignCombo(cards: Card[], maxTotal = 10, adjacent?: 'S' | 'any' | 'free'): string | null {
   if (cards.length === 0) return 'No cards selected.'
   if (cards.length === 1) return null
   if (cards.some(card => card.rank === 'Jo')) return 'Jesters must be played alone.'
@@ -959,7 +961,7 @@ function validateCampaignCombo(cards: Card[], maxTotal = 10, adjacent?: 'S' | 'a
     const minorCount = Math.min(a![1], b![1])
     const minorCard = cards.find(card => card.rank === minorRank)!
     if (minorCount !== 1
-      || Math.abs(cardValue(majorRank) - cardValue(minorRank)) !== 1
+      || (adjacent !== 'free' && Math.abs(cardValue(majorRank) - cardValue(minorRank)) !== 1)
       || (adjacent === 'S' && minorCard.suit !== 'S'))
       return 'Cards must share a rank (or pair with an Ace).'
   }
@@ -980,13 +982,18 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   const cards = sorted.map(i => hand[i]!).reverse()
   // Combat Cache relic: matched combos may total up to 12 instead of 10.
   const comboMax = c.heroes[pi]!.relicIds.includes('r-combat-cache') ? 12 : 10
-  // V3 Staffs — Reinforce (one adjacent Spade) / Dovetail (one adjacent card)
-  const adjacent = EXPERIMENTS.ascendingDeck
-    ? (c.heroes[pi]!.staffId === 'reinforce' ? 'S' as const
-      : c.heroes[pi]!.staffId === 'dovetail' ? 'any' as const : undefined)
-    : undefined
+  // V3 Staffs — Reinforce (one adjacent Spade) / Dovetail (one adjacent card);
+  // Commit (♣ Half crystal, armed) tops both: one extra card of ANY rank.
+  const commitArmed = EXPERIMENTS.ascendingDeck && s.flags[flagKey('commit', pi)] === true
+  const adjacent = commitArmed ? 'free' as const
+    : EXPERIMENTS.ascendingDeck
+      ? (c.heroes[pi]!.staffId === 'reinforce' ? 'S' as const
+        : c.heroes[pi]!.staffId === 'dovetail' ? 'any' as const : undefined)
+      : undefined
   const comboError = validateCampaignCombo(cards, comboMax, adjacent)
   if (comboError) return { error: comboError }
+  // Commit is spent by the next play, used or not (pin: contracts/spells.md)
+  if (commitArmed) s.flags[flagKey('commit', pi)] = false
   // Tutorial rail: while a gated beat highlights a card, bounce off-script plays.
   const tutBlock = tutorialBlocksPlay(c, s, hand, cards.map(cd => cd.id))
   if (tutBlock) return { error: tutBlock }
@@ -1524,6 +1531,12 @@ function counterattack(c: CampaignState, s: EncounterState, pi: number): { error
     net = 2
     clog(c, '   🪝 Hooked Blades: 1 damage becomes 2.')
   }
+  // V3 §6 — Rally (♦ Half, armed): the counterattack is drawn before it is paid.
+  if (EXPERIMENTS.ascendingDeck && s.flags['rallyArmed'] && net > 0) {
+    s.flags['rallyArmed'] = false
+    const got = drawForHero(c, s, pi, Math.min(net, RALLY_CAP))
+    if (got) { clog(c, `   📯 Rally: drew ${got} before the blow lands.`); ev(s, 'proc', `📯 Rally +${got}`, 'gold') }
+  }
   // Sentinel siege ultimate — Hold the Gate: once per castle, a counterattack
   // against the Sentinel is fully negated. V3 (ascending): sieges retired (§2).
   if (net > 0 && s.tier === 'boss' && !EXPERIMENTS.ascendingDeck && c.heroes[pi]!.classId === 'sentinel' && once(s, 'ult.sentinel')) {
@@ -2042,6 +2055,75 @@ export function applyCastSpell(c: CampaignState, playerId: string, spellId: stri
   const pi = c.heroes.findIndex(h => h.playerId === playerId)
   if (pi < 0 || !c.heroes[pi]!.alive) return { error: 'You are not in this fight.' }
   if (pi !== s.currentPlayerIndex) return { error: 'Spells are cast on your own turn.' }
+
+  // ── V3 §6 (slice 6): gauntlet cast — spellId 'gauntlet:<suit>' ─────────────
+  // Cast = consume the hole to EMPTY (Decision 2); one cast per suit per
+  // combat; castable over matching-suit immunity (no immunity check here by
+  // design). Brace (♠ Half) fires in the pay step; everything else in play.
+  if (EXPERIMENTS.ascendingDeck && spellId.startsWith('gauntlet:')) {
+    const suit = spellId.slice('gauntlet:'.length)
+    const hole = gauntletOf(c)[suit]
+    const def = hole ? crystalOf(suit, hole.tier) : null
+    if (!hole || !CRYSTALS[suit]) return { error: 'Unknown crystal.' }
+    if (!def) return { error: 'That hole is empty — place fragments via the bracelet.' }
+    if (s.flags[`gauntletCast:${suit}`]) return { error: 'One cast per suit per combat.' }
+    const isHalf = hole.tier >= 2
+    const braceCast = isHalf && suit === 'S'
+    if (braceCast ? s.turnPhase !== 'discard' : s.turnPhase !== 'play')
+      return { error: braceCast ? 'Brace is cast while paying a counterattack.' : 'Cast during your play phase.' }
+    // per-effect preconditions (validate-then-mutate)
+    if (suit === 'S' && !isHalf && !s.currentEnemy) return { error: 'No enemy to guard against.' }
+    if (braceCast && s.hands[pi]!.length === 0) return { error: 'No card to brace with.' }
+
+    beginEvents(s)
+    ev(s, 'spell', `💠 ${def.name}!`, 'gold', true)
+    switch (`${suit}:${isHalf ? 'half' : 'frag'}`) {
+      case 'C:frag': s.flags[flagKey('keenEdge', pi)] = true; break
+      case 'C:half': s.flags[flagKey('commit', pi)] = true; break
+      case 'D:frag': drawForHero(c, s, pi, 2); break
+      case 'D:half': s.flags['rallyArmed'] = true; break   // draws fire at the counterattack
+      case 'S:frag': s.currentEnemy!.shield += 3; break
+      case 'S:half': {   // Brace — emergency shield out of your best card
+        const hand = s.hands[pi]!
+        let hi = 0
+        for (let i = 1; i < hand.length; i++) if (cardValue(hand[i]!.rank) > cardValue(hand[hi]!.rank)) hi = i
+        const [spent] = hand.splice(hi, 1)
+        s.discard.push(spent!)
+        const v = cardValue(spent!.rank)
+        if (s.currentEnemy) s.currentEnemy.shield += v
+        s.discardNeeded = Math.max(0, s.discardNeeded - v)
+        clog(c, `   🛡 Brace: ${cardLabel(spent!)} spent as emergency shield (−${v}, ${s.discardNeeded} to pay).`)
+        break
+      }
+      case 'H:frag': {   // Refit
+        const n = Math.min(3, s.discard.length)
+        if (n) {
+          const { r, done } = rng(c)
+          s.tavern.unshift(...r.shuffle(s.discard.splice(0, n)))
+          done()
+        }
+        drawForHero(c, s, pi, 1)
+        break
+      }
+      case 'H:half': {   // Full Recycle
+        const n = s.discard.length
+        if (n) {
+          const { r, done } = rng(c)
+          s.tavern.unshift(...r.shuffle(s.discard.splice(0, n)))
+          done()
+        }
+        drawForHero(c, s, pi, 2)
+        break
+      }
+    }
+    hole.tier = 0
+    hole.frags = 0
+    s.flags[`gauntletCast:${suit}`] = true
+    clog(c, `💠 ${c.heroes[pi]!.playerName} casts ${def.name} — the ${suitSymbol(suit as Suit)} crystal is consumed to empty.`)
+    if (braceCast && s.discardNeeded === 0) { clog(c, '🛡 The blow is fully braced.'); advanceTurn(c, s) }
+    return {}
+  }
+
   const inv = c.spells.indexOf(spellId)
   if (inv < 0) return { error: 'The team does not have that spell.' }
   const item = getItem(spellId)

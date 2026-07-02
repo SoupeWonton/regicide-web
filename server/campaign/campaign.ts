@@ -9,6 +9,7 @@ import { CLASSES, TIER1_CLASSES, getItem, itemsOf, RELIC_SLOTS, getEncounterDef,
 import { stampToken, projectCardTokens, MAX_TOKENS_PER_CARD } from './tokens'
 import { CAMPAIGN_SCHEMA_VERSION, registerLogicalCard, projectPhysicalCards } from './cards'
 import { staffsOf, getStaff, getLadder, homeLadder } from './paths'
+import { CRYSTALS, FRAGMENTS_PER_HALF, GAUNTLET_SUITS, gauntletOf, projectGauntlet } from './spells'
 import { buildMap } from './maps'
 import {
   startEncounter, maxHandSize, setupChapterDeck, campRest, campBundle, dealReplacementHand,
@@ -29,6 +30,10 @@ export function continentOf(chapter: number): number {
 // item pool with party-size gating: relics that need bodies to matter are
 // skipped at low counts (Signal Whistle is dead weight under 3 players)
 function itemPool(c: CampaignState, kind: 'relic' | 'spell', tier?: 'standard' | 'rare') {
+  // V3 §6 (slice 6): spells are no longer items — the gauntlet + fragments are
+  // the only spell economy. Every legacy spell offer dries up under the flag
+  // (the 14-entry roster survives in content.ts until the slice-9 delete).
+  if (EXPERIMENTS.ascendingDeck && kind === 'spell') return []
   // Gated by the run's unlocked pool (snapshotted from the Kingdom at creation).
   // Falls back to all items if the snapshot is absent (legacy saves / non-ascending).
   const unlocked = kind === 'relic' ? c.unlockedRelics : c.unlockedSpells
@@ -517,6 +522,33 @@ function tokenSummary(c: CampaignState, cardId: string): string | undefined {
 }
 
 function offerForge(c: CampaignState) {
+  // ── V3 §6 (slice 6): the Forge FORGES — sandbagged fragments become the
+  // next crystal tier (spells only; Fragment → Half; Full = V3.5). One
+  // tier-up per visit. The old token-stamp offer is retired (delete slice 9).
+  if (EXPERIMENTS.ascendingDeck) {
+    const g = gauntletOf(c)
+    const ready = GAUNTLET_SUITS.filter(su => g[su]!.tier === 1 && g[su]!.frags >= FRAGMENTS_PER_HALF)
+    if (!ready.length) {
+      clog(c, `⚒️ The Forge finds nothing ready — a hole needs ${FRAGMENTS_PER_HALF} invested fragments to forge its Half.`)
+      c.phase = 'road'
+      autoAdvanceAfterGate(c)
+      return
+    }
+    c.phase = 'landmark'
+    c.pendingChoice = {
+      kind: 'landmark_reward', forPlayerId: null,
+      prompt: '⚒️ The Forge — forge one suit’s fragments into a HALF crystal.',
+      options: [
+        ...ready.map(su => ({
+          id: `forgeup:${su}`,
+          label: `${suitSymbol(su as Suit)} → ${CRYSTALS[su]!.half.name} (Half)`,
+          detail: CRYSTALS[su]!.half.text,
+        })),
+        { id: 'forgeup:skip', label: 'Bank the fragments', detail: 'Leave everything sandbagged for later.' },
+      ],
+    }
+    return
+  }
   c.tokenBudget = (c.tokenBudget ?? 0) + 1   // the forge's own contribution
   clog(c, '⚒️ The Forge fires up — stamp tokens onto your cards.')
   presentForgeTokens(c)
@@ -561,6 +593,9 @@ function presentForgeTokens(c: CampaignState) {
 export const FRAGMENTS_PER_TOKEN = 6
 
 export function applyFragmentStart(c: CampaignState, _playerId: string, _hostId: string): { error?: string } {
+  // V3 §6 (slice 6): the C-tier token track is retired — fragments feed the
+  // gauntlet via the bracelet now (code deleted in slice 9).
+  if (EXPERIMENTS.ascendingDeck) return { error: 'Fragments feed the gauntlet now — place them with the bracelet.' }
   if (!EXPERIMENTS.ascendingDeck) return { error: 'Fragments are an ascending-deck feature.' }
   if (c.phase !== 'road') return { error: 'Apply fragment tokens from the road.' }
   if (c.pendingChoice) return { error: 'Resolve the current choice first.' }
@@ -892,6 +927,21 @@ function resolveRewardOption(c: CampaignState, optionId: string, pc: PendingChoi
   }
   if (optionId.startsWith('caravan:mythic:')) return applyCaravanMythic(c, optionId)
   if (optionId === 'lair:token') return applyLairToken(c)
+  // V3 §6: Forge tier-up — a sandbagged hole rises to its Half crystal
+  if (optionId.startsWith('forgeup:')) {
+    const su = optionId.slice('forgeup:'.length)
+    const hole = su !== 'skip' ? gauntletOf(c)[su] : undefined
+    if (hole && hole.tier === 1 && hole.frags >= FRAGMENTS_PER_HALF) {
+      hole.tier = 2
+      clog(c, `⚒️ Forged! The ${suitSymbol(su as Suit)} crystal rises to HALF — ${CRYSTALS[su]!.half.name}.`)
+    } else if (su === 'skip') {
+      clog(c, '⚒️ The fragments stay banked.')
+    }
+    c.pendingChoice = null
+    c.phase = 'road'
+    autoAdvanceAfterGate(c)
+    return {}
+  }
   if (optionId.startsWith('sanctum:')) return applySanctumRite(c, optionId)
   if (optionId.startsWith('shrine:cleanse:')) return applyShrineCleanse(c, optionId.slice('shrine:cleanse:'.length))
   if (optionId.startsWith('hero-')) {
@@ -1135,6 +1185,18 @@ export function checkEncounterEnd(c: CampaignState, kingdom?: KingdomState) {
   }
 
   if (s.outcome === 'won') {
+    // V3 §6 (slice 6): the agnostic fragment — a 50/50 roll after each won
+    // encounter (with redundancy conversions, the only fragment sources).
+    if (EXPERIMENTS.ascendingDeck && !c.tutorial) {
+      const { r, done } = rng(c)
+      const drop = r.next() < 0.5
+      done()
+      if (drop) {
+        c.tokenFragments = (c.tokenFragments ?? 0) + 1
+        clog(c, `💠 A crystal fragment glints in the wreckage (+1 — ${c.tokenFragments} banked).`)
+      }
+    }
+
     // snapshot the killing turn's end result before the encounter is nulled —
     // the client shows it in the victory moment (playtest note 2026-06-11)
     const rankNode = c.map?.nodes.find(n => n.id === s.nodeId)
@@ -1210,7 +1272,8 @@ export function checkEncounterEnd(c: CampaignState, kingdom?: KingdomState) {
       const options: { id: string; label: string; detail?: string }[] = []
       const mythic = mythicCapLeft(c) > 0 ? r.shuffle(MYTHIC_RELIC_IDS.filter(m => !ownedR.has(m)))[0] : undefined
       if (mythic) options.push({ id: mythic, label: `${getItem(mythic).name} ★ (mythic relic)`, detail: getItem(mythic).text })
-      const spell = r.shuffle(HAILMARY_SPELL_IDS.filter(s => !c.spells.includes(s)))[0]
+      // V3 §6: spells are gauntlet-only — the Lair's hail-mary offer is legacy
+      const spell = EXPERIMENTS.ascendingDeck ? undefined : r.shuffle(HAILMARY_SPELL_IDS.filter(s => !c.spells.includes(s)))[0]
       if (spell) options.push({ id: spell, label: `${getItem(spell).name} (hail-mary spell)`, detail: getItem(spell).text })
       if (eligibleForgeCards(c).length)
         options.push({ id: 'lair:token', label: 'A rare token — stamp it now', detail: 'Stamp one strong F-tier token (Temper / Graft / a lever) onto a card, free.' })
@@ -1334,6 +1397,30 @@ function bumpTurn(c: CampaignState) {
 // (applyExileAtCamp retired — no mechanic may remove a card from the deck. The
 // Exile class keeps its roster slot + signature tokens but has no exile ability;
 // it is parked for a later repurpose.)
+
+/**
+ * V3 §6 (slice 6): the BRACELET — place ONE agnostic fragment from the pool
+ * into a gauntlet suit hole, any time between encounters. An empty hole
+ * lights as a castable Fragment; a lit hole sandbags the fragment toward the
+ * next tier (the Forge does the tier-up). The pool is uncapped (Decision 8).
+ */
+export function applyBraceletPlace(c: CampaignState, playerId: string, suit: string): { error?: string } {
+  if (!EXPERIMENTS.ascendingDeck) return { error: 'The bracelet is not active.' }
+  if (!['road', 'camp', 'chapter_complete', 'landmark'].includes(c.phase)) return { error: 'Fragments are placed between encounters.' }
+  if (!c.heroes.some(h => h.playerId === playerId)) return { error: 'You are not in this campaign.' }
+  if (!(GAUNTLET_SUITS as readonly string[]).includes(suit)) return { error: 'Unknown suit.' }
+  if ((c.tokenFragments ?? 0) < 1) return { error: 'No fragments to place.' }
+  const hole = gauntletOf(c)[suit]!
+  c.tokenFragments = (c.tokenFragments ?? 0) - 1
+  hole.frags += 1
+  if (hole.tier === 0) {
+    hole.tier = 1
+    clog(c, `💠 Bracelet: a fragment lights ${suitSymbol(suit as Suit)} — ${CRYSTALS[suit]!.fragment.name} is castable.`)
+  } else {
+    clog(c, `💠 Bracelet: a fragment sandbags into ${suitSymbol(suit as Suit)} (${hole.frags} invested${hole.tier === 1 && hole.frags >= FRAGMENTS_PER_HALF ? ' — ready to Forge into a Half' : ''}).`)
+  }
+  return {}
+}
 
 export function applyBreakCamp(c: CampaignState, playerId: string, hostId: string): { error?: string } {
   if (c.phase !== 'camp') return { error: 'Not at camp.' }
@@ -1642,13 +1729,8 @@ export function applyContinueChapter(c: CampaignState, playerId: string, hostId:
   c.map = buildMap(c.chapter, r)
   done()
 
-  // ── Continent 1→2 seam: the graduation fragment shop (post-Council) ────────
-  // Spend banked fragments here before the Continent-2 deck is built. The shop
-  // resumes the transition via finishChapterTransition on "Leave".
-  if (EXPERIMENTS.ascendingDeck && continentOf(c.chapter) === 2 && (c.tokenFragments ?? 0) >= FRAGMENTS_PER_TOKEN) {
-    openFragmentShop(c)
-    return {}
-  }
+  // (The C1→C2 graduation fragment shop is retired — V3 §6: fragments feed the
+  // gauntlet via the bracelet, never a shop. Code deleted in slice 9.)
   finishChapterTransition(c)
   return {}
 }
@@ -1855,6 +1937,7 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
     tokenFragments: c.tokenFragments,
     ascendingDeck: EXPERIMENTS.ascendingDeck,
     physicalCards: projectPhysicalCards(c),
+    gauntlet: EXPERIMENTS.ascendingDeck ? projectGauntlet(c) : undefined,
   }
 }
 

@@ -7,6 +7,7 @@
 import { createCampaign, applyClassPick, applyRoadChoose, applyChoice, applyDeathVote, applyBreakCamp, beginReplacement, applyContinueChapter, buildClientCampaign, checkEncounterEnd, startTutorial } from '../campaign/campaign'
 import { advanceTutorialStep } from '../campaign/tutorial'
 import { applyEncounterPlay, applyEncounterDiscard, applyEncounterYield, applyEncounterChooseNext, applySetupReorder, applyCastSpell, applyKeepDrawn, applyGraftSelect, maxHandSize } from '../campaign/encounter'
+import { spendDelta } from '../campaign/tokens'
 import { loadKingdom, saveCampaign, loadCampaign } from '../campaign/store'
 import { cardValue } from '../deck'
 import { EXPERIMENTS } from '../campaign/experiments'
@@ -129,8 +130,10 @@ function drive(c: CampaignState, opts: { cheatKill: boolean; budget?: number; st
           if (s.hands[pi]!.length === 0) { step(c, pid, () => applyEncounterYield(c, pid), 'yield(empty)'); break }
           break
         }
-        // play single highest non-jester card; jester last resort
-        const best = hand.map((card, i) => ({ i, card, v: cardValue(card.rank) }))
+        // play the single highest non-jester card (TOKEN-AWARE: an undercut-
+        // cursed 2 plays as 0 and cannot cheat-kill — prefer real value);
+        // jester last resort
+        const best = hand.map((card, i) => ({ i, card, v: cardValue(card.rank) + (EXPERIMENTS.ascendingDeck ? spendDelta(c, card) : 0) }))
           .filter(x => x.card.rank !== 'Jo')
           .sort((a, b) => b.v - a.v)[0]
         const playIdx = best ? best.i : 0
@@ -1337,6 +1340,64 @@ console.log('Test K: forgiveness — opening Diamond, four-part Camp, province-s
   assert(seamHand.length === 5, `seam tops the hand up to 5 (got ${seamHand.length})`)
   assert(cs.campDoubleNext === undefined && cs.campBlockNext === undefined, 'seam reset arms NO block, NO double (Camp only)')
   ok('forgiveness: automatic province-seam reset — hands carry, top up to 5, nothing else')
+
+  EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
+  EXPERIMENTS.provinceMode = LIVE_PROVINCE
+}
+
+// ── Test L: V3 §6 — spells: fragments, bracelet, Forge tier-up, consume-to-empty ─
+console.log('Test L: spells — fragment drop, bracelet, Forge tier-up, gauntlet cast')
+{
+  EXPERIMENTS.ascendingDeck = true
+  EXPERIMENTS.provinceMode = false
+  const { applyBraceletPlace } = await import('../campaign/campaign')
+  const { gauntletOf } = await import('../campaign/spells')
+
+  // (a) bracelet: the first fragment lights the hole, the second sandbags
+  const c = createCampaign([{ id: P1, name: 'Gab' }], 1, 'spl-1', kingdom).campaign!
+  applyClassPick(c, P1, 'sentinel', 'footwork')
+  c.tokenFragments = 3
+  assert(!applyBraceletPlace(c, P1, 'D').error, 'place 1 into ♦')
+  assert(gauntletOf(c)['D']!.tier === 1 && gauntletOf(c)['D']!.frags === 1, '♦ lights as a castable Fragment')
+  assert(!applyBraceletPlace(c, P1, 'D').error, 'place 2 into ♦ (sandbag)')
+  assert(gauntletOf(c)['D']!.tier === 1 && gauntletOf(c)['D']!.frags === 2, 'the second fragment sandbags (tier stays Fragment)')
+  assert(c.tokenFragments === 1, `pool decremented (got ${c.tokenFragments})`)
+  ok('spells: bracelet — light, then sandbag; uncapped agnostic pool')
+
+  // (b) Forge tier-up: 2 invested fragments → the Half crystal
+  c.phase = 'landmark'
+  c.pendingChoice = { kind: 'landmark_reward', forPlayerId: null, prompt: '⚒️', options: [{ id: 'forgeup:D', label: 'forge' }] }
+  assert(!applyChoice(c, P1, 'forgeup:D', P1).error, 'Forge tier-up resolves')
+  assert(gauntletOf(c)['D']!.tier === 2, `♦ rises to HALF (got tier ${gauntletOf(c)['D']!.tier})`)
+  ok('spells: Forge tier-up — sandbagged fragments become the Half')
+
+  // (c) cast = consume to EMPTY (Decision 2); one cast per suit per combat
+  drive(c, { cheatKill: false, stopAt: ['encounter'], budget: 80 })
+  const s = c.encounter!
+  while (s.turnPhase === 'setup') applySetupReorder(c, s.setupPeek!.playerId, s.setupPeek!.cards.map((_, i) => i))
+  s.turnPhase = 'play'
+  s.currentPlayerIndex = 0
+  assert(!!applyBraceletPlace(c, P1, 'C').error, 'the bracelet only works between encounters')
+  assert(!applyCastSpell(c, P1, 'gauntlet:D').error, 'Rally (♦ Half) casts')
+  assert(s.flags['rallyArmed'] === true, 'Rally armed — the counterattack will be drawn before it is paid')
+  assert(gauntletOf(c)['D']!.tier === 0 && gauntletOf(c)['D']!.frags === 0, 'cast consumed the hole to EMPTY (all progress spent)')
+  assert(!!applyCastSpell(c, P1, 'gauntlet:D').error, 'an empty hole cannot cast')
+  // a Fragment-tier cast works too (Keen Edge arms the double)
+  gauntletOf(c)['C']!.tier = 1
+  gauntletOf(c)['C']!.frags = 1
+  assert(!applyCastSpell(c, P1, 'gauntlet:C').error, 'Keen Edge (♣ Fragment) casts')
+  assert(s.flags['keenEdge:0'] === true, 'Keen Edge armed')
+  assert(gauntletOf(c)['C']!.tier === 0, '♣ consumed to empty')
+  ok('spells: gauntlet cast — consume to empty, per-suit per-combat cap')
+
+  // (d) the agnostic fragment drops 50/50 after won encounters
+  const cd = createCampaign([{ id: P1, name: 'Gab' }], 1, 'spl-drop', kingdom).campaign!
+  applyClassPick(cd, P1, 'sentinel', 'footwork')
+  const fr0 = cd.tokenFragments ?? 0
+  const endPhase = drive(cd, { cheatKill: true, stopAt: ['chapter_complete', 'campaign_lost'], budget: 2000 })
+  assert(endPhase === 'chapter_complete', `ch1 completes (got ${endPhase})`)
+  assert((cd.tokenFragments ?? 0) > fr0, `won encounters bank fragments via the 50/50 roll (got ${cd.tokenFragments})`)
+  ok('spells: agnostic fragments drop after won encounters')
 
   EXPERIMENTS.ascendingDeck = LIVE_ASCENDING
   EXPERIMENTS.provinceMode = LIVE_PROVINCE

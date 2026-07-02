@@ -378,6 +378,13 @@ export interface CampaignState {
   // the next fight — doubled first attack + starting block.
   campDoubleNext?: boolean
   campBlockNext?: number
+
+  // ── V3 §6 (slice 6): the gauntlet — four suit holes fed by agnostic
+  // fragments (pool = tokenFragments, repointed from the retired shop).
+  // tier: 0 none · 1 Fragment (castable) · 2 Half (strongest castable; the
+  // V3.0 cap — extra fragments bank silently toward Full/V3.5).
+  // frags: fragments invested in the hole (cast = consume to EMPTY, Decision 2).
+  gauntlet?: Record<string, { tier: 0 | 1 | 2; frags: number }>
   foresightNext?: boolean         // Sanctum Foresight rite: reveal the next encounter's enemy lineup
 
   pendingChoice: PendingChoice | null
@@ -585,4 +592,7 @@ export interface ClientCampaignState {
   // §F: physicalId → printed/effective faces + graft provenance. Deck cards
   // carry their physicalId as Card.id, so any card view can join on it.
   physicalCards?: Record<string, ClientPhysicalCard>
+  // V3 §6: the gauntlet per suit — tier (0/1/2), invested fragments, spell
+  // name/text for the current tier, and whether it can be cast right now.
+  gauntlet?: Record<string, { tier: 0 | 1 | 2; frags: number; name: string; text: string; castable: boolean }>
 }

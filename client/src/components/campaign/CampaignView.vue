@@ -463,12 +463,32 @@ function heroTooltip(h: ClientHero): string {
       <button class="btn btn-ghost btn-sm" @click="showDeck = false">Close</button>
     </OverlayModal>
 
-    <!-- Fragment track (road) — banked for the post-Council graduation shop -->
-    <div v-if="phase === 'road' && state.ascendingDeck && (state.tokenFragments ?? 0) > 0"
-      class="flex items-center justify-center gap-2 px-3 max-w-lg mx-auto w-full">
-      <span class="text-xs text-base-content/60" :title="'Exact-kill an owned card to bank a fragment. Spend them at the graduation shop after the Council of Tens.'">
-        ✦ Fragments banked: <span class="font-mono">{{ state.tokenFragments }}</span>
-      </span>
+    <!-- V3 §6: the BRACELET — place agnostic fragments into the gauntlet's suit
+         holes between encounters (equip a Fragment now, or sandbag toward Half) -->
+    <div v-if="(phase === 'road' || phase === 'camp' || phase === 'chapter_complete') && state.ascendingDeck && state.gauntlet"
+      class="rounded-box border border-info/20 bg-base-200/50 px-3 py-2 max-w-lg mx-auto w-full space-y-1.5">
+      <p class="text-[10px] uppercase tracking-[0.2em] text-info/60 text-center">
+        💠 Bracelet — fragments banked: <span class="font-mono">{{ state.tokenFragments ?? 0 }}</span>
+      </p>
+      <div class="grid grid-cols-4 gap-1.5">
+        <div v-for="su in ['S', 'D', 'H', 'C']" :key="su"
+          class="rounded border border-base-content/10 bg-base-100/60 p-1.5 text-center space-y-1">
+          <div class="text-xs font-bold" :class="suitClass(su)">{{ suitSymbol(su) }}
+            <span class="text-[9px] font-normal text-base-content/50">{{ state.gauntlet[su]!.tier === 2 ? 'HALF ★' : state.gauntlet[su]!.tier === 1 ? 'Fragment' : 'empty' }}</span>
+          </div>
+          <div class="text-[9px] leading-tight text-base-content/60 min-h-[2rem]" :title="state.gauntlet[su]!.text">
+            {{ state.gauntlet[su]!.tier > 0 ? state.gauntlet[su]!.name : '—' }}
+            <span v-if="state.gauntlet[su]!.frags > 1" class="text-info">·{{ state.gauntlet[su]!.frags }}✦</span>
+          </div>
+          <button class="btn btn-xs btn-outline btn-info w-full"
+            :disabled="(state.tokenFragments ?? 0) < 1"
+            @click="act({ type: 'bracelet_place', suit: su })"
+          >place ✦</button>
+        </div>
+      </div>
+      <p class="text-[9px] text-center text-base-content/40">
+        First fragment lights a castable spell · more sandbag toward the Forge's tier-up · casting empties the hole.
+      </p>
     </div>
 
     <!-- Party strip (road) — hover a hero for class/relic details -->

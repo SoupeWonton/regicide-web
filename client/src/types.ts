@@ -216,6 +216,9 @@ export interface ClientCampaignState {
   ascendingDeck?: boolean
   // §F: physicalId → printed/effective faces + graft provenance
   physicalCards?: Record<string, ClientPhysicalCard>
+  // V3 §6: the gauntlet per suit — tier (0 empty / 1 Fragment / 2 Half),
+  // invested fragments, current spell name/text, live castability
+  gauntlet?: Record<string, { tier: 0 | 1 | 2; frags: number; name: string; text: string; castable: boolean }>
 }
 
 export interface SaveSummary {
