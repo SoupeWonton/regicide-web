@@ -9,6 +9,7 @@ import { advanceTutorialStep } from '../campaign/tutorial'
 import { applyEncounterPlay, applyEncounterDiscard, applyEncounterYield, applyEncounterChooseNext, applySetupReorder, applyCastSpell, applyKeepDrawn, applyGraftSelect, maxHandSize } from '../campaign/encounter'
 import { spendDelta } from '../campaign/tokens'
 import { loadKingdom, saveCampaign, loadCampaign } from '../campaign/store'
+import { checkInvariants } from '../campaign/invariants'
 import { cardValue } from '../deck'
 import { EXPERIMENTS } from '../campaign/experiments'
 import type { CampaignState } from '../campaign/types'
@@ -33,6 +34,9 @@ function step(c: CampaignState, who: string, fn: () => { error?: string }, label
   const r = fn()
   assert(!r.error, `${label} (${who}): ${r.error}`)
   if (c.encounter && c.encounter.outcome !== 'active') checkEncounterEnd(c, kingdom)
+  // bug-oracle tripwires: every action across every test must leave a sane state
+  const viol = checkInvariants(c)
+  assert(viol.length === 0, `invariant after ${label}: ${viol.join(' | ')}`)
 }
 
 // Drive whatever phase we're in until a target phase or step budget runs out.
@@ -1378,6 +1382,11 @@ console.log('Test N: landmarks — Hunt recruit, Sanctum Rearrange, Consecrate, 
   const s2 = physicalByPrinted(c2, 'S2')!
   const h3 = physicalByPrinted(c2, 'H3')!
   assert(applyGraft(c2, s2.physicalId, 'suit', 'D', 'test') === null, 'seed graft on 2♠ (→♦)')
+  // rig zone-consistently: the cards move INTO the hand, out of wherever the
+  // deck build placed them (a two-zone copy would trip the dup-card invariant)
+  const rig2 = [s2.physicalId, h3.physicalId]
+  c2.deck!.tavern = c2.deck!.tavern.filter(cd => !rig2.includes(cd.id))
+  c2.deck!.discard = c2.deck!.discard.filter(cd => !rig2.includes(cd.id))
   c2.deck!.hands[0] = [
     { suit: 'D', rank: '2', id: s2.physicalId },
     { suit: 'H', rank: '3', id: h3.physicalId },
@@ -1566,6 +1575,39 @@ console.log('Test O: cutover — v3 kingdom, no-resume, paths unlock, §11 syste
   assert(t?.phase === 'tutorial_done', `tutorial reaches the end card (phase ${t?.phase})`)
   assert(reached >= 11, `the guide advanced through all beats (max step ${reached}/11)`)
   ok('Tutorial: full forced-line playthrough reaches the end card; every beat fires')
+}
+
+// ── Test INV: invariant module unit checks (bug oracle, step 1) ───────────────
+{
+  console.log('\nTest INV: engine invariants — clean state passes, corrupted states fire')
+  const { campaign: c } = createCampaign([{ id: P1, name: 'Gab' }], 1, 'inv-seed', kingdom)
+  if (!c) { assert(false, 'INV: campaign created') } else {
+    step(c, P1, () => applyClassPick(c, P1, 'sentinel'), 'INV class pick')
+    assert(checkInvariants(c).length === 0, `clean campaign has no violations: ${checkInvariants(c).join(' | ')}`)
+
+    // corrupt 1: duplicate a card into two zones
+    const snapshot = JSON.stringify(c)
+    const dupe = c.deck!.hands[0]![0]!
+    c.deck!.discard.push(dupe)
+    assert(checkInvariants(c).some(x => x.startsWith('dup-card:')), 'duplicated card id fires dup-card')
+    Object.assign(c, JSON.parse(snapshot))
+
+    // corrupt 2: dead hero holds the turn mid-fight
+    drive(c, { cheatKill: true, stopAt: ['encounter'] })
+    if (c.encounter) {
+      c.heroes[c.encounter.currentPlayerIndex]!.alive = false
+      assert(checkInvariants(c).some(x => x.startsWith('dead-actor:')), 'dead current actor fires dead-actor')
+      c.heroes[c.encounter.currentPlayerIndex]!.alive = true
+    } else assert(false, 'INV: reached an encounter to corrupt')
+
+    // corrupt 3: broken rng state
+    const rs = c.rngState
+    c.rngState = 1.5
+    assert(checkInvariants(c).some(x => x.startsWith('rng-state:')), 'non-uint32 rngState fires rng-state')
+    c.rngState = rs
+    assert(checkInvariants(c).length === 0, 'restored state is clean again')
+    ok('Invariants: clean=[]; dup-card / dead-actor / rng-state all fire')
+  }
 }
 
 console.log(failures === 0 ? '\nAll smoke tests passed ✅' : `\n${failures} failure(s) ❌`)
