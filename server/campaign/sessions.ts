@@ -10,7 +10,7 @@ import {
   applySetupReorder, applyKeepDrawn, applyGraftSelect, applyStaffUse,
 } from './encounter'
 import { advanceTutorialStep } from './tutorial'
-import { loadKingdom, saveKingdom, saveCampaign, loadCampaign, listCampaigns, deleteCampaign } from './store'
+import { loadKingdom, saveKingdom, saveCampaign, loadCampaign, listCampaigns, deleteCampaign, findResumableCampaign } from './store'
 import type { SaveSummary } from './store'
 import { observeBefore, observeAfter, recordRunEnd } from './telemetry'
 import { traceAction } from './trace'
@@ -79,6 +79,19 @@ export function resumeCampaignSession(
 }
 
 export function endSession(code: string) { sessions.delete(code) }
+
+/**
+ * Dev same-session reconnection helper: the newest still-live solo run for this
+ * player (and its lineage name), so index.ts can rehydrate a run into its room
+ * after a server restart. Returns undefined when there is nothing to restore.
+ */
+export function findResumableFor(playerId: string): { id: string; name: string } | undefined {
+  const id = findResumableCampaign(playerId)
+  if (!id) return undefined
+  const c = loadCampaign(id)
+  const hero = c?.heroes.find(h => h.playerId === playerId)
+  return { id, name: hero?.playerName ?? 'Player' }
+}
 
 export type CampaignAction =
   | { type: 'pick_class'; classId: string; staffId?: string }   // V3 §2: class + Staff pick

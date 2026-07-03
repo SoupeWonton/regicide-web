@@ -103,8 +103,10 @@ const graftTarget = computed(() =>
   graftCardIdx.value === null ? null : hand.value[graftCardIdx.value] ?? null)
 const canGraftValue = computed(() => !!graftTarget.value
   && graftTarget.value.rank !== 'Jo' && graftTarget.value.rank !== enc.value.graftSelect?.rank)
+// suit graft is ADDITIVE: only offered when the card does not already fire the slain suit
 const canGraftSuit = computed(() => !!graftTarget.value
-  && graftTarget.value.rank !== 'Jo' && graftTarget.value.suit !== enc.value.graftSelect?.suit)
+  && graftTarget.value.rank !== 'Jo'
+  && !allSuitsOf(graftTarget.value).includes(enc.value.graftSelect?.suit ?? ''))
 
 // Overdraw pool shown grouped by suit (S,H,C,D) then rank low→high, jesters
 // always last — same ordering as the hand's "Sort by suit". Each entry keeps
@@ -157,13 +159,24 @@ function sortHand(mode: 'suit' | 'rank') {
 // ascending-deck: tokens stamped on a card (for badges on the card face)
 function cardTokensOf(card: Card) { return tokensOf(enc.value.cardTokens, card) }
 
+// ascending-deck §F: suits added by an exact-kill graft ride the physical card,
+// not the token stream — fold them in so combat preview + render agree with the
+// server's cardSuits (which unions token suits with graft suits).
+function graftSuitsOf(card: Card): string[] { return props.state.physicalCards?.[card.id]?.grafts.filter(g => g.kind === 'suit-add').map(g => g.to) ?? [] }
+// All suits a card fires: token-derived (base/transmute/add) + §F additive grafts.
+function allSuitsOf(card: Card): string[] {
+  const out = effectiveSuits(card, cardTokensOf(card))
+  for (const su of graftSuitsOf(card)) if (!out.includes(su)) out.push(su)
+  return out
+}
+
 // Card-face token rendering, split so the common effects read at a glance:
 //  · value tokens fold into the rank as a +X / −X
 //  · suit tokens fold into the suit row (the base/transmuted suit + grafted
 //    suits beside it, grafts shown in blue)
 //  · everything else (levers, keywords, discard-soak) stays a corner badge.
-function mainSuitOf(card: Card) { return effectiveSuits(card, cardTokensOf(card))[0] ?? card.suit }
-function extraSuitsOf(card: Card) { return effectiveSuits(card, cardTokensOf(card)).slice(1) }
+function mainSuitOf(card: Card) { return allSuitsOf(card)[0] ?? card.suit }
+function extraSuitsOf(card: Card) { return allSuitsOf(card).slice(1) }
 function valueDeltaOf(card: Card) { return tokenSpend(cardTokensOf(card)) }
 function badgeTokensOf(card: Card) {
   return cardTokensOf(card).filter(t => t.kind === 'lever' || t.kind === 'keyword' || (t.hold ?? 0) !== 0)
@@ -359,13 +372,13 @@ const preview = computed(() => {
   // effective suits across all cards, including graft (added) / transmute (replaced)
   const suits = new Set<string>()
   let immuneBlocked = false
-  for (const card of cards) for (const su of effectiveSuits(card, tok(card))) {
+  for (const card of cards) for (const su of allSuitsOf(card)) {
     if (su === immune) immuneBlocked = true; else suits.add(su)
   }
   const blocked = immuneBlocked ? [immune!] : []
 
   // per-card lever/keyword tokens that actually fire their suit
-  const fires = (card: Card, su: string) => su !== immune && effectiveSuits(card, tok(card)).includes(su)
+  const fires = (card: Card, su: string) => su !== immune && allSuitsOf(card).includes(su)
   const lever = (l: string, su: string) => cards.reduce((n, card) => n + (fires(card, su) ? tok(card).filter(t => t.lever === l).length : 0), 0)
   const edgeB = lever('edge', 'C'), plateB = lever('shield', 'S'), drawB = lever('draw', 'D'), mendB = lever('recover', 'H')
   const markDmg = cards.reduce((n, card) => n + tok(card).filter(t => t.keyword === 'mark').length * 2, 0)
@@ -405,11 +418,11 @@ function isImmuneSuit(suit: string) {
 //    card whose other suit still fires is NOT fully blocked)
 //  · the boost badge nets the boosts of the suits that actually fire.
 function cardFullyBlocked(card: Card): boolean {
-  const suits = effectiveSuits(card, cardTokensOf(card))
+  const suits = allSuitsOf(card)
   return suits.length > 0 && suits.every(su => isImmuneSuit(su))
 }
 function cardBoost(card: Card): number {
-  return effectiveSuits(card, cardTokensOf(card))
+  return allSuitsOf(card)
     .filter(su => !isImmuneSuit(su))
     .reduce((n, su) => n + suitBoost(su), 0)
 }
@@ -728,8 +741,8 @@ const netAttack = computed(() => {
           ⚔ Exact kill on a card you already own — graft it onto one of yours
         </p>
         <p class="text-[11px] text-center text-base-content/60">
-          Tap a card, then rewrite its <b class="text-success">value to {{ enc.graftSelect!.rank }}</b> or its
-          <b class="text-info">suit to {{ suitSymbol(enc.graftSelect!.suit) }}</b>. Permanent.
+          Tap a card, then <b class="text-success">replace its value with {{ enc.graftSelect!.rank }}</b> or
+          <b class="text-info">add {{ suitSymbol(enc.graftSelect!.suit) }} as a second suit</b>. Permanent.
         </p>
         <div class="flex gap-2 justify-center flex-wrap">
           <button
@@ -759,10 +772,10 @@ const netAttack = computed(() => {
         </div>
         <div class="flex gap-2 justify-center">
           <button class="btn btn-primary btn-sm" :disabled="!canGraftValue" @click="confirmGraft('value')">
-            value → {{ enc.graftSelect!.rank }}
+            replace value → {{ enc.graftSelect!.rank }}
           </button>
           <button class="btn btn-primary btn-sm" :disabled="!canGraftSuit" @click="confirmGraft('suit')">
-            suit → {{ suitSymbol(enc.graftSelect!.suit) }}
+            add suit + {{ suitSymbol(enc.graftSelect!.suit) }}
           </button>
           <button class="btn btn-ghost btn-sm" @click="declineGraft">Skip</button>
         </div>

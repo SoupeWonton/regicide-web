@@ -111,17 +111,22 @@ export interface CardFace {
 }
 
 /**
- * One replacement graft on a physical card (V3 §1 semantics: replace the rank
- * OR the suit — never additive). Ordered by `seq`; the card's EFFECTIVE face is
- * the printed face with each graft applied in order (the last of each kind
- * wins). A graft is movable (Sanctum) without losing the card underneath — the
- * printed face never changes.
+ * One graft on a physical card (V3 §1 semantics). Ordered by `seq`; the card's
+ * EFFECTIVE face is the printed face with each graft applied in order.
+ *   - `rank`: REPLACE the rank (last rank graft wins; A–10 only — the royal cap).
+ *   - `suit`: REPLACE the primary suit (transmute — Consecrate, Press-gang).
+ *   - `suit-add`: ADD a second active suit (the exact-kill graft). The card keeps
+ *     its primary suit and ALSO fires the added suit — deck grows on the suit
+ *     axis (vs. `rank` growing the number axis), so the two exact-kill branches
+ *     stay competitive (decisions/2026-07-02-graft-add-suit-or-replace-rank.md).
+ * A graft is movable (Sanctum) without losing the card underneath — the printed
+ * face never changes.
  */
 export interface GraftRecord {
   seq: number              // application order; stable handle for Sanctum moves
-  kind: 'rank' | 'suit'
-  from: string             // what this replaced (the effective value at application time)
-  to: string               // the replacement (rank grafts: A–10 only — the royal cap)
+  kind: 'rank' | 'suit' | 'suit-add'
+  from: string             // what this replaced (effective value at application time; = `to` for suit-add)
+  to: string               // the replacement/addition (rank grafts: A–10 only — the royal cap)
   source: string           // provenance, e.g. 'kill:H7', 'royal:SK', 'sanctum'
 }
 
@@ -391,6 +396,11 @@ export interface CampaignState {
   foresightNext?: boolean         // Sanctum Foresight rite: reveal the next encounter's enemy lineup
 
   pendingChoice: PendingChoice | null
+  // V3 §7: an in-progress Caravan purchase — the player picks WHICH road-hand
+  // cards to discard as the price (iterative choice_pick). `pool` = the relics
+  // offered this visit; `relicId` set once a wares is chosen; `picked` = the
+  // hand indices selected so far toward `cost`.
+  pendingCaravan?: { cost: number; pool: string[]; picked: number[]; relicId?: string }
   // last resolved team-reward vote — the client confirms the winner (and
   // plays the casino draw on ties)
   rewardDraw?: {
@@ -470,7 +480,8 @@ export interface ClientPhysicalCard {
   physicalId: string
   printed: CardFace
   effective: CardFace
-  grafts: { kind: 'rank' | 'suit'; from: string; to: string; source: string }[]
+  suits: string[]          // all suits the card fires (effective primary + additive grafts)
+  grafts: { kind: 'rank' | 'suit' | 'suit-add'; from: string; to: string; source: string }[]
 }
 
 export interface ClientHero {

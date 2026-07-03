@@ -2,13 +2,13 @@ import express from 'express'
 import { createServer } from 'http'
 import { Server } from 'socket.io'
 import {
-  createRoom, joinRoom, setReady, startGame, playCards, discardDamage, yieldTurn,
+  createRoom, ensureRoom, joinRoom, setReady, startGame, playCards, discardDamage, yieldTurn,
   chooseNext, restartGame, playerDisconnect, roomInfo, findRoomsByPlayer,
   markConnected, gameStateFor, leaveRoom, deleteRoom,
 } from './rooms'
 import {
   startCampaignSession, startTutorialSession, resumeCampaignSession, dispatchCampaignAction,
-  buildCampaignStates, getSaves, getKingdom, getSession, endSession,
+  buildCampaignStates, getSaves, getKingdom, getSession, endSession, findResumableFor,
 } from './campaign/sessions'
 import type { CampaignAction } from './campaign/sessions'
 import path from 'path'
@@ -227,8 +227,27 @@ io.on('connection', socket => {
   })
 
   socket.on('get_room', ({ code }: { code: string }) => {
+    // Dev same-session reconnection: if the room is gone (e.g. a `tsx watch`
+    // restart wiped in-memory state), rehydrate it for this client and restore
+    // their own in-progress solo run from the autosave. The lobby still lists
+    // nothing (cross-session resume stays disabled); this only brings YOU back
+    // into the room you refreshed into.
+    if (!roomInfo(code) && !getSession(code)) {
+      const resumable = findResumableFor(cid)
+      if (resumable) {
+        ensureRoom(code, cid, resumable.name)
+        socket.join(code)
+        const err = resumeCampaignSession(code, resumable.id, [{ id: cid, name: resumable.name }]).error
+        if (!err) {
+          markConnected(cid)
+          const mine = buildCampaignStates(code, roomInfo(code)!.players, roomInfo(code)!.hostId).get(cid)
+          if (mine) socket.emit('campaign_state', mine)
+          console.log(`  ⟳ rehydrated room ${code} + resumed ${resumable.id} for ${cid}`)
+        }
+      }
+    }
     const info = roomInfo(code)
-    if (info) socket.emit('room_update', info)
+    if (info) { socket.join(code); socket.emit('room_update', info) }
   })
 
   socket.on('set_ready', ({ code, ready }: { code: string; ready: boolean }) => {

@@ -6,6 +6,7 @@
 import type { Card } from '../types'
 import type { CampaignState, ClientToken, Token } from './types'
 import { TOKEN_DEFS, getTokenDef } from './content'
+import { physicalById, effectiveSuits as graftSuits } from './cards'
 
 export function logicalId(card: { suit: string; rank: string }): string {
   return `${card.suit}${card.rank}`
@@ -39,7 +40,11 @@ export function cardSuits(c: CampaignState, card: Card): Set<string> {
       else if (d.suitOp === 'add') adds.push(t.suit)
     }
   }
-  return new Set<string>([base, ...adds])
+  const set = new Set<string>([base, ...adds])
+  // §F additive-suit grafts (the exact-kill reinforcement) also fire.
+  const pc = physicalById(c, card.id)
+  if (pc) for (const su of graftSuits(pc)) set.add(su)
+  return set
 }
 
 /** Count of lever tokens of a kind among played cards whose effective suits include `suit`. */

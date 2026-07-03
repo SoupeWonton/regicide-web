@@ -353,22 +353,48 @@ function offerCaravanV3(c: CampaignState) {
   done()
   const cost = Math.max(1, CARAVAN_COST - (relicEquipped(c, 'v3r-caravan-coin') ? 2 : 0))
   const handTotal = (c.deck?.hands ?? []).flat().reduce((t, cd) => t + cardValue(cd.rank), 0)
-  const options: PendingChoice['options'] = pool
-    .filter(() => handTotal >= cost)
-    .map(rd => ({
-      id: `v3buy:${rd.id}`,
-      label: `${rd.name} (${rd.slot}) — pay ${cost} from hand`,
-      detail: rd.text,
-    }))
-  options.push({ id: 'caravan:skip', label: 'Wave the Caravan on', detail: 'Buy nothing.' })
-  if (options.length === 1) {
+  if (handTotal < cost || pool.length === 0) {
     clog(c, `🐫 The Caravan's prices are beyond your hand (${handTotal}/${cost}). It moves on.`)
     c.phase = 'road'; autoAdvanceAfterGate(c); return
   }
+  c.pendingCaravan = { cost, pool: pool.map(rd => rd.id), picked: [] }
+  presentCaravanBuy(c)
+}
+
+// Step 1 — pick which wares to buy (the price is chosen at the next step).
+function presentCaravanBuy(c: CampaignState) {
+  const pc = c.pendingCaravan!
+  const options: PendingChoice['options'] = pc.pool.map(id => {
+    const rd = getV3Relic(id)!
+    return { id: `v3buy:${id}`, label: `${rd.name} (${rd.slot}) — pay ${pc.cost} from hand`, detail: rd.text }
+  })
+  options.push({ id: 'caravan:skip', label: 'Wave the Caravan on', detail: 'Buy nothing.' })
   c.phase = 'landmark'
   c.pendingChoice = {
     kind: 'landmark_reward', forPlayerId: null,
-    prompt: `🐫 The Caravan — a relic for a visible price (discard ${cost} of hand value).`,
+    prompt: `🐫 The Caravan — a relic for a visible price (${pc.cost} of hand value, cards of your choosing).`,
+    options,
+  }
+}
+
+// Step 2 — choose WHICH road-hand cards to discard as the price. Each tap adds a
+// card; the sale closes once the picked total covers the cost (overpay allowed).
+function presentCaravanPay(c: CampaignState) {
+  const pc = c.pendingCaravan!
+  const rd = getV3Relic(pc.relicId!)!
+  const hand = c.deck?.hands[0] ?? []
+  const paid = pc.picked.reduce((t, i) => t + cardValue(hand[i]!.rank), 0)
+  const lbl = (cd: Card) => `${cd.rank}${suitSymbol(cd.suit as Suit)}`
+  const options: PendingChoice['options'] = hand
+    .map((cd, i) => ({ cd, i }))
+    .filter(({ cd, i }) => cd.rank !== 'Jo' && !pc.picked.includes(i))
+    .map(({ cd, i }) => ({ id: `caravanpay:${i}`, label: `Discard ${lbl(cd)}`, detail: `value ${cardValue(cd.rank)}` }))
+  const chosen = pc.picked.map(i => lbl(hand[i]!)).join(', ') || '—'
+  options.push({ id: 'caravan:back', label: '← Choose different wares', detail: 'Put these cards back.' })
+  c.phase = 'landmark'
+  c.pendingChoice = {
+    kind: 'landmark_reward', forPlayerId: null,
+    prompt: `🐫 Pay ${pc.cost} for ${rd.name} — paid ${paid}/${pc.cost}. Chosen: ${chosen}. Tap cards to discard.`,
     options,
   }
 }
@@ -747,7 +773,35 @@ function resolveRewardOption(c: CampaignState, optionId: string, pc: PendingChoi
   // ascending-deck item-economy special options (Caravan / Sanctum / Shrine)
   if (optionId === 'caravan:skip') {
     c.pendingChoice = null
+    c.pendingCaravan = undefined
     clog(c, '🐫 You wave the Caravan on.')
+    c.phase = 'road'; autoAdvanceAfterGate(c); return {}
+  }
+  // Caravan step 2: back out of a purchase to the wares menu (cards untouched)
+  if (optionId === 'caravan:back' && c.pendingCaravan) {
+    c.pendingCaravan.relicId = undefined
+    c.pendingCaravan.picked = []
+    presentCaravanBuy(c)
+    return {}
+  }
+  // Caravan step 2: tap a road-hand card to add it to the price
+  if (optionId.startsWith('caravanpay:') && c.pendingCaravan?.relicId) {
+    const pcv = c.pendingCaravan
+    const hand = c.deck?.hands[0] ?? []
+    const i = Number(optionId.slice('caravanpay:'.length))
+    if (!Number.isInteger(i) || i < 0 || i >= hand.length || hand[i]!.rank === 'Jo' || pcv.picked.includes(i))
+      return { error: 'That card is not available to spend.' }
+    pcv.picked.push(i)
+    const paid = pcv.picked.reduce((t, k) => t + cardValue(hand[k]!.rank), 0)
+    if (paid < pcv.cost) { presentCaravanPay(c); return {} }
+    // price met — discard the chosen cards (high index first) and take the relic
+    const def = getV3Relic(pcv.relicId)
+    if (!def || !c.deck) { c.pendingChoice = null; c.pendingCaravan = undefined; c.phase = 'road'; return { error: 'The Caravan lost the wares.' } }
+    for (const k of [...pcv.picked].sort((a, b) => b - a)) c.deck.discard.push(...c.deck.hands[0]!.splice(k, 1))
+    relicBagOf(c).push(pcv.relicId)
+    clog(c, `🐫 Paid ${paid} from hand (your pick) — ${def.name} (${def.slot}) joins the bag.`)
+    c.pendingChoice = null
+    c.pendingCaravan = undefined
     c.phase = 'road'; autoAdvanceAfterGate(c); return {}
   }
   // V3 §8 — Hunt: the chosen quarry becomes the whole fight
@@ -856,27 +910,17 @@ function resolveRewardOption(c: CampaignState, optionId: string, pc: PendingChoi
     autoAdvanceAfterGate(c)
     return {}
   }
-  // V3 §7: a Caravan purchase — pay the visible cost from the road hand
+  // V3 §7: a Caravan purchase — choose the wares, then pick WHICH cards to
+  // discard as the price (presentCaravanPay drives the selection).
   if (optionId.startsWith('v3buy:')) {
     const id = optionId.slice('v3buy:'.length)
     const def = getV3Relic(id)
-    const cost = Math.max(1, CARAVAN_COST - (relicEquipped(c, 'v3r-caravan-coin') ? 2 : 0))
-    const deck = c.deck
-    if (!def || !deck) { c.pendingChoice = null; c.phase = 'road'; return { error: 'The Caravan lost the wares.' } }
-    // pay greedily with the smallest cards across the party's road hands
-    const all: { hi: number; i: number; v: number }[] = []
-    deck.hands.forEach((hand, hi) => hand.forEach((cd, i) => { if (cd.rank !== 'Jo') all.push({ hi, i, v: cardValue(cd.rank) }) }))
-    all.sort((a, b) => a.v - b.v)
-    let paid = 0
-    const picks: { hi: number; i: number }[] = []
-    for (const x of all) { if (paid >= cost) break; picks.push(x); paid += x.v }
-    if (paid < cost) return { error: `Your hand cannot cover ${cost}.` }
-    for (const p of picks.sort((a, b) => b.i - a.i)) deck.discard.push(...deck.hands[p.hi]!.splice(p.i, 1))
-    relicBagOf(c).push(id)
-    clog(c, `🐫 Paid ${paid} from hand — ${def.name} (${def.slot}) joins the bag.`)
-    c.pendingChoice = null
-    c.phase = 'road'
-    autoAdvanceAfterGate(c)
+    if (!def || !c.deck) { c.pendingChoice = null; c.pendingCaravan = undefined; c.phase = 'road'; return { error: 'The Caravan lost the wares.' } }
+    // Recover the visit state if a stale offer was picked (e.g. after reconnect).
+    if (!c.pendingCaravan) c.pendingCaravan = { cost: Math.max(1, CARAVAN_COST - (relicEquipped(c, 'v3r-caravan-coin') ? 2 : 0)), pool: [id], picked: [] }
+    c.pendingCaravan.relicId = id
+    c.pendingCaravan.picked = []
+    presentCaravanPay(c)
     return {}
   }
   // V3 §6: Forge tier-up — a sandbagged hole rises to its Half crystal

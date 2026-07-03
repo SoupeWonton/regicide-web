@@ -50,16 +50,19 @@ function drive(c: CampaignState, opts: { cheatKill: boolean; budget?: number; st
       case 'landmark':
       case 'replace_hero': {
         const pc = c.pendingChoice!
+        // the happy-path driver waves the Caravan on (buying is a multi-step
+        // discard selection — exercised explicitly in Test M, not here)
+        const pick = pc.options.find(o => o.id === 'caravan:skip')?.id ?? pc.options[0]!.id
         if (pc.kind === 'landmark_reward' && pc.forPlayerId === null && c.heroes.length > 1) {
-          // team rewards are a vote — everyone backs the first option
+          // team rewards are a vote — everyone backs the same option
           for (const h of c.heroes) {
             if (!c.pendingChoice) break
-            step(c, h.playerId, () => applyChoice(c, h.playerId, pc.options[0]!.id, P1), `vote ${pc.kind}`)
+            step(c, h.playerId, () => applyChoice(c, h.playerId, pick, P1), `vote ${pc.kind}`)
           }
           break
         }
         const decider = pc.forPlayerId ?? P1
-        step(c, decider, () => applyChoice(c, decider, pc.options[0]!.id, P1), `choice ${pc.kind}`)
+        step(c, decider, () => applyChoice(c, decider, pick, P1), `choice ${pc.kind}`)
         break
       }
       case 'encounter': {
@@ -416,10 +419,10 @@ console.log('Test A: ascending-deck flag-on — overdraw-and-select')
 
 }
 
-// ── Test A2: replacement graft (V3 §1) — redundant exact-kill rewrites a card ─
-console.log('Test A2: replacement graft — redundant exact-kill rewrites a held card')
+// ── Test A2: graft (V3 §1) — redundant exact-kill: ADD suit or REPLACE value ─
+console.log('Test A2: graft — redundant exact-kill adds a suit (or replaces the value)')
 {
-  const { physicalByPrinted, physicalById, effectiveFace } = await import('../campaign/cards')
+  const { physicalByPrinted, physicalById, effectiveFace, effectiveSuits, applyGraft } = await import('../campaign/cards')
 
   const c = createCampaign([{ id: P1, name: 'Gab' }], 1, 'asc-graft', kingdom).campaign!
   applyClassPick(c, P1, 'sentinel')
@@ -459,25 +462,30 @@ console.log('Test A2: replacement graft — redundant exact-kill rewrites a held
   assert(c2Idx >= 0, 'no-op probe (2♣) still in hand after the kill')
   assert(!!applyGraftSelect(c, pid, c2Idx, 'value').error, 'same-rank rewrite is rejected (no-op guard)')
 
-  // suit graft: 4♥ becomes 4♦ — the physical card underneath is unchanged
+  // suit graft is ADDITIVE: 4♥ keeps ♥ and ALSO fires ♦ — primary face unchanged,
+  // the physical card underneath untouched (decision 2026-07-02).
   const gIdx = s.hands[pi]!.findIndex(card => card.id === h4pc.physicalId)
   const rg = applyGraftSelect(c, pid, gIdx, 'suit')
   assert(!rg.error, `graft select: ${rg.error}`)
   const h4f = effectiveFace(h4pc)
-  assert(h4f.suit === 'D' && h4f.rank === '4', `4♥ plays as 4♦ now (got ${h4f.suit}${h4f.rank})`)
+  assert(h4f.suit === 'H' && h4f.rank === '4', `4♥ keeps its primary face (got ${h4f.suit}${h4f.rank})`)
+  const h4suits = effectiveSuits(h4pc)
+  assert(h4suits.includes('H') && h4suits.includes('D'), `4♥ now fires BOTH ♥ and ♦ (got ${h4suits.join('')})`)
   assert(h4pc.printed.suit === 'H', 'printed face unchanged (♥ underneath)')
-  assert(h4pc.grafts[0]?.source === 'kill:D2', `provenance records the slain card (got ${h4pc.grafts[0]?.source})`)
-  const liveCard = s.hands[pi]!.find(card => card.id === h4pc.physicalId)
-  assert(liveCard?.suit === 'D' && liveCard?.rank === '4', 'live hand card reflects the new effective face')
-  assert(physicalById(c, h4pc.physicalId) === h4pc, 'physicalId stable through the rewrite')
-  // replacement stamps NO additive token, and the trigger grants NO fragment (Decision 3)
-  assert((c.cardTokens?.['H4']?.length ?? 0) === 0 && (c.cardTokens?.['D4'] ?? []).every(t => t.defId !== 'hone' && t.defId !== 'graft'),
-    'no additive hone/graft token stamped by the kill trigger')
+  assert(h4pc.grafts.find(g => g.kind === 'suit-add')?.source === 'kill:D2', `provenance records the slain card (got ${h4pc.grafts[0]?.source})`)
+  // the added suit fires in combat: cardSuits (the engine's read) sees ♦ too
+  const { cardSuits } = await import('../campaign/tokens')
+  const liveCard = s.hands[pi]!.find(card => card.id === h4pc.physicalId)!
+  assert(cardSuits(c, liveCard).has('D') && cardSuits(c, liveCard).has('H'), 'engine cardSuits unions the added ♦ with the printed ♥')
+  // a second suit graft of a suit it ALREADY fires is a no-op
+  assert(!!applyGraft(c, h4pc.physicalId, 'suit-add', 'H', 'test') , 'adding an already-present suit is rejected')
+  assert(physicalById(c, h4pc.physicalId) === h4pc, 'physicalId stable through the graft')
+  // the trigger grants NO fragment (Decision 3)
   assert((c.tokenFragments ?? 0) === fragsBefore, 'no fragment on the graft trigger (Decision 3)')
   // phase resumes to combat unless that kill ended the encounter (won → checkEncounterEnd transitions)
   assert(s.turnPhase !== 'graft_select' || s.outcome === 'won', `graft_select phase resolved (got ${s.turnPhase}/${s.outcome})`)
   assert(s.pendingGraft === undefined, 'pendingGraft cleared after selection')
-  ok('replacement graft: exact kill on an owned card rewrites a held card (suit → ♦)')
+  ok('graft: exact kill on an owned card ADDS a suit to a held card (4♥ → fires ♥+♦)')
 
 }
 
@@ -1275,15 +1283,32 @@ console.log('Test M: relics — bag + slots, free swaps, Caravan pay-from-hand, 
   assert(!equipmentOf(c)['ring'] && relicBagOf(c).includes('v3r-interest'), 'unequip returns it to the bag')
   ok('relics: free swaps at the between-encounter screen (Decision 7)')
 
-  // (d) Caravan: pay-from-hand — the price comes out of the road hand
+  // (d) Caravan: pay-from-hand — the PLAYER picks which cards to discard
+  // fixed hand so the price (cost 8) is coverable and the choice is exercised
+  c.deck!.hands[0] = [
+    { suit: 'C', rank: '5', id: 'cv1' },
+    { suit: 'D', rank: '4', id: 'cv2' },
+    { suit: 'H', rank: '3', id: 'cv3' },
+    { suit: 'S', rank: '2', id: 'cv4' },
+  ]
   const handBefore = c.deck!.hands[0]!.length
   const discBefore = c.deck!.discard.length
   c.phase = 'landmark'
   c.pendingChoice = { kind: 'landmark_reward', forPlayerId: null, prompt: 'x', options: [{ id: 'v3buy:v3r-vanguard', label: 'x' }] }
-  assert(!applyChoice(c, P1, 'v3buy:v3r-vanguard', P1).error, 'caravan purchase resolves')
+  assert(!applyChoice(c, P1, 'v3buy:v3r-vanguard', P1).error, 'choosing wares opens the price selection')
+  assert(!!c.pendingCaravan?.relicId && c.phase === 'landmark', 'a purchase is in progress — pick your discards (not auto-paid)')
+  assert((c.pendingChoice?.options ?? []).some(o => o.id.startsWith('caravanpay:')), 'the road hand is offered as discardable price')
+  // tap cards until the price is covered — the player's choice, not greedy
+  let guard = 20
+  while (c.pendingCaravan && guard-- > 0) {
+    const opt = c.pendingChoice!.options.find(o => o.id.startsWith('caravanpay:'))
+    if (!opt) break
+    assert(!applyChoice(c, P1, opt.id, P1).error, 'tap a card toward the price')
+  }
   assert(relicBagOf(c).includes('v3r-vanguard'), 'the bought relic lands in the bag')
-  assert(c.deck!.hands[0]!.length < handBefore && c.deck!.discard.length > discBefore, 'the visible price came out of the hand')
-  ok('relics: Caravan pay-from-hand — no wallet, cards are the cost')
+  assert(c.deck!.hands[0]!.length < handBefore && c.deck!.discard.length > discBefore, 'the chosen cards left the hand')
+  assert(c.pendingCaravan === undefined && c.pendingChoice === null, 'the sale closes cleanly once the price is met')
+  ok('relics: Caravan pay-from-hand — the PLAYER picks which cards are the price')
 
   // (e) locked in combat; Amulet activation works (Bloodlust +3)
   relicBagOf(c).push('v3r-bloodlust')

@@ -6,7 +6,7 @@ import { getEncounterDef, getItem, encountersOf, BOSS_MODIFIERS, CLASSES } from 
 import { EXPERIMENTS } from './experiments'
 import { appendGameLog } from './store'
 import { spendDelta, holdDelta, cardSuits, leverBonus, markDamage, hasKeyword, rekeyCardTokens } from './tokens'
-import { syncCardRegistry, effectiveFace, registerLogicalCard, physicalById, applyGraft } from './cards'
+import { syncCardRegistry, effectiveFace, effectiveSuits, registerLogicalCard, physicalById, applyGraft } from './cards'
 import { getStaff, HOME_SUIT } from './paths'
 import { CRYSTALS, RALLY_CAP, gauntletOf, crystalOf } from './spells'
 import { getV3Relic, relicEquipped } from './relics'
@@ -1424,12 +1424,14 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
       // Decision 3 (2026-07-01): the graft trigger grants no fragment.
       s.flags['exactKills'] = ((s.flags['exactKills'] as number) ?? 0) + 1
       const graftRank = cardValue(enemy.card.rank) >= 10 ? '10' : enemy.card.rank
-      // Only pause if a held card can take a meaningful rewrite: it must be
-      // registry-backed (§F — jesters/phantoms cannot graft) and differ from
-      // the slain face in rank or suit.
+      // Only pause if a held card can take a meaningful graft: registry-backed
+      // (§F — jesters/phantoms cannot graft) AND either its rank differs (value
+      // replace) OR it does not already fire the slain suit (suit ADD).
       const hand = s.hands[killerIdx] ?? []
-      const hasTarget = hand.some(card => !!physicalById(c, card.id)
-        && (card.rank !== graftRank || card.suit !== enemy.card.suit))
+      const hasTarget = hand.some(card => {
+        const tpc = physicalById(c, card.id)
+        return !!tpc && (card.rank !== graftRank || !effectiveSuits(tpc).includes(enemy.card.suit))
+      })
       if (hasTarget) {
         s.currentEnemy = null
         s.pendingGraft = {
@@ -1472,8 +1474,10 @@ function resolveKill(c: CampaignState, s: EncounterState, killerIdx: number, exa
       }
       const graftRank = '10'   // royal cap (§3)
       const hand = s.hands[killerIdx] ?? []
-      const hasTarget = hand.some(card => !!physicalById(c, card.id)
-        && (card.rank !== graftRank || card.suit !== enemy.card.suit))
+      const hasTarget = hand.some(card => {
+        const tpc = physicalById(c, card.id)
+        return !!tpc && (card.rank !== graftRank || !effectiveSuits(tpc).includes(enemy.card.suit))
+      })
       if (hasTarget) {
         s.currentEnemy = null
         s.pendingGraft = {
@@ -1912,22 +1916,30 @@ export function applyGraftSelect(
   const oldLabel = cardLabel(target)
   const oldLogical = `${target.suit}${target.rank}`
   // validate-then-mutate: applyGraft rejects a no-op rewrite without mutating.
+  // value = REPLACE the number (royal-capped at 10); suit = ADD a second active
+  // suit (the card keeps its own). The two branches grow the deck on different
+  // axes so neither dominates (decision 2026-07-02).
   const err = mode === 'value'
     ? applyGraft(c, target.id, 'rank', g.rank, `kill:${g.slain}`)
-    : applyGraft(c, target.id, 'suit', g.suit, `kill:${g.slain}`)
+    : applyGraft(c, target.id, 'suit-add', g.suit, `kill:${g.slain}`)
   if (err) return { error: err }
 
   // Reflect the new effective face on the live hand card, and carry any legacy
-  // stamped tokens (class signatures, forge marks) to the new logical key.
+  // stamped tokens to the new logical key. A suit-add leaves the primary face
+  // unchanged (the added suit rides on the physical card's grafts); only a rank
+  // replace moves the card's logical id.
   const f = effectiveFace(pc)
   target.suit = f.suit as Suit
   target.rank = f.rank as Card['rank']
-  rekeyCardTokens(c, oldLogical, `${f.suit}${f.rank}`)
+  if (mode === 'value') rekeyCardTokens(c, oldLogical, `${f.suit}${f.rank}`)
 
   beginEvents(s)
-  const label = mode === 'value' ? `value → ${g.rank}` : `suit → ${suitSymbol(g.suit as Suit)}`
-  clog(c, `   ⚔ Graft: ${oldLabel} becomes ${cardLabel(target)} (${label}).`)
-  ev(s, 'kill', `⚔ GRAFT — ${oldLabel} ➜ ${cardLabel(target)}`, 'gold', true)
+  const now = mode === 'value'
+    ? cardLabel(target)
+    : `${cardLabel(target)}${suitSymbol(g.suit as Suit)}`   // e.g. 5♥♦
+  const label = mode === 'value' ? `value → ${g.rank}` : `+ suit ${suitSymbol(g.suit as Suit)}`
+  clog(c, `   ⚔ Graft: ${oldLabel} → ${now} (${label}).`)
+  ev(s, 'kill', `⚔ GRAFT — ${oldLabel} ➜ ${now}`, 'gold', true)
   s.pendingGraft = undefined
   advanceAfterNumberKill(c, s, g.heroIdx)
   return {}
@@ -2607,21 +2619,25 @@ export function computeBoosts(c: CampaignState, s: EncounterState, hi: number): 
   if (!hero?.alive || s.outcome !== 'active') return b
   if (hero.relicIds.includes('r-combat-cache')) b.comboMax = 12
 
-  // spades
-  if (hero.classId === 'sentinel') b.S += 3  // max preview; actual fires only on all-Spade turn
+  // spades — V2 class passive preview; V3 retired the mechanic (Decision 1),
+  // same leak pattern as Whetstone/execReady below
+  if (!EXPERIMENTS.ascendingDeck && hero.classId === 'sentinel') b.S += 3  // max preview; actual fires only on all-Spade turn
   // diamonds
-  if (c.heroes.some(h => h.alive && h.classId === 'quartermaster') && !s.flags['qmDiamondFight']) b.D += 1
+  if (!EXPERIMENTS.ascendingDeck && c.heroes.some(h => h.alive && h.classId === 'quartermaster') && !s.flags['qmDiamondFight']) b.D += 1
   if (s.modifierId === 'dry-cart' && !s.flags['dryCartDone']) b.D -= 1
   if (s.modifierId === 'starved-caravan' && (((s.flags['caravanCount'] as number) ?? 0) + 1) % 2 === 1) b.dCap = 2
   // hearts
-  if (c.heroes.some(h => h.alive && h.classId === 'surgeon') && !s.flags['enemy.surgeonHeart']) b.H += 1
+  if (!EXPERIMENTS.ascendingDeck && c.heroes.some(h => h.alive && h.classId === 'surgeon') && !s.flags['enemy.surgeonHeart']) b.H += 1
   if (s.modifierId === 'rot-ward' && ((s.flags['rotPenalty'] as number) ?? 2) > 0) b.H -= 1
   if (s.modifierId === 'pale-bell-matron' && ((s.flags['exactKills'] as number) ?? 0) < 2) b.hHalf = true
   // damage
   if (s.flags[flagKey('keenEdge', hi)]) b.dmgMult *= 2
   if (s.flags[flagKey('crownbreaker', hi)]) b.dmgMult *= 3
   if (s.flags[flagKey('duelCharmReady', hi)]) b.dmgPlus += 3
-  b.execReady = c.heroes[hi]?.classId === 'executioner' && !s.flags['enemy.execFinish']   // owner-only canon
+  // V2 finishing-blow preview only; V3 retired the mechanic itself (Decision 1) but
+  // this flag kept firing unconditionally, showing a phantom "+2 finish" that never
+  // actually lands (see applyEncounterPlay's execActive gate).
+  b.execReady = !EXPERIMENTS.ascendingDeck && c.heroes[hi]?.classId === 'executioner' && !s.flags['enemy.execFinish']
   return b
 }
 

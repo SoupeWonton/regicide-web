@@ -133,7 +133,8 @@ export interface ClientPhysicalCard {
   physicalId: string
   printed: { suit: string; rank: string }
   effective: { suit: string; rank: string }
-  grafts: { kind: 'rank' | 'suit'; from: string; to: string; source: string }[]
+  suits: string[]          // all suits the card fires (effective primary + additive grafts)
+  grafts: { kind: 'rank' | 'suit' | 'suit-add'; from: string; to: string; source: string }[]
 }
 
 // ascending-deck Step 5: a token projected for display on a card face

@@ -86,6 +86,17 @@ export function createRoom(hostId: string, hostName: string): RoomInfo {
   return roomInfo(code)!
 }
 
+/**
+ * Return the room for `code`, creating it (with this client as host) if it does
+ * not exist. Used to rehydrate a room after a dev server restart so a refresh
+ * back into /room/<code> restores the seat (see index.ts get_room).
+ */
+export function ensureRoom(code: string, hostId: string, hostName: string): RoomInfo {
+  if (!rooms.get(code))
+    rooms.set(code, { code, hostId, players: [{ id: hostId, name: hostName, ready: false }], state: null, stats: null })
+  return roomInfo(code)!
+}
+
 export function joinRoom(code: string, playerId: string, playerName: string): { room?: RoomInfo; error?: string } {
   const room = rooms.get(code)
   if (!room) return { error: 'Room not found.' }

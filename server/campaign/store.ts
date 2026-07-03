@@ -96,6 +96,28 @@ export function deleteCampaign(id: string) {
   try { fs.unlinkSync(path.join(CAMPAIGN_DIR, `${id.replace(/[^a-zA-Z0-9_-]/g, '')}.json`)) } catch { /* gone */ }
 }
 
+/**
+ * Dev same-session reconnection: the newest autosaved, still-live SOLO run that
+ * belongs to `playerId`. Used to rehydrate a run after a server restart (e.g.
+ * `tsx watch` reload) — the lobby still lists nothing (listCampaigns → []); this
+ * only restores YOUR own in-progress run when you refresh back into its room.
+ */
+export function findResumableCampaign(playerId: string): string | undefined {
+  ensureDirs()
+  let best: { id: string; mtime: number } | undefined
+  for (const f of fs.readdirSync(CAMPAIGN_DIR)) {
+    if (!f.endsWith('.json')) continue
+    try {
+      const c = JSON.parse(fs.readFileSync(path.join(CAMPAIGN_DIR, f), 'utf-8')) as CampaignState
+      if (c.phase === 'campaign_lost' || c.phase === 'campaign_won') continue
+      if (c.heroes.length !== 1 || !c.heroes.some(h => h.playerId === playerId)) continue
+      const mtime = fs.statSync(path.join(CAMPAIGN_DIR, f)).mtimeMs
+      if (!best || mtime > best.mtime) best = { id: c.id, mtime }
+    } catch { /* skip unreadable */ }
+  }
+  return best?.id
+}
+
 export interface SaveSummary {
   id: string
   name: string

@@ -38,10 +38,22 @@ export function effectiveFace(pc: PhysicalCard): CardFace {
   let suit = pc.printed.suit
   let rank = pc.printed.rank
   for (const g of pc.grafts) {
-    if (g.kind === 'suit') suit = g.to
-    else rank = g.to
+    if (g.kind === 'suit') suit = g.to          // transmute — replaces the primary suit
+    else if (g.kind === 'rank') rank = g.to     // replaces the number
+    // 'suit-add' does NOT change the primary face — see effectiveSuits
   }
   return { suit, rank }
+}
+
+/**
+ * Every suit a card FIRES in combat: its effective primary suit plus each
+ * additive (`suit-add`) graft. The exact-kill suit graft is additive — a card
+ * keeps its suit and gains another (see GraftRecord).
+ */
+export function effectiveSuits(pc: PhysicalCard): string[] {
+  const out = [effectiveFace(pc).suit]
+  for (const g of pc.grafts) if (g.kind === 'suit-add' && !out.includes(g.to)) out.push(g.to)
+  return out
 }
 
 function nextSeq(c: CampaignState): number {
@@ -101,8 +113,14 @@ export function applyGraft(
 ): string | null {
   const pc = physicalById(c, physicalId)
   if (!pc) return 'Unknown card.'
-  if (kind === 'suit' && !(SUITS as readonly string[]).includes(to)) return 'Invalid suit.'
+  if ((kind === 'suit' || kind === 'suit-add') && !(SUITS as readonly string[]).includes(to)) return 'Invalid suit.'
   if (kind === 'rank' && !GRAFT_RANKS.includes(to)) return 'Rank grafts are capped at 10.'
+  if (kind === 'suit-add') {
+    // Additive: the card gains a second active suit. No-op if it already fires it.
+    if (effectiveSuits(pc).includes(to)) return 'That card already carries that suit.'
+    pc.grafts.push({ seq: nextSeq(c), kind, from: to, to, source })
+    return null
+  }
   const cur = effectiveFace(pc)
   const from = kind === 'suit' ? cur.suit : cur.rank
   if (from === to) return 'That graft would change nothing.'
@@ -126,6 +144,12 @@ export function moveGraft(
   const idx = src.grafts.findIndex(g => g.seq === seq)
   if (idx < 0) return 'No such graft on that card.'
   const g = src.grafts[idx]!
+  if (g.kind === 'suit-add') {
+    if (effectiveSuits(dst).includes(g.to)) return 'That card already carries that suit.'
+    src.grafts.splice(idx, 1)
+    dst.grafts.push({ ...g, seq: nextSeq(c), from: g.to })
+    return null
+  }
   const dstFace = effectiveFace(dst)
   const from = g.kind === 'suit' ? dstFace.suit : dstFace.rank
   if (from === g.to) return 'That graft would change nothing on the target.'
@@ -157,6 +181,7 @@ export function projectPhysicalCards(c: CampaignState): Record<string, ClientPhy
       physicalId: pc.physicalId,
       printed: { ...pc.printed },
       effective: effectiveFace(pc),
+      suits: effectiveSuits(pc),
       grafts: pc.grafts.map(g => ({ kind: g.kind, from: g.from, to: g.to, source: g.source })),
     }
   }

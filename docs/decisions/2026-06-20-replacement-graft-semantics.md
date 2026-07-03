@@ -1,10 +1,17 @@
 ---
 kind: decision
 edition: v3
-status: accepted
+status: superseded
+superseded_by: 2026-07-02-graft-add-suit-or-replace-rank
 date: 2026-06-20
 supersedes: [additive-hone-and-suit-graft]
 ---
+
+> **SUPERSEDED (2026-07-02).** The suit branch is now *additive* again (add a
+> second active suit), while the rank branch stays a replacement — so the two
+> exact-kill branches grow the deck on different axes and neither dominates. See
+> [2026-07-02-graft-add-suit-or-replace-rank](2026-07-02-graft-add-suit-or-replace-rank.md).
+> This page is kept for history only.
 
 # Design decision — replacement graft semantics
 
