@@ -470,7 +470,8 @@ function movableGrafts(c: CampaignState): { pcId: string; seq: number; label: st
 function offerSanctumV3(c: CampaignState, remaining: number) {
   const movable = movableGrafts(c)
   if (!movable.length) {
-    clog(c, '✨ The Sanctum finds nothing to rearrange — no grafts ride your deck yet.')
+    // Explain the verb so an empty visit still teaches what the Sanctum is for.
+    clog(c, '✨ The Sanctum (Rearrange): here you move a GRAFT — a suit/rank mark your kills stamp onto a card — from one card to another. You carry none yet, so there is nothing to move.')
     c.phase = 'road'
     autoAdvanceAfterGate(c)
     return
@@ -478,14 +479,14 @@ function offerSanctumV3(c: CampaignState, remaining: number) {
   c.phase = 'landmark'
   c.pendingChoice = {
     kind: 'landmark_reward', forPlayerId: null,
-    prompt: `✨ The Sanctum — Rearrange: relocate a graft (${remaining} transfer${remaining !== 1 ? 's' : ''} left this visit).`,
+    prompt: `✨ The Sanctum — Rearrange. A graft is the suit/rank mark a kill stamps onto a card; move one to a different card you own (the card underneath is never lost). ${remaining} move${remaining !== 1 ? 's' : ''} left this visit.`,
     options: [
       ...movable.slice(0, 6).map(m => ({
         id: `sanctum:move:${m.pcId}:${m.seq}:${remaining}`,
-        label: m.label,
-        detail: 'Move this graft to a held card — the card underneath is never lost.',
+        label: `Move the graft ${m.label}`,
+        detail: 'You then pick which of your cards receives it.',
       })),
-      { id: 'sanctum:done', label: 'Leave', detail: 'Rearrange nothing further.' },
+      { id: 'sanctum:done', label: 'Leave — rearrange nothing', detail: 'Close the Sanctum.' },
     ],
   }
 }
