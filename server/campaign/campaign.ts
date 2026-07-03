@@ -8,7 +8,7 @@ import type {
 import { CLASSES, TIER1_CLASSES, getItem, itemsOf, RELIC_SLOTS, getEncounterDef, BOSS_MODIFIERS, getTokenDef, RELIC_UNLOCK_ORDER, SPELL_UNLOCK_ORDER } from './content'
 import { stampToken, projectCardTokens, rekeyCardTokens, MAX_TOKENS_PER_CARD } from './tokens'
 import { CAMPAIGN_SCHEMA_VERSION, registerLogicalCard, projectPhysicalCards, effectiveFace, logicalOf, moveGraft, applyGraft } from './cards'
-import { staffsOf, getStaff, getLadder, homeLadder } from './paths'
+import { staffsOf, getStaff, getLadder, homeLadder, laddersOf, HOME_SUIT } from './paths'
 import { CRYSTALS, FRAGMENTS_PER_HALF, GAUNTLET_SUITS, gauntletOf, projectGauntlet } from './spells'
 import { V3_RELICS, RELIC_SLOT_ORDER, getV3Relic, relicBagOf, equipmentOf, relicEquipped, relicsOwned, type RelicSlot } from './relics'
 import { buildMap } from './maps'
@@ -1806,6 +1806,23 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
   const heroes: ClientHero[] = c.heroes.map((h, i) => {
     const staff = getStaff(h.staffId)
     const rung = getLadder(h.pathC2)
+    // V3 §2: the skill tree — the class's four suit ladders (home + three), each
+    // with C2/C3/C4 rungs. V3.0 lights ONLY the home-suit C2 rung (on entering
+    // Continent 2, via grantC2Rungs); everything else is visible-but-locked.
+    const homeSuit = HOME_SUIT[h.classId]
+    const ladders = laddersOf(h.classId)
+    const path = ladders.length ? {
+      homeSuit: homeSuit ?? '',
+      ladders: ladders.map(l => ({
+        id: l.id, name: l.name, suit: l.suit, theme: l.theme,
+        isHome: l.suit === homeSuit,
+        rungs: [
+          { tier: 'C2' as const, text: l.c2, lit: l.id === h.pathC2 },
+          { tier: 'C3' as const, text: l.c3, lit: false },
+          { tier: 'C4' as const, text: l.c4, lit: false },
+        ],
+      })),
+    } : null
     return {
       playerId: h.playerId,
       playerName: h.playerName,
@@ -1824,6 +1841,7 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
       isCurrentPlayer: !!s && s.currentPlayerIndex === i && s.outcome === 'active',
       staff: staff ? { id: staff.id, name: staff.name, text: staff.text } : null,
       pathRung: rung ? { id: rung.id, name: rung.name, suit: rung.suit, text: rung.c2 } : null,
+      path,
     }
   })
 

@@ -70,6 +70,15 @@ export interface ClientHero {
   // V3 §2: the selected Staff + the lit C2 path rung (once C2 is reached)
   staff?: { id: string; name: string; text: string } | null
   pathRung?: { id: string; name: string; suit: string; text: string } | null
+  // V3 §2: the full skill tree (four suit ladders × C2/C3/C4 rungs). V3.0 lights
+  // only the home-suit C2 rung on entering Continent 2; the rest are locked.
+  path?: {
+    homeSuit: string
+    ladders: {
+      id: string; name: string; suit: string; theme: string; isHome: boolean
+      rungs: { tier: 'C2' | 'C3' | 'C4'; text: string; lit: boolean }[]
+    }[]
+  } | null
 }
 
 export interface ClientRoadNode {

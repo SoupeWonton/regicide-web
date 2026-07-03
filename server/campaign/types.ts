@@ -498,6 +498,17 @@ export interface ClientHero {
   // V3 §2: the selected Staff + the lit C2 path rung (if entered C2)
   staff?: { id: string; name: string; text: string } | null
   pathRung?: { id: string; name: string; suit: string; text: string } | null
+  // V3 §2: the full skill tree — the class's four suit ladders, each with
+  // C2/C3/C4 rungs. V3.0 lights only the home-suit C2 rung; the rest are locked.
+  path?: HeroPath | null
+}
+
+export interface HeroPath {
+  homeSuit: string
+  ladders: {
+    id: string; name: string; suit: string; theme: string; isHome: boolean
+    rungs: { tier: 'C2' | 'C3' | 'C4'; text: string; lit: boolean }[]
+  }[]
 }
 
 export interface ClientRoadNode {

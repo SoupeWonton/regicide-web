@@ -34,6 +34,7 @@ const showDeck = ref(false)
 
 const phase = computed(() => props.state.phase)
 const choice = computed(() => props.state.pendingChoice)
+const myHero = computed(() => props.state.heroes[props.state.myHeroIndex] ?? null)
 
 // group phases so the cross-fade doesn't re-fire for overlay-only changes
 const phaseKey = computed(() => {
@@ -531,6 +532,37 @@ function heroTooltip(h: ClientHero): string {
         One crystal per suit · Halves come from the Forge (2 fragments → 1) · casting empties the slot.
       </p>
     </div>
+
+    <!-- V3 §2: the SKILL TREE — the class's four suit ladders. V3.0 lights only
+         the home-suit C2 rung (on entering Continent 2); the rest are locked. -->
+    <details v-if="(phase === 'road' || phase === 'camp' || phase === 'chapter_complete') && state.ascendingDeck && myHero?.path"
+      class="rounded-box border border-primary/20 bg-base-200/50 px-3 py-2 max-w-lg mx-auto w-full"
+      :open="phase === 'chapter_complete'">
+      <summary class="text-[10px] uppercase tracking-[0.2em] text-primary/60 text-center cursor-pointer select-none">
+        🌳 Skill Tree — {{ myHero!.className }}
+        <span class="text-base-content/40">({{ state.chapter >= 4 ? 'home C2 rung lit' : 'unlocks in Continent 2' }})</span>
+      </summary>
+      <div class="grid grid-cols-2 gap-1.5 mt-2">
+        <div v-for="lad in myHero!.path!.ladders" :key="lad.id"
+          class="rounded border p-1.5 space-y-1"
+          :class="lad.isHome ? 'border-primary/40 bg-base-100/70' : 'border-base-content/10 bg-base-100/40'">
+          <div class="text-[11px] font-bold flex items-center gap-1" :class="suitClass(lad.suit)">
+            {{ suitSymbol(lad.suit) }} {{ lad.name }}
+            <span v-if="lad.isHome" class="text-[8px] font-normal text-primary/60 uppercase">home</span>
+          </div>
+          <div class="text-[8px] text-base-content/40 italic">{{ lad.theme }}</div>
+          <div v-for="rung in lad.rungs" :key="rung.tier"
+            class="text-[9px] leading-tight flex gap-1"
+            :class="rung.lit ? 'text-base-content/80' : 'text-base-content/35'">
+            <span class="font-mono shrink-0">{{ rung.lit ? '✦' : '🔒' }}{{ rung.tier }}</span>
+            <span>{{ rung.text }}</span>
+          </div>
+        </div>
+      </div>
+      <p class="text-[9px] text-center text-base-content/40 mt-1.5">
+        V3.0 lights your home-suit C2 rung at the Continent-2 seam. The other rungs and paths open in a later chapter.
+      </p>
+    </details>
 
     <!-- V3 §7: equipment — bag → four named slots (free between encounters) -->
     <div v-if="(phase === 'road' || phase === 'camp' || phase === 'chapter_complete') && state.ascendingDeck && state.relicSlots"
