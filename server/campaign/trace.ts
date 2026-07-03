@@ -26,7 +26,7 @@ const safe = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, '_')
 // (RoadMap clicks and host-only buttons are isHost-gated)
 const REPLAY_HOST = '__replay__'
 
-const REPLAY_KINGDOM: KingdomState = {
+export const REPLAY_KINGDOM: KingdomState = {
   unlockedChapters: [1, 2],
   unlockedClasses: ['sentinel', 'quartermaster', 'surgeon', 'executioner', 'commander', 'warden', 'gambler', 'exile', 'oracle'],
   specializationsUnlocked: true,
