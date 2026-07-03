@@ -115,7 +115,10 @@ export function dispatchCampaignAction(
     // pre-checkEncounterEnd slot: these must see the outcome before it is consumed
     observeAfter(c, snap)
     if (c.tutorial && c.encounter) advanceTutorialStep(c, c.encounter)
-    if (c.recordRun !== false) traceAction(c, 'human', c.id, action)
+    if (c.recordRun !== false) {
+      const actorIdx = Math.max(0, c.heroes.findIndex(h => h.playerId === playerId))
+      traceAction(c, 'human', c.id, action, { actorIdx, kingdom })
+    }
   })
 
   if (!result.error) {

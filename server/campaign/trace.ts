@@ -36,36 +36,55 @@ const REPLAY_KINGDOM: KingdomState = {
   unlockedSpells: [...STARTING_SPELLS],
 }
 
+/** The v3 header — everything the replayer (scripts/replay.ts) needs to
+ * reconstruct the run: seed + players + chapter recreate the campaign, the
+ * kingdom snapshot recreates the content offers (unlock pools feed the RNG-
+ * consuming draws), staffs recreate the class picks. */
+function buildHeader(c: CampaignState, source: 'human' | 'bot', kingdom?: KingdomState) {
+  return {
+    trace: 3,
+    source,
+    id: c.id,
+    name: c.name,
+    seed: c.seed,
+    chapter: c.chapter,
+    players: c.heroes.map(h => h.playerName),
+    classes: c.heroes.map(h => h.classId),
+    staffs: c.heroes.map(h => h.staffId ?? null),
+    // fall back to a kingdom derived from the campaign's own unlock snapshot —
+    // self-contained even when the caller can't hand us the live kingdom
+    kingdom: kingdom ?? {
+      ...REPLAY_KINGDOM,
+      unlockedChapters: [c.chapter],
+      unlockedRelics: c.unlockedRelics ?? REPLAY_KINGDOM.unlockedRelics,
+      unlockedSpells: c.unlockedSpells ?? REPLAY_KINGDOM.unlockedSpells,
+    },
+    startedAt: new Date().toISOString(),
+  }
+}
+
 /** Append one trace line (writing the header first if the file is new). */
 export function traceAction(
   c: CampaignState,
   source: 'human' | 'bot',
   traceId: string,
   action: { type: string; [k: string]: unknown },
+  opts?: { actorIdx?: number; kingdom?: KingdomState },
 ) {
   try {
     fs.mkdirSync(TRACE_DIR, { recursive: true })
     const file = path.join(TRACE_DIR, `${safe(traceId)}.jsonl`)
     if (!fs.existsSync(file)) {
-      const header = {
-        trace: 2,
-        source,
-        id: c.id,
-        name: c.name,
-        seed: c.seed,
-        chapter: c.chapter,
-        players: c.heroes.map(h => h.playerName),
-        classes: c.heroes.map(h => h.classId),
-        startedAt: new Date().toISOString(),
-      }
-      fs.writeFileSync(file, JSON.stringify(header) + '\n')
+      fs.writeFileSync(file, JSON.stringify(buildHeader(c, source, opts?.kingdom)) + '\n')
     }
     // follow the actor: project from whoever holds the turn so myHand (the
-    // fan) is the acting player's hand — exactly what that player saw
+    // fan) is the acting player's hand — exactly what that player saw.
+    // v3: the true actor is passed in (playerIds are socket ids — worthless
+    // for replay); the fallback derivation covers legacy callers.
     const s = c.encounter
-    const actorIdx = s && s.outcome === 'active'
+    const actorIdx = opts?.actorIdx ?? (s && s.outcome === 'active'
       ? Math.max(0, s.currentPlayerIndex)
-      : 0
+      : 0)
     const actorId = c.heroes[actorIdx]?.playerId ?? c.heroes[0]?.playerId ?? ''
     const view = buildClientCampaign(c, actorId, REPLAY_HOST, REPLAY_KINGDOM)
     // trace diet: pile CONTENTS (the inspector) and the map during fight steps
@@ -78,6 +97,30 @@ export function traceAction(
     }
     // every hand, for the sandbox's all-hands analysis strip
     const hands = (s ? s.hands : c.deck?.hands ?? []).map(h => h.map(cardLabel))
-    fs.appendFileSync(file, JSON.stringify({ action, view, hands }) + '\n')
+    fs.appendFileSync(file, JSON.stringify({ action, actorIdx, view, hands }) + '\n')
   } catch { /* tracing never breaks the game */ }
+}
+
+/**
+ * "Lite" trace: header + action stream only (no per-step views/hands).
+ * Written in one shot by the sims when an invariant violation is detected —
+ * cheap to buffer, and fully re-dispatchable by scripts/replay.ts (which
+ * replays actions and recomputes state; the views were only ever for the
+ * sandbox renderer).
+ */
+export function writeActionTrace(
+  c: CampaignState,
+  source: 'human' | 'bot',
+  traceId: string,
+  steps: { action: { type: string; [k: string]: unknown }; actorIdx: number }[],
+  kingdom?: KingdomState,
+): string | null {
+  try {
+    fs.mkdirSync(TRACE_DIR, { recursive: true })
+    const file = path.join(TRACE_DIR, `${safe(traceId)}.jsonl`)
+    const lines = [JSON.stringify({ ...buildHeader(c, source, kingdom), lite: true })]
+    for (const s of steps) lines.push(JSON.stringify(s))
+    fs.writeFileSync(file, lines.join('\n') + '\n')
+    return file
+  } catch { return null }   // tracing never breaks the run
 }
