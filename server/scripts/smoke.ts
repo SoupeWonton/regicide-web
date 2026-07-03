@@ -579,38 +579,37 @@ console.log('Test B2: ascending-deck flag-on — drafts')
   const pc = cd.pendingChoice
   assert(!!pc && pc.kind === 'draft_pick', `draft node offers a draft_pick (kind=${pc?.kind})`)
   assert((pc?.forPlayerId) === P1, 'draft is solo per-hero (forPlayerId scoped, no casino vote)')
-  assert((pc?.options.length ?? 0) >= 2, `draft offers ≥2 options (got ${pc?.options.length})`)
-  // ch1 draft archetypes: tier cards (6s/7s, with or without tempo), grafts, or tempo
-  const cardOpts = pc!.options.filter(o => /^draft:[CDHS]\d/.test(o.id))
-  assert(cardOpts.every(o => /^draft:[CDHS](6|7):\d+$/.test(o.id)), `ch1 draft cards are 6s/7s (${cardOpts.map(o => o.id).join(',')})`)
-  assert(pc!.options.some(o => /^draft:(graft|[CDHS](6|7)):/.test(o.id)), 'draft offers a card or graft archetype')
-  ok(`ascending-deck Step 6: draft offers ${pc!.options.length} options (tier-card / clean-card / graft / tempo)`)
+  // revised 2026-07-03: three tactical trades — dig / bulwark / salvage
+  const ids = pc!.options.map(o => o.id).sort()
+  assert(JSON.stringify(ids) === JSON.stringify(['draft:bulwark', 'draft:dig', 'draft:salvage']), `draft offers the three trades (got ${ids.join(',')})`)
+  ok('ascending-deck Step 6: draft offers dig / bulwark / salvage')
 
-  // pick the first card option → it recruits the card AND draws tempo.
-  // Shrink the (post-setup, full) hand so the tempo burst has slots to fill —
-  // move the excess back to the Tavern so card conservation still holds.
+  // Dig: draw 3 (cap-bound), then mill 6 Tavern → discard. Shrink the full hand
+  // so the draw has slots; card conservation across all zones must hold.
   {
     const h = cd.deck!.hands[0]!
-    const excess = h.splice(2)
-    cd.deck!.tavern.push(...excess)
+    cd.deck!.tavern.push(...h.splice(2))
   }
-  const pick = cardOpts[0]!
-  const ownedBefore = (cd.ownedCards ?? []).length
-  const handBefore = cd.deck?.hands[0]?.length ?? 0
-  const tavernBefore = cd.deck?.tavern.length ?? 0
-  const pr = applyChoice(cd, P1, pick.id, P1)
-  assert(!pr.error, `draft pick resolves: ${pr.error}`)
-  assert(cd.pendingChoice === null, 'draft choice cleared after pick')
-  assert(cd.phase === 'road', `draft returns to road (got ${cd.phase})`)
-  const recruited = pick.id.split(':')[1]!   // e.g. 'S6'
-  assert((cd.ownedCards ?? []).includes(recruited), `draft recruited ${recruited} into ownedCards`)
-  assert((cd.ownedCards ?? []).length === ownedBefore + 1, 'exactly one card added')
-  // deck net change: +1 recruited into tavern, then tempo draws move tavern→hand
-  const handAfter = cd.deck?.hands[0]?.length ?? 0
-  const tavernAfter = cd.deck?.tavern.length ?? 0
-  assert(handAfter > handBefore, `tempo burst drew cards (hand ${handBefore}→${handAfter})`)
-  assert((tavernAfter + handAfter) === (tavernBefore + handBefore + 1), 'card conservation: +1 recruited, rest moved hand↔tavern')
-  ok(`ascending-deck Step 6: pick recruited ${recruited} + tempo drew ${handAfter - handBefore} (deck grows, no leaks)`)
+  const total = (d: NonNullable<typeof cd.deck>) => d.hands.reduce((n, hh) => n + hh.length, 0) + d.tavern.length + d.discard.length
+  const before = total(cd.deck!)
+  const handBefore = cd.deck!.hands[0]!.length
+  const discardBefore = cd.deck!.discard.length
+  const pr = applyChoice(cd, P1, 'draft:dig', P1)
+  assert(!pr.error, `draft dig resolves: ${pr.error}`)
+  assert(cd.pendingChoice === null && cd.phase === 'road', 'draft returns to road')
+  assert(total(cd.deck!) === before, 'Dig conserves cards across all zones (nothing created/destroyed)')
+  assert(cd.deck!.hands[0]!.length > handBefore, `Dig drew into hand (${handBefore}→${cd.deck!.hands[0]!.length})`)
+  assert(cd.deck!.discard.length > discardBefore, `Dig milled Tavern → discard (${discardBefore}→${cd.deck!.discard.length})`)
+  ok('ascending-deck Step 6: Dig draws then mills, conserving cards')
+
+  // Bulwark: arms the next fight (+block, first attack dulled)
+  const cb = createCampaign([{ id: P1, name: 'Gab' }], 1, 'draft-bw', kingdom).campaign!
+  applyClassPick(cb, P1, 'sentinel', 'footwork')
+  cb.phase = 'landmark'
+  cb.pendingChoice = { kind: 'draft_pick', forPlayerId: P1, prompt: 'd', options: [{ id: 'draft:bulwark', label: 'b' }] }
+  assert(!applyChoice(cb, P1, 'draft:bulwark', P1).error, 'draft bulwark resolves')
+  assert((cb.campBlockNext ?? 0) >= 6 && (cb.attackMalusNext ?? 0) >= 3, `Bulwark arms next fight (block=${cb.campBlockNext}, malus=${cb.attackMalusNext})`)
+  ok('ascending-deck Step 6: Bulwark arms +block / −attack for the next encounter')
 
 }
 

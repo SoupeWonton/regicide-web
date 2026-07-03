@@ -377,6 +377,9 @@ export interface CampaignState {
   // the next fight — doubled first attack + starting block.
   campDoubleNext?: boolean
   campBlockNext?: number
+  // V3 §6: the draft "Bulwark" bargain — a one-shot malus on the FIRST attack of
+  // the next encounter (paired with a campBlockNext block). Consumed on use.
+  attackMalusNext?: number
 
   // ── V3 §7 (slice 7): relics — the BAG (found, unequipped) and the four
   // named slots (hat/amulet/ring/cloak, one relic each; solo-scope equipment).

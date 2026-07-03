@@ -629,14 +629,19 @@ function offerForge(c: CampaignState) {
 // cutover, §11 slice 9 — fragments feed the gauntlet; relics come from the
 // Lair and the Caravan's pay-from-hand.)
 
-// ── Ascending-deck drafts (Step 6) — steer the early deck ────────────────────
-// A draft is a solo per-hero pick (forPlayerId-scoped, so it bypasses the
-// casino tie-break). Each option bundles an unowned tier card with an immediate
-// tempo burst (draw-N-now) — per the locked offer rule, a bare backfill-able
-// card never stands alone; it must carry something unobtainable elsewhere, and
-// unrepeatable tempo is that thing. (Token / dual-type / forge-exile draft
-// archetypes depend on the Step-5 token economy and are intentionally deferred.)
-const DRAFT_TEMPO = 3
+// ── Ascending-deck drafts (Step 6) — tactical deck-manipulation trades ───────
+// A draft is a solo per-hero pick (forPlayerId-scoped, so it bypasses the casino
+// tie-break). Revised 2026-07-03 (Landry playtest): each option is a give-and-take
+// that steers the deck's zones or arms the next fight, not a card grant.
+//   Dig     — draw 3, then mill 6 Tavern → discard (thin now, pay depth later)
+//   Bulwark — next fight opens with +6 block, but its first attack deals 3 less
+//   Salvage — discard 3 from hand, then return 6 discard → Tavern (recycle)
+const DRAFT_DRAW = 3
+const DRAFT_MILL = 6
+const DRAFT_BLOCK = 6
+const DRAFT_MALUS = 3
+const DRAFT_DISCARD = 3
+const DRAFT_RECYCLE = 6
 
 function offerDraft(c: CampaignState) {
   // Drafts are a Continent-1 deck-steering tool. Outside Continent 1 the node
@@ -645,50 +650,31 @@ function offerDraft(c: CampaignState) {
     offerCaravan(c)
     return
   }
-  const tierRanks = RECRUIT_RANKS_BY_CHAPTER[c.chapter] ?? ['6', '7']
-  const suits: Suit[] = ['C', 'D', 'H', 'S']
-  const owned = new Set(c.ownedCards ?? [])
-  const unowned: { suit: Suit; rank: string }[] = []
-  for (const rank of tierRanks)
-    for (const suit of suits)
-      if (!owned.has(`${suit}${rank}`)) unowned.push({ suit, rank })
-
-  const { r, done } = rng(c)
-  const pool = r.shuffle(unowned)
-  done()
-
-  const cardOption = (card: { suit: Suit; rank: string }) => ({
-    id: `draft:${card.suit}${card.rank}:${DRAFT_TEMPO}`,
-    label: `${card.rank}${suitSymbol(card.suit)} + draw ${DRAFT_TEMPO}`,
-    detail: `Recruit ${card.rank}${suitSymbol(card.suit)} into your deck now and immediately draw ${DRAFT_TEMPO}.`,
-  })
-  const plainCardOption = (card: { suit: Suit; rank: string }) => ({
-    id: `draft:${card.suit}${card.rank}:0`,
-    label: `${card.rank}${suitSymbol(card.suit)} (just the card)`,
-    detail: `Recruit ${card.rank}${suitSymbol(card.suit)} into your deck. No tempo rider — a clean add.`,
-  })
-  const tempoOption = (n: number) => ({
-    id: `draft:tempo:${n}`,
-    label: `Draw ${n} now`,
-    detail: `Pure tempo — immediately draw ${n} cards. Nothing joins the deck.`,
-  })
-  // Draft categories (V3.0 cutover: the additive-graft archetype is DELETED —
-  // grafts come only from kills):
-  //   A — recruit a tier card you lack + draw 3 (tempo)
-  //   B — a clean tier card, no rider ("just the card")
-  // Pad toward three real options; degrade gracefully when the tier runs dry.
-  const options: { id: string; label: string; detail?: string }[] = []
-  if (pool.length >= 1) options.push(cardOption(pool[0]!))      // A
-  if (pool.length >= 2) options.push(plainCardOption(pool[1]!)) // B
-  if (options.length < 3) options.push(tempoOption(DRAFT_TEMPO + 2))
-  if (options.length < 2) options.push(tempoOption(DRAFT_TEMPO))
-  options.splice(3)   // at most three
+  // Three fixed tactical trades — each a give-and-take over the deck's zones or
+  // the next fight. Numbers are the constants above (tunable).
+  const options = [
+    {
+      id: 'draft:dig',
+      label: `Dig — draw ${DRAFT_DRAW}, mill ${DRAFT_MILL}`,
+      detail: `Draw ${DRAFT_DRAW} now, then send the top ${DRAFT_MILL} of the Tavern to the discard. Tempo now; a thinner draw pile after.`,
+    },
+    {
+      id: 'draft:bulwark',
+      label: `Bulwark — +${DRAFT_BLOCK} block, first attack −${DRAFT_MALUS}`,
+      detail: `Your next encounter opens with ${DRAFT_BLOCK} block, but its first attack deals ${DRAFT_MALUS} less. Brace for a hard fight.`,
+    },
+    {
+      id: 'draft:salvage',
+      label: `Salvage — discard ${DRAFT_DISCARD}, recover ${DRAFT_RECYCLE}`,
+      detail: `Discard ${DRAFT_DISCARD} from hand, then return ${DRAFT_RECYCLE} cards from your discard to the Tavern. Trade a fresh hand for a deeper deck.`,
+    },
+  ]
 
   const owner = c.heroes.find(h => h.alive) ?? c.heroes[0]!
   c.phase = 'landmark'
   c.pendingChoice = {
     kind: 'draft_pick', forPlayerId: owner.playerId,
-    prompt: 'A draft — steer your deck. Every option carries an immediate tempo burst.',
+    prompt: 'A draft — steer your deck. Pick one tactical trade.',
     options,
   }
 }
@@ -968,53 +954,46 @@ function resolveRewardOption(c: CampaignState, optionId: string, pc: PendingChoi
   return {}
 }
 
-// Resolve a draft pick: optionId is `draft:<cardId>:<tempo>` (recruit a tier
-// card + tempo burst) or `draft:tempo:<n>` (pure tempo). Determinism is moot
-// here — the choice is the player's and the cards drawn come off the (already
-// seeded) Tavern in order.
+// Resolve a draft pick — one of three tactical trades (dig / bulwark / salvage).
+// Deck-zone moves are bounded by what's actually available; the choice is the
+// player's, so determinism is moot (cards move off the already-seeded piles in
+// order).
 function resolveDraftPick(c: CampaignState, pc: PendingChoice, optionId: string): { error?: string } {
-  const [, body, tempoStr] = optionId.split(':')
-  const tempo = parseInt(tempoStr ?? '0') || 0
   const deck = c.deck
+  const ownerIdx = Math.max(0, c.heroes.findIndex(h => h.playerId === pc.forPlayerId))
+  const name = c.heroes[ownerIdx]?.playerName ?? 'The party'
 
-  // (The additive-graft draft archetype was DELETED at the cutover — grafts
-  // come only from kills. Any stray 'graft' option degrades to a fragment.)
-  if (body === 'graft') {
-    c.tokenFragments = (c.tokenFragments ?? 0) + 1
-    clog(c, '🃏 Draft: the graft archetype is retired — +1 fragment instead.')
+  if (optionId === 'draft:bulwark') {
+    // arm the next encounter: +block, first attack dulled (both consumed at the fight)
+    c.campBlockNext = (c.campBlockNext ?? 0) + DRAFT_BLOCK
+    c.attackMalusNext = (c.attackMalusNext ?? 0) + DRAFT_MALUS
+    clog(c, `🃏 Draft — Bulwark: the next fight opens with ${DRAFT_BLOCK} block; its first attack deals ${DRAFT_MALUS} less.`)
     c.pendingChoice = null
     c.phase = 'road'
     return {}
   }
 
-  if (body && body !== 'tempo') {
-    const cardId = body                 // e.g. 'S6'
-    const suit = cardId[0] as Suit
-    const rank = cardId.slice(1) as Card['rank']
-    if ((c.ownedCards ?? []).includes(cardId)) {
-      // already owned (shouldn't happen — offers are unowned) → redundancy → fragment
-      c.tokenFragments = (c.tokenFragments ?? 0) + 1
-      clog(c, `🃏 Draft: ${rank}${suitSymbol(suit)} already owned — +1 fragment.`)
-    } else {
-      c.ownedCards = [...(c.ownedCards ?? []), cardId]
-      // §F: the drafted card carries its physical identity from the start
-      if (deck) deck.tavern.unshift({ suit, rank, id: registerLogicalCard(c, cardId).physicalId })
-      clog(c, `🃏 Draft: ${rank}${suitSymbol(suit)} joins the deck.`)
+  if (deck) {
+    if (optionId === 'draft:dig') {
+      // draw DRAFT_DRAW into the owner's hand (cap-bound), then mill DRAFT_MILL Tavern → discard
+      const hand = deck.hands[ownerIdx] ?? []
+      const cap = maxHandSize(c, ownerIdx)
+      let drawn = 0
+      while (drawn < DRAFT_DRAW && deck.tavern.length > 0 && hand.length < cap) { hand.push(deck.tavern.shift()!); drawn++ }
+      deck.hands[ownerIdx] = hand
+      let milled = 0
+      while (milled < DRAFT_MILL && deck.tavern.length > 0) { deck.discard.push(deck.tavern.shift()!); milled++ }
+      clog(c, `🃏 Draft — Dig: ${name} draws ${drawn}; ${milled} card${milled === 1 ? '' : 's'} milled from the Tavern.`)
+    } else if (optionId === 'draft:salvage') {
+      // discard DRAFT_DISCARD from the owner's hand, then return DRAFT_RECYCLE discard → Tavern
+      const hand = deck.hands[ownerIdx] ?? []
+      let dumped = 0
+      while (dumped < DRAFT_DISCARD && hand.length > 0) { deck.discard.push(hand.pop()!); dumped++ }
+      deck.hands[ownerIdx] = hand
+      let recovered = 0
+      while (recovered < DRAFT_RECYCLE && deck.discard.length > 0) { deck.tavern.push(deck.discard.pop()!); recovered++ }
+      clog(c, `🃏 Draft — Salvage: ${name} discards ${dumped}; ${recovered} card${recovered === 1 ? '' : 's'} returned to the Tavern.`)
     }
-  }
-
-  // Tempo burst: draw into the owning hero's hand from the Tavern (cap-bound).
-  if (tempo > 0 && deck) {
-    const ownerIdx = Math.max(0, c.heroes.findIndex(h => h.playerId === pc.forPlayerId))
-    const hand = deck.hands[ownerIdx] ?? []
-    const cap = maxHandSize(c, ownerIdx)
-    let drawn = 0
-    while (drawn < tempo && deck.tavern.length > 0 && hand.length < cap) {
-      hand.push(deck.tavern.shift()!)
-      drawn++
-    }
-    deck.hands[ownerIdx] = hand
-    if (drawn > 0) clog(c, `🃏 Draft tempo: ${c.heroes[ownerIdx]!.playerName} draws ${drawn}.`)
   }
 
   c.pendingChoice = null

@@ -538,6 +538,7 @@ export function startEncounter(c: CampaignState, nodeId: string, tier: Encounter
   if (EXPERIMENTS.ascendingDeck && !c.tutorial) {
     if (c.campBlockNext) { s.flags['campBlock'] = c.campBlockNext; c.campBlockNext = undefined }
     if (c.campDoubleNext) { s.flags['campDouble'] = true; c.campDoubleNext = undefined }
+    if (c.attackMalusNext) { s.flags['draftAttackMalus'] = c.attackMalusNext; c.attackMalusNext = undefined }
     // V3 §7 — Vanguard (Cloak): the first enemy's first counterattack is skipped
     if (relicEquipped(c, 'v3r-vanguard')) s.flags['vanguardReady'] = true
     // V3 §7 — Scout Ahead (Cloak): the lineup is laid bare every fight
@@ -1203,6 +1204,15 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
     clog(c, `   🪨 Whetstone: ${damage} shaved to ${enemy.hp} — the exact kill.`)
     ev(s, 'proc', '🪨 Whetstone — exact', 'gold', true)
     damage = enemy.hp
+  }
+  // Draft "Bulwark" bargain: the FIRST attack of the fight is dulled (consumed).
+  if (EXPERIMENTS.ascendingDeck && damage > 0 && ((s.flags['draftAttackMalus'] as number) ?? 0) > 0) {
+    const malus = s.flags['draftAttackMalus'] as number
+    const before = damage
+    damage = Math.max(0, damage - malus)
+    s.flags['draftAttackMalus'] = 0
+    clog(c, `   🜍 The draft's bargain: your first attack is dulled by ${malus} (${before} → ${damage}).`)
+    ev(s, 'proc', `🜍 −${malus} attack`, 'blood', true)
   }
   enemy.hp -= damage
   ev(s, 'damage', `💥 ${damage} damage`, 'blood', true)
