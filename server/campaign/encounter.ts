@@ -2278,7 +2278,6 @@ export function applyCastSpell(c: CampaignState, playerId: string, spellId: stri
       }
     }
     hole.tier = 0
-    hole.frags = 0
     s.flags[`gauntletCast:${suit}`] = true
     clog(c, `💠 ${c.heroes[pi]!.playerName} casts ${def.name} — the ${suitSymbol(suit as Suit)} crystal is consumed to empty.`)
     if (braceCast && s.discardNeeded === 0) { clog(c, '🛡 The blow is fully braced.'); advanceTurn(c, s) }

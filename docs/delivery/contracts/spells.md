@@ -14,25 +14,28 @@ Each ⚑ is a chosen interpretation for Landry's playtest — not a reopened que
 
 ## Model
 
-- **Pool** = `tokenFragments` (repointed from the retired shop): agnostic,
-  **uncapped** (Decision 8). Sources: the **50/50 roll after each won encounter**
-  + the existing redundancy conversions (backfill / Council). No fragment on the
+> **Revised 2026-07-03 (Landry playtest).** Accumulation happens in the **agnostic
+> pool**, NOT inside a suit slot. Each slot holds **one crystal**. Supersedes the
+> "further fragments sandbag `frags`" reading below. Full model:
+> [`contracts/spells.md` top-of-file note is authoritative]. See also the amend in
+> [`2026-06-28-relic-slots-fragments-and-ui`](../../decisions/2026-06-28-relic-slots-fragments-and-ui.md).
+
+- **Pool** = `tokenFragments` (agnostic, uncapped, Decision 8) + `tokenHalves`
+  (agnostic Half pool, forged). Fragment sources: the **50/50 roll after each won
+  encounter** + redundancy conversions (backfill / Council). No fragment on the
   graft trigger (Decision 3).
-- **Gauntlet** = four suit holes `{ tier: 0|1|2, frags }`. **Bracelet** = the
-  between-encounter placement action (`bracelet_place`, phases road / camp /
-  chapter-complete / landmark): the first fragment **lights** a hole (castable
-  Fragment); further fragments **sandbag** (`frags` counts everything invested).
-- **Forge landmark** = the tier-up (spells only): a hole at tier 1 with
-  ≥ **2 invested fragments** (`FRAGMENTS_PER_HALF`, placeholder) forges to
-  **Half**. ⚑ One tier-up per Forge visit. Full = V3.5; extra fragments bank
-  silently in `frags`.
-- **Cast** (`cast_spell` with `gauntlet:<suit>`): consumes the hole **to empty**
-  (tier 0, frags 0 — all sandbagged progress spent, Decision 2). **One cast per
-  suit per combat.** Castable over matching-suit immunity (no immunity check by
-  design). Legacy item-spells (`c.spells`) stay functional on non-ascending
-  campaigns only; every V3 spell OFFER is dried up (itemPool returns no spells,
-  Lair drops its hail-mary option, the seam graduation shop no longer opens,
-  the C-tier fragment token track is refused) — code deletion waits for slice 9.
+- **Gauntlet** = four suit slots `{ tier: 0|1|2 }`. **One crystal per suit** —
+  empty / Fragment / Half. No per-slot fragment count.
+- **Bracelet** (`bracelet_place`, phases road / camp / chapter-complete): arms one
+  pool item into an **empty** slot — a **fragment** → the suit's Fragment spell; a
+  **Half** → the suit's Half spell. Occupied slots are refused (cast first).
+- **Forge landmark**: **always opens its menu** (even with < 2 fragments, so the
+  player sees the state). Verb = convert **2 fragments → 1 Half**
+  (`FRAGMENTS_PER_HALF`), banking it in `tokenHalves`. Repeat while ≥ 2 fragments,
+  then leave. The Half is placed onto a suit later, via the bracelet.
+- **Cast** (`cast_spell` with `gauntlet:<suit>`): consumes the slot **to empty**
+  (tier 0, Decision 2). **One cast per suit per combat.** Castable over
+  matching-suit immunity.
 
 ## Per-suit effects (numbers = placeholders, plan §A)
 

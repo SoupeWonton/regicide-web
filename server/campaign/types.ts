@@ -387,12 +387,11 @@ export interface CampaignState {
   // Interest (Ring): armed when a whole fight was paid without discards
   interestNext?: boolean
 
-  // ── V3 §6 (slice 6): the gauntlet — four suit holes fed by agnostic
-  // fragments (pool = tokenFragments, repointed from the retired shop).
-  // tier: 0 none · 1 Fragment (castable) · 2 Half (strongest castable; the
-  // V3.0 cap — extra fragments bank silently toward Full/V3.5).
-  // frags: fragments invested in the hole (cast = consume to EMPTY, Decision 2).
-  gauntlet?: Record<string, { tier: 0 | 1 | 2; frags: number }>
+  // ── V3 §6 (slice 6, revised 2026-07-03): the gauntlet — four suit slots,
+  // ONE crystal each. tier: 0 empty · 1 Fragment (castable) · 2 Half (stronger).
+  // Accumulation lives in the agnostic pools (tokenFragments / tokenHalves), not
+  // in a slot. Cast = consume the slot to EMPTY (Decision 2).
+  gauntlet?: Record<string, { tier: 0 | 1 | 2 }>
   foresightNext?: boolean         // Sanctum Foresight rite: reveal the next encounter's enemy lineup
 
   pendingChoice: PendingChoice | null
@@ -434,6 +433,7 @@ export interface CampaignState {
   // (tokenBudget, the fragment shop and the mythic/item-stop caps were deleted
   // at the V3.0 cutover, §11 slice 9)
   tokenFragments?: number                        // V3 §6: the agnostic fragment pool
+  tokenHalves?: number                           // V3 §6: the agnostic Half pool (forged, 2 frags → 1)
   cardTokens?: Record<string, Token[]>           // cardId → token list (dormant V3 content)
   // item-economy: unlocked pools snapshotted from the Kingdom at run creation
   unlockedRelics?: string[]
@@ -597,16 +597,17 @@ export interface ClientCampaignState {
   // ascending-deck: tokens stamped on cards, keyed by logical id (`${suit}${rank}`).
   // Lets the road/camp/class-select screens render tokened cards.
   cardTokens?: Record<string, ClientToken[]>
-  // V3 §6: the agnostic fragment pool (placed via the bracelet)
+  // V3 §6: the agnostic pools (armed onto suits via the bracelet)
   tokenFragments?: number
+  tokenHalves?: number
   // ascending-deck mode is active (drives token UI: class-select stamps, badges)
   ascendingDeck?: boolean
   // §F: physicalId → printed/effective faces + graft provenance. Deck cards
   // carry their physicalId as Card.id, so any card view can join on it.
   physicalCards?: Record<string, ClientPhysicalCard>
-  // V3 §6: the gauntlet per suit — tier (0/1/2), invested fragments, spell
-  // name/text for the current tier, and whether it can be cast right now.
-  gauntlet?: Record<string, { tier: 0 | 1 | 2; frags: number; name: string; text: string; castable: boolean }>
+  // V3 §6: the gauntlet per suit — tier (0 empty / 1 Fragment / 2 Half), the
+  // spell name/text for the current tier, and whether it can be cast right now.
+  gauntlet?: Record<string, { tier: 0 | 1 | 2; name: string; text: string; castable: boolean }>
   // V3 §7: relic bag + the four named slots (equipped relic or null each)
   relicBag?: { id: string; slot: string; name: string; text: string }[]
   relicSlots?: Record<string, { id: string; name: string; text: string; activated: boolean } | null>

@@ -209,15 +209,16 @@ export interface ClientCampaignState {
   log: string[]
   // ascending-deck: tokens stamped on cards, keyed by logical id (`${suit}${rank}`)
   cardTokens?: Record<string, ClientToken[]>
-  // V3 §6: the agnostic fragment pool (placed via the bracelet)
+  // V3 §6: the agnostic pools (armed onto suits via the bracelet)
   tokenFragments?: number
+  tokenHalves?: number
   // ascending-deck mode active (drives token UI: class-select stamps, card badges)
   ascendingDeck?: boolean
   // §F: physicalId → printed/effective faces + graft provenance
   physicalCards?: Record<string, ClientPhysicalCard>
   // V3 §6: the gauntlet per suit — tier (0 empty / 1 Fragment / 2 Half),
-  // invested fragments, current spell name/text, live castability
-  gauntlet?: Record<string, { tier: 0 | 1 | 2; frags: number; name: string; text: string; castable: boolean }>
+  // current spell name/text, live castability (one crystal per suit)
+  gauntlet?: Record<string, { tier: 0 | 1 | 2; name: string; text: string; castable: boolean }>
   // V3 §7: relic bag + the four named slots (hat/amulet/ring/cloak)
   relicBag?: { id: string; slot: string; name: string; text: string }[]
   relicSlots?: Record<string, { id: string; name: string; text: string; activated: boolean } | null>

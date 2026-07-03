@@ -1,11 +1,13 @@
 // V3 §6 (slice 6) — the four suit crystals: gauntlet content + helpers.
-// Design: 4 spell identities, one per suit, held in the GAUNTLET at tiers
-// Fragment → Half (→ Full = V3.5, banks silently). Agnostic fragments (pool =
-// CampaignState.tokenFragments) drop 50/50 after each won encounter and are
-// placed via the BRACELET between encounters: the first fragment lights a hole
-// (castable Fragment), further fragments sandbag; the FORGE landmark forges a
-// sandbagged hole into its Half. Cast = consume to EMPTY (Decision 2); one
-// cast per suit per combat; castable over matching-suit immunity.
+// Design (revised 2026-07-03, Landry playtest): 4 spell identities, one per
+// suit, held in the GAUNTLET — one crystal per suit slot (empty / Fragment /
+// Half). Accumulation lives in the AGNOSTIC POOLS, not in a slot:
+// CampaignState.tokenFragments (50/50 drop after each won encounter) and
+// tokenHalves (forged, 2 fragments → 1 Half). The BRACELET arms one pool item
+// into an EMPTY slot (fragment → Fragment spell; Half → the stronger Half
+// spell). The FORGE landmark always opens a menu and converts fragments → Halves.
+// Cast = consume the slot to EMPTY (Decision 2); one cast per suit per combat;
+// castable over matching-suit immunity.
 // Numbers are placeholders (plan §A): FRAGMENTS_PER_HALF = 2 · RALLY_CAP = 5.
 // Pins: docs/delivery/contracts/spells.md.
 
@@ -36,11 +38,10 @@ export const CRYSTALS: Record<string, { fragment: CrystalTierDef; half: CrystalT
   },
 }
 
-/** The gauntlet, defaulted: four empty holes. */
+/** The gauntlet, defaulted: four empty suit slots (one crystal each). */
 export function gauntletOf(c: CampaignState): NonNullable<CampaignState['gauntlet']> {
   c.gauntlet ??= {
-    S: { tier: 0, frags: 0 }, D: { tier: 0, frags: 0 },
-    H: { tier: 0, frags: 0 }, C: { tier: 0, frags: 0 },
+    S: { tier: 0 }, D: { tier: 0 }, H: { tier: 0 }, C: { tier: 0 },
   }
   return c.gauntlet
 }
@@ -52,19 +53,18 @@ export function crystalOf(suit: string, tier: number): CrystalTierDef | null {
   return tier >= 2 ? cry.half : cry.fragment
 }
 
-/** Client projection: per-suit tier/frags/name/text + live castability. */
-export function projectGauntlet(c: CampaignState): Record<string, { tier: 0 | 1 | 2; frags: number; name: string; text: string; castable: boolean }> {
+/** Client projection: per-suit tier/name/text + live castability. */
+export function projectGauntlet(c: CampaignState): Record<string, { tier: 0 | 1 | 2; name: string; text: string; castable: boolean }> {
   const g = gauntletOf(c)
   const s = c.encounter
-  const out: Record<string, { tier: 0 | 1 | 2; frags: number; name: string; text: string; castable: boolean }> = {}
+  const out: Record<string, { tier: 0 | 1 | 2; name: string; text: string; castable: boolean }> = {}
   for (const su of GAUNTLET_SUITS) {
     const hole = g[su]!
     const def = crystalOf(su, hole.tier)
     out[su] = {
       tier: hole.tier,
-      frags: hole.frags,
       name: def?.name ?? '—',
-      text: def?.text ?? 'Empty — place a fragment via the bracelet.',
+      text: def?.text ?? 'Empty — arm a fragment or Half here via the bracelet.',
       castable: hole.tier > 0 && !!s && s.outcome === 'active' && !s.flags[`gauntletCast:${su}`],
     }
   }

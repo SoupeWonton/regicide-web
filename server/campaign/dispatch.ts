@@ -31,7 +31,7 @@ export type CampaignAction =
   | { type: 'keep_drawn'; keepIndices: number[] }   // ascending-deck: overdraw selection
   | { type: 'graft_select'; cardIndex: number; mode: 'value' | 'suit' }   // ascending-deck: redundant-kill graft
   | { type: 'staff_use'; cardIndex?: number }        // V3 §2: activated-Staff use (slice 4)
-  | { type: 'bracelet_place'; suit: string }         // V3 §6: place a fragment into a gauntlet hole
+  | { type: 'bracelet_place'; suit: string; crystal?: 'fragment' | 'half' }  // V3 §6: arm a fragment/Half onto a gauntlet suit
   | { type: 'equip_relic'; slot: string; relicId: string | null }   // V3 §7: bag ↔ slot swap
   | { type: 'death_vote'; vote: string }
   | { type: 'begin_replacement' }
@@ -100,7 +100,7 @@ export function applyAction(
     case 'keep_drawn': result = applyKeepDrawn(c, playerId, action.keepIndices); break
     case 'graft_select': result = applyGraftSelect(c, playerId, action.cardIndex, action.mode); break
     case 'staff_use': result = applyStaffUse(c, playerId, action.cardIndex); break
-    case 'bracelet_place': result = applyBraceletPlace(c, playerId, action.suit); break
+    case 'bracelet_place': result = applyBraceletPlace(c, playerId, action.suit, action.crystal); break
     case 'equip_relic': result = applyEquipRelic(c, playerId, action.slot, action.relicId); break
     case 'death_vote': result = applyDeathVote(c, playerId, action.vote); break
     case 'begin_replacement': result = beginReplacement(c, kingdom); break

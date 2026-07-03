@@ -594,30 +594,32 @@ function cardLabelFromId(id: string): string {
 }
 
 function offerForge(c: CampaignState) {
-  // V3 §6: the Forge FORGES — sandbagged fragments become the next crystal
-  // tier (spells only; Fragment → Half; Full = V3.5). One tier-up per visit.
-  // (The token-stamp offer, forge budget and fragment shop were DELETED at
-  // the cutover, §11 slice 9.)
-  const g = gauntletOf(c)
-  const ready = GAUNTLET_SUITS.filter(su => g[su]!.tier === 1 && g[su]!.frags >= FRAGMENTS_PER_HALF)
-  if (!ready.length) {
-    clog(c, `⚒️ The Forge finds nothing ready — a hole needs ${FRAGMENTS_PER_HALF} invested fragments to forge its Half.`)
-    c.phase = 'road'
-    autoAdvanceAfterGate(c)
-    return
-  }
+  // V3 §6 (revised 2026-07-03): the Forge ALWAYS opens a menu — even with < 2
+  // fragments — so the player can see their banked pools. Its verb converts
+  // FRAGMENTS_PER_HALF fragments → 1 agnostic Half crystal (armed onto a suit
+  // later, via the bracelet, for the stronger spell). Forge repeatedly, then leave.
+  const frags = c.tokenFragments ?? 0
+  const halves = c.tokenHalves ?? 0
   c.phase = 'landmark'
+  const options = []
+  if (frags >= FRAGMENTS_PER_HALF) {
+    options.push({
+      id: 'forge:make',
+      label: `Forge ${FRAGMENTS_PER_HALF} fragments → 1 Half crystal`,
+      detail: 'A Half armed onto a suit casts the stronger spell. Forge again or leave after.',
+    })
+  }
+  options.push({
+    id: 'forge:done',
+    label: 'Leave the Forge',
+    detail: frags < FRAGMENTS_PER_HALF
+      ? `You have ${frags} fragment${frags === 1 ? '' : 's'} — the Forge needs ${FRAGMENTS_PER_HALF} to make a Half.`
+      : 'Keep the rest banked.',
+  })
   c.pendingChoice = {
     kind: 'landmark_reward', forPlayerId: null,
-    prompt: '⚒️ The Forge — forge one suit’s fragments into a HALF crystal.',
-    options: [
-      ...ready.map(su => ({
-        id: `forgeup:${su}`,
-        label: `${suitSymbol(su as Suit)} → ${CRYSTALS[su]!.half.name} (Half)`,
-        detail: CRYSTALS[su]!.half.text,
-      })),
-      { id: 'forgeup:skip', label: 'Bank the fragments', detail: 'Leave everything sandbagged for later.' },
-    ],
+    prompt: `⚒️ The Forge — turn ${FRAGMENTS_PER_HALF} fragments into a Half crystal. Banked: ${frags}✦ fragment${frags === 1 ? '' : 's'} · ${halves}◆ half${halves === 1 ? '' : 'ves'}.`,
+    options,
   }
 }
 
@@ -923,16 +925,18 @@ function resolveRewardOption(c: CampaignState, optionId: string, pc: PendingChoi
     presentCaravanPay(c)
     return {}
   }
-  // V3 §6: Forge tier-up — a sandbagged hole rises to its Half crystal
-  if (optionId.startsWith('forgeup:')) {
-    const su = optionId.slice('forgeup:'.length)
-    const hole = su !== 'skip' ? gauntletOf(c)[su] : undefined
-    if (hole && hole.tier === 1 && hole.frags >= FRAGMENTS_PER_HALF) {
-      hole.tier = 2
-      clog(c, `⚒️ Forged! The ${suitSymbol(su as Suit)} crystal rises to HALF — ${CRYSTALS[su]!.half.name}.`)
-    } else if (su === 'skip') {
-      clog(c, '⚒️ The fragments stay banked.')
+  // V3 §6 (revised 2026-07-03): Forge — convert 2 fragments → 1 agnostic Half.
+  if (optionId === 'forge:make') {
+    if ((c.tokenFragments ?? 0) >= FRAGMENTS_PER_HALF) {
+      c.tokenFragments = (c.tokenFragments ?? 0) - FRAGMENTS_PER_HALF
+      c.tokenHalves = (c.tokenHalves ?? 0) + 1
+      clog(c, `⚒️ Forged! ${FRAGMENTS_PER_HALF} fragments become a Half crystal (${c.tokenHalves} banked). Arm it on a suit via the bracelet.`)
     }
+    offerForge(c)   // re-present the menu with updated pools (forge again or leave)
+    return {}
+  }
+  if (optionId === 'forge:done') {
+    clog(c, '⚒️ You leave the Forge.')
     c.pendingChoice = null
     c.phase = 'road'
     autoAdvanceAfterGate(c)
@@ -1381,25 +1385,29 @@ function bumpTurn(c: CampaignState) {
 // it is parked for a later repurpose.)
 
 /**
- * V3 §6 (slice 6): the BRACELET — place ONE agnostic fragment from the pool
- * into a gauntlet suit hole, any time between encounters. An empty hole
- * lights as a castable Fragment; a lit hole sandbags the fragment toward the
- * next tier (the Forge does the tier-up). The pool is uncapped (Decision 8).
+ * V3 §6 (slice 6, revised 2026-07-03): the BRACELET — arm ONE agnostic pool
+ * item onto an EMPTY gauntlet suit slot between encounters. `crystal: 'fragment'`
+ * (default) arms the suit's Fragment spell; `'half'` arms the stronger Half spell
+ * (Halves are forged, 2 fragments → 1). One crystal per suit — an occupied slot
+ * is refused (cast it first). Casting empties the slot (Decision 2).
  */
-export function applyBraceletPlace(c: CampaignState, playerId: string, suit: string): { error?: string } {
+export function applyBraceletPlace(c: CampaignState, playerId: string, suit: string, crystal: 'fragment' | 'half' = 'fragment'): { error?: string } {
   if (!EXPERIMENTS.ascendingDeck) return { error: 'The bracelet is not active.' }
   if (!['road', 'camp', 'chapter_complete', 'landmark'].includes(c.phase)) return { error: 'Fragments are placed between encounters.' }
   if (!c.heroes.some(h => h.playerId === playerId)) return { error: 'You are not in this campaign.' }
   if (!(GAUNTLET_SUITS as readonly string[]).includes(suit)) return { error: 'Unknown suit.' }
-  if ((c.tokenFragments ?? 0) < 1) return { error: 'No fragments to place.' }
   const hole = gauntletOf(c)[suit]!
-  c.tokenFragments = (c.tokenFragments ?? 0) - 1
-  hole.frags += 1
-  if (hole.tier === 0) {
-    hole.tier = 1
-    clog(c, `💠 Bracelet: a fragment lights ${suitSymbol(suit as Suit)} — ${CRYSTALS[suit]!.fragment.name} is castable.`)
+  if (hole.tier !== 0) return { error: 'That suit already holds a crystal — cast it or pick an empty suit.' }
+  if (crystal === 'half') {
+    if ((c.tokenHalves ?? 0) < 1) return { error: 'No Half crystals available — forge two fragments first.' }
+    c.tokenHalves = (c.tokenHalves ?? 0) - 1
+    hole.tier = 2
+    clog(c, `💠 Bracelet: a Half crystal arms ${suitSymbol(suit as Suit)} — ${CRYSTALS[suit]!.half.name} is castable.`)
   } else {
-    clog(c, `💠 Bracelet: a fragment sandbags into ${suitSymbol(suit as Suit)} (${hole.frags} invested${hole.tier === 1 && hole.frags >= FRAGMENTS_PER_HALF ? ' — ready to Forge into a Half' : ''}).`)
+    if ((c.tokenFragments ?? 0) < 1) return { error: 'No fragments to place.' }
+    c.tokenFragments = (c.tokenFragments ?? 0) - 1
+    hole.tier = 1
+    clog(c, `💠 Bracelet: a fragment arms ${suitSymbol(suit as Suit)} — ${CRYSTALS[suit]!.fragment.name} is castable.`)
   }
   return {}
 }
@@ -1970,6 +1978,7 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
     log: c.log,
     cardTokens: projectCardTokens(c),
     tokenFragments: c.tokenFragments,
+    tokenHalves: c.tokenHalves,
     ascendingDeck: EXPERIMENTS.ascendingDeck,
     physicalCards: projectPhysicalCards(c),
     gauntlet: EXPERIMENTS.ascendingDeck ? projectGauntlet(c) : undefined,

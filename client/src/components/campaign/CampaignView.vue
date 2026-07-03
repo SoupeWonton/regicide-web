@@ -497,12 +497,13 @@ function heroTooltip(h: ClientHero): string {
       <button class="btn btn-ghost btn-sm" @click="showDeck = false">Close</button>
     </OverlayModal>
 
-    <!-- V3 §6: the BRACELET — place agnostic fragments into the gauntlet's suit
-         holes between encounters (equip a Fragment now, or sandbag toward Half) -->
+    <!-- V3 §6: the BRACELET — arm one banked crystal onto an EMPTY gauntlet suit
+         (fragment → Fragment spell · Half → the stronger Half spell) -->
     <div v-if="(phase === 'road' || phase === 'camp' || phase === 'chapter_complete') && state.ascendingDeck && state.gauntlet"
       class="rounded-box border border-info/20 bg-base-200/50 px-3 py-2 max-w-lg mx-auto w-full space-y-1.5">
       <p class="text-[10px] uppercase tracking-[0.2em] text-info/60 text-center">
-        💠 Bracelet — fragments banked: <span class="font-mono">{{ state.tokenFragments ?? 0 }}</span>
+        💠 Bracelet — banked: <span class="font-mono">{{ state.tokenFragments ?? 0 }}✦ fragments</span>
+        · <span class="font-mono">{{ state.tokenHalves ?? 0 }}◆ halves</span>
       </p>
       <div class="grid grid-cols-4 gap-1.5">
         <div v-for="su in ['S', 'D', 'H', 'C']" :key="su"
@@ -512,16 +513,22 @@ function heroTooltip(h: ClientHero): string {
           </div>
           <div class="text-[9px] leading-tight text-base-content/60 min-h-[2rem]" :title="state.gauntlet[su]!.text">
             {{ state.gauntlet[su]!.tier > 0 ? state.gauntlet[su]!.name : '—' }}
-            <span v-if="state.gauntlet[su]!.frags > 1" class="text-info">·{{ state.gauntlet[su]!.frags }}✦</span>
           </div>
-          <button class="btn btn-xs btn-outline btn-info w-full"
-            :disabled="(state.tokenFragments ?? 0) < 1"
-            @click="act({ type: 'bracelet_place', suit: su })"
-          >place ✦</button>
+          <!-- empty slot: arm a fragment or a Half; occupied: cast in combat -->
+          <template v-if="state.gauntlet[su]!.tier === 0">
+            <button class="btn btn-xs btn-outline btn-info w-full"
+              :disabled="(state.tokenFragments ?? 0) < 1"
+              @click="act({ type: 'bracelet_place', suit: su, crystal: 'fragment' })"
+            >arm ✦</button>
+            <button v-if="(state.tokenHalves ?? 0) > 0" class="btn btn-xs btn-info w-full"
+              @click="act({ type: 'bracelet_place', suit: su, crystal: 'half' })"
+            >arm ◆ Half</button>
+          </template>
+          <div v-else class="text-[9px] text-info/70 pt-1">armed</div>
         </div>
       </div>
       <p class="text-[9px] text-center text-base-content/40">
-        First fragment lights a castable spell · more sandbag toward the Forge's tier-up · casting empties the hole.
+        One crystal per suit · Halves come from the Forge (2 fragments → 1) · casting empties the slot.
       </p>
     </div>
 

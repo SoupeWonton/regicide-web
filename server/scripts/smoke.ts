@@ -1206,23 +1206,34 @@ console.log('Test L: spells — fragment drop, bracelet, Forge tier-up, gauntlet
   const { applyBraceletPlace } = await import('../campaign/campaign')
   const { gauntletOf } = await import('../campaign/spells')
 
-  // (a) bracelet: the first fragment lights the hole, the second sandbags
+  // (a) bracelet: one crystal per suit — a fragment arms an EMPTY slot; a second
+  // fragment into the same (now-occupied) suit is refused
   const c = createCampaign([{ id: P1, name: 'Gab' }], 1, 'spl-1', kingdom).campaign!
   applyClassPick(c, P1, 'sentinel', 'footwork')
   c.tokenFragments = 3
-  assert(!applyBraceletPlace(c, P1, 'D').error, 'place 1 into ♦')
-  assert(gauntletOf(c)['D']!.tier === 1 && gauntletOf(c)['D']!.frags === 1, '♦ lights as a castable Fragment')
-  assert(!applyBraceletPlace(c, P1, 'D').error, 'place 2 into ♦ (sandbag)')
-  assert(gauntletOf(c)['D']!.tier === 1 && gauntletOf(c)['D']!.frags === 2, 'the second fragment sandbags (tier stays Fragment)')
-  assert(c.tokenFragments === 1, `pool decremented (got ${c.tokenFragments})`)
-  ok('spells: bracelet — light, then sandbag; uncapped agnostic pool')
+  assert(!applyBraceletPlace(c, P1, 'D').error, 'arm a fragment into ♦')
+  assert(gauntletOf(c)['D']!.tier === 1, '♦ holds a castable Fragment')
+  assert(c.tokenFragments === 2, `pool decremented (got ${c.tokenFragments})`)
+  assert(!!applyBraceletPlace(c, P1, 'D').error, 'a second fragment into the occupied ♦ slot is refused (one crystal per suit)')
+  assert(c.tokenFragments === 2, 'the refused placement did not spend a fragment')
+  assert(!applyBraceletPlace(c, P1, 'C').error, 'a fragment arms a different empty suit (♣)')
+  ok('spells: bracelet — one crystal per suit, agnostic pool feeds empty slots')
 
-  // (b) Forge tier-up: 2 invested fragments → the Half crystal
+  // (b) Forge: 2 fragments → 1 agnostic Half; the menu always opens
+  c.tokenFragments = 3   // top up (section (a) armed two suits from the pool)
   c.phase = 'landmark'
-  c.pendingChoice = { kind: 'landmark_reward', forPlayerId: null, prompt: '⚒️', options: [{ id: 'forgeup:D', label: 'forge' }] }
-  assert(!applyChoice(c, P1, 'forgeup:D', P1).error, 'Forge tier-up resolves')
-  assert(gauntletOf(c)['D']!.tier === 2, `♦ rises to HALF (got tier ${gauntletOf(c)['D']!.tier})`)
-  ok('spells: Forge tier-up — sandbagged fragments become the Half')
+  c.pendingChoice = { kind: 'landmark_reward', forPlayerId: null, prompt: '⚒️', options: [{ id: 'forge:make', label: 'forge' }, { id: 'forge:done', label: 'leave' }] }
+  const fragBefore = c.tokenFragments ?? 0
+  assert(!applyChoice(c, P1, 'forge:make', P1).error, 'Forge make resolves')
+  assert((c.tokenHalves ?? 0) === 1, `a Half is banked (got ${c.tokenHalves})`)
+  assert((c.tokenFragments ?? 0) === fragBefore - 2, `2 fragments spent (got ${c.tokenFragments})`)
+  // arm the forged Half onto an empty suit → the stronger spell
+  applyChoice(c, P1, 'forge:done', P1)
+  c.phase = 'road'
+  assert(!applyBraceletPlace(c, P1, 'H', 'half').error, 'arm the Half onto empty ♥')
+  assert(gauntletOf(c)['H']!.tier === 2, `♥ holds a Half (got tier ${gauntletOf(c)['H']!.tier})`)
+  assert((c.tokenHalves ?? 0) === 0, 'the Half pool is spent')
+  ok('spells: Forge — 2 fragments → 1 Half → armed as the stronger spell')
 
   // (c) cast = consume to EMPTY (Decision 2); one cast per suit per combat
   drive(c, { cheatKill: false, stopAt: ['encounter'], budget: 80 })
@@ -1230,14 +1241,14 @@ console.log('Test L: spells — fragment drop, bracelet, Forge tier-up, gauntlet
   while (s.turnPhase === 'setup') applySetupReorder(c, s.setupPeek!.playerId, s.setupPeek!.cards.map((_, i) => i))
   s.turnPhase = 'play'
   s.currentPlayerIndex = 0
-  assert(!!applyBraceletPlace(c, P1, 'C').error, 'the bracelet only works between encounters')
+  gauntletOf(c)['D']!.tier = 2   // arm ♦ Half (Rally) for the cast test
+  assert(!!applyBraceletPlace(c, P1, 'S').error, 'the bracelet only works between encounters')
   assert(!applyCastSpell(c, P1, 'gauntlet:D').error, 'Rally (♦ Half) casts')
   assert(s.flags['rallyArmed'] === true, 'Rally armed — the counterattack will be drawn before it is paid')
-  assert(gauntletOf(c)['D']!.tier === 0 && gauntletOf(c)['D']!.frags === 0, 'cast consumed the hole to EMPTY (all progress spent)')
-  assert(!!applyCastSpell(c, P1, 'gauntlet:D').error, 'an empty hole cannot cast')
+  assert(gauntletOf(c)['D']!.tier === 0, 'cast consumed the ♦ slot to EMPTY')
+  assert(!!applyCastSpell(c, P1, 'gauntlet:D').error, 'an empty slot cannot cast')
   // a Fragment-tier cast works too (Keen Edge arms the double)
   gauntletOf(c)['C']!.tier = 1
-  gauntletOf(c)['C']!.frags = 1
   assert(!applyCastSpell(c, P1, 'gauntlet:C').error, 'Keen Edge (♣ Fragment) casts')
   assert(s.flags['keenEdge:0'] === true, 'Keen Edge armed')
   assert(gauntletOf(c)['C']!.tier === 0, '♣ consumed to empty')
