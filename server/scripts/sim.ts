@@ -13,13 +13,14 @@ import { fileURLToPath } from 'url'
 import {
   createCampaign, applyClassPick, applyRoadChoose, applyChoice, applyDeathVote,
   applyBreakCamp, beginReplacement,
-  applyContinueChapter, checkEncounterEnd, applyFragmentStart,
+  applyContinueChapter, checkEncounterEnd,
 } from '../campaign/campaign'
 import {
   applyEncounterPlay, applyEncounterDiscard, applyEncounterYield,
   applyEncounterChooseNext, applySetupReorder, applyCastSpell,
-  applyActivateRelic, applyArmWager, applyKeepDrawn, maxHandSize,
+  applyActivateRelic, applyArmWager, applyKeepDrawn, applyGraftSelect, maxHandSize,
 } from '../campaign/encounter'
+import { checkInvariants } from '../campaign/invariants'
 import { getItem, STARTING_RELICS, STARTING_SPELLS } from '../campaign/content'
 import { EXPERIMENTS } from '../campaign/experiments'
 import { cardValue } from '../deck'
@@ -33,7 +34,7 @@ import type { CampaignState, ClassId, CtCategory, EncounterState, KingdomState }
 
 import { PERSONAS, MIXED_ORDER, type Persona } from './sim-personas'
 import { chooseDiscardPressure, type PressureState } from './discard-model'
-import { traceAction } from '../campaign/trace'
+import { traceAction, writeActionTrace } from '../campaign/trace'
 
 // ── Small helpers ────────────────────────────────────────────────────────────
 
@@ -490,6 +491,12 @@ export function runCampaign(
   const { campaign: c, error } = createCampaign(players, 1, seed, kingdom)
   if (error || !c) { rec.result = `error:${error}`; return rec }
 
+  // full action stream for the run — the invariant-violation dump is written
+  // from this, so every violation arrives as a re-dispatchable lite trace
+  // (scripts/replay.ts) instead of a dead statistic
+  const actionLog: { action: { type: string; [k: string]: unknown }; actorIdx: number }[] = []
+  const traceId = `bot-${runId}-${lineupId}-${seed}`
+
   // class select: forced assignment (class-isolation mode) or each player picks
   // their persona's highest available pref
   for (let i = 0; i < players.length; i++) {
@@ -504,6 +511,9 @@ export function runCampaign(
         ['sentinel', 'quartermaster', 'surgeon', 'executioner'].includes(cid) && !taken.has(cid))!
     }
     applyClassPick(c, pl.id, pick)
+    actionLog.push({ action: { type: 'pick_class', classId: pick }, actorIdx: i })
+    if (TRACE && (TRACE_ONLY.length === 0 || TRACE_ONLY.includes(seed)))
+      traceAction(c, 'bot', traceId, { type: 'pick_class', classId: pick }, { actorIdx: i, kingdom })
   }
   rec.classes = players.map(pl => c.classPicks[pl.id]).join('+')
 
@@ -535,7 +545,19 @@ export function runCampaign(
   }
   scanOwned()
 
-  function afterAction() {
+  // common post-success tail: log + trace the REAL action payload, then run
+  // the bookkeeping + invariant sweep. false = stop the run.
+  function post(action: { type: string; [k: string]: unknown }, pid: string): boolean {
+    const actorIdx = Math.max(0, players.findIndex(pl => pl.id === pid))
+    actionLog.push({ action, actorIdx })
+    // --trace: dump the action-by-action replay for the sandbox (#/sandbox).
+    // --trace-only restricts output to specific seeds (to curate a few runs).
+    if (TRACE && (TRACE_ONLY.length === 0 || TRACE_ONLY.includes(seed)))
+      traceAction(c!, 'bot', traceId, action, { actorIdx, kingdom })
+    return afterAction()
+  }
+
+  function afterAction(): boolean {
     rec.actions++
     // hero deaths
     c.heroes.forEach((h, i) => {
@@ -563,6 +585,16 @@ export function runCampaign(
     } else if (cur && (!s || s !== cur.ref)) {
       finalizeCur()
     }
+    // bug oracle: every sim batch is a property-based test. A violation ends
+    // the run tagged 'invariant:*' and dumps a re-dispatchable lite trace.
+    const viol = checkInvariants(c)
+    if (viol.length) {
+      rec.result = `invariant:${viol[0]}`
+      const file = writeActionTrace(c, 'bot', `violation-${runId}-${lineupId}-${seed}`, actionLog, kingdom)
+      console.error(`  ⚠ INVARIANT ${seed}: ${viol.join(' | ')} → ${file ?? '(trace unwritable)'}`)
+      return false
+    }
+    return true
   }
 
   function finalizeCur() {
@@ -587,18 +619,20 @@ export function runCampaign(
     cur = null
   }
 
-  function act(fn: () => { error?: string }, label: string): boolean {
+  // `action` is the real dispatchable payload (replayable); `label` stays the
+  // human-readable result tag ('keen-edge', 'vote:…'). `pid` = the acting player.
+  function act(
+    fn: () => { error?: string },
+    label: string,
+    action?: { type: string; [k: string]: unknown },
+    pid: string = HOST,
+  ): boolean {
     const r = fn()
     if (r.error) {
       rec.result = `error:${label}:${r.error}`
       return false
     }
-    // --trace: dump the action-by-action replay for the sandbox (#/sandbox).
-    // --trace-only restricts output to specific seeds (to curate a few runs).
-    if (TRACE && (TRACE_ONLY.length === 0 || TRACE_ONLY.includes(seed)))
-      traceAction(c, 'bot', `bot-${runId}-${lineupId}-${seed}`, { type: label })
-    afterAction()
-    return true
+    return post(action ?? { type: label }, pid)
   }
 
   let budget = 8000
@@ -615,7 +649,7 @@ export function runCampaign(
         // Post-Council shop model (2026-06-16): fragments ACCUMULATE through a
         // continent and are spent at the graduation store on the way out — so the
         // bot no longer applies them on the road. We just measure how many it banks.
-        void applyFragmentStart   // (kept imported; road-apply intentionally disabled)
+        // (applyFragmentStart was deleted at the V3.0 cutover, §11 slice 9.)
         const map = c.map!
         const node = map.nodes.find(n => n.id === map.currentNodeId)!
         const p = personaOf(0) // host commits the route; host persona steers
@@ -640,7 +674,7 @@ export function runCampaign(
           score += decide.next() * 0.15 // tiny noise to break symmetric ties
           if (score > bestScore) { bestScore = score; bestId = nid }
         }
-        if (!act(() => applyRoadChoose(c, HOST, bestId, HOST), 'road')) return rec
+        if (!act(() => applyRoadChoose(c, HOST, bestId, HOST), 'road', { type: 'road_choose', nodeId: bestId })) return rec
         break
       }
 
@@ -655,7 +689,7 @@ export function runCampaign(
             if (!c.pendingChoice) break
             const voter = c.heroes[hi]!.playerId
             const choiceId = scoreLandmarkOption(c, pc, personaOf(hi))
-            if (!act(() => applyChoice(c, voter, choiceId, HOST), `vote:${pc.kind}`)) { okAll = false; break }
+            if (!act(() => applyChoice(c, voter, choiceId, HOST), `vote:${pc.kind}`, { type: 'choice_pick', optionId: choiceId }, voter)) { okAll = false; break }
           }
           if (!okAll) return rec
           break
@@ -687,7 +721,7 @@ export function runCampaign(
         } else {
           optId = scoreLandmarkOption(c, pc, p)
         }
-        if (!act(() => applyChoice(c, deciderId, optId, HOST), `choice:${pc.kind}`)) return rec
+        if (!act(() => applyChoice(c, deciderId, optId, HOST), `choice:${pc.kind}`, { type: 'choice_pick', optionId: optId }, deciderId)) return rec
         break
       }
 
@@ -723,7 +757,7 @@ export function runCampaign(
           // put the highest cards on top — they are drawn first
           const order = peek.cards.map((card, i) => ({ i, v: val(card) }))
             .sort((a, b) => b.v - a.v).map(x => x.i)
-          if (!act(() => applySetupReorder(c, peek.playerId, order), 'setup')) return rec
+          if (!act(() => applySetupReorder(c, peek.playerId, order), 'setup', { type: 'setup_reorder', order }, peek.playerId)) return rec
           break
         }
 
@@ -737,7 +771,21 @@ export function runCampaign(
           const ranked = pool.map((card, i) => ({ i, v: val(card) }))
             .sort((a, b) => b.v - a.v)
           const keepIdxs = ranked.slice(0, Math.max(0, slots)).map(x => x.i)
-          if (!act(() => applyKeepDrawn(c, selPid, keepIdxs), 'draw_select')) return rec
+          if (!act(() => applyKeepDrawn(c, selPid, keepIdxs), 'draw_select', { type: 'keep_drawn', keepIndices: keepIdxs }, selPid)) return rec
+          break
+        }
+
+        // V3 §1: a redundant exact-kill pauses for a replacement-graft pick —
+        // rewrite the first graftable held card's value (mirrors smoke's rail)
+        if (s.turnPhase === 'graft_select') {
+          const g = s.pendingGraft!
+          const gPid = c.heroes[g.heroIdx]!.playerId
+          const gHand = s.hands[g.heroIdx]!
+          let gIdx = gHand.findIndex(card => !!c.cards?.[card.id] && card.rank !== g.rank && card.rank !== 'Jo')
+          if (gIdx < 0) gIdx = gHand.findIndex(card => !!c.cards?.[card.id] && card.suit !== g.suit && card.rank !== 'Jo')
+          const gMode = gIdx >= 0 && gHand[gIdx]!.rank !== g.rank ? 'value' : 'suit'
+          if (gIdx < 0) gIdx = 0
+          if (!act(() => applyGraftSelect(c, gPid, gIdx, gMode), 'graft_select', { type: 'graft_select', cardIndex: gIdx, mode: gMode }, gPid)) return rec
           break
         }
 
@@ -755,13 +803,13 @@ export function runCampaign(
             if (v > bestV) { bestV = v; target = i }
           })
           const keep = s.pendingChooseNext && target === pi
-          if (!act(() => applyEncounterChooseNext(c, pid, target, keep), 'choose_next')) return rec
+          if (!act(() => applyEncounterChooseNext(c, pid, target, keep), 'choose_next', { type: 'choose_next', targetIndex: target, keepTurn: keep }, pid)) return rec
           break
         }
 
         if (s.turnPhase === 'discard') {
           if (c.spells.includes('s-calm-pulse') && s.discardNeeded >= 3 && p.spellEagerness > 0.3) {
-            if (!act(() => applyCastSpell(c, pid, 's-calm-pulse'), 'calm-pulse')) return rec
+            if (!act(() => applyCastSpell(c, pid, 's-calm-pulse'), 'calm-pulse', { type: 'cast_spell', spellId: 's-calm-pulse' }, pid)) return rec
             break
           }
           const idxs = DISCARD_MODEL === 'pressure'
@@ -783,8 +831,8 @@ export function runCampaign(
           const r = applyEncounterDiscard(c, pid, idxs)
           if (r.error) {
             const all = s.hands[pi]!.map((_, i) => i)
-            if (!act(() => applyEncounterDiscard(c, pid, all), 'discard')) return rec
-          } else { if (TRACE && (TRACE_ONLY.length === 0 || TRACE_ONLY.includes(seed))) traceAction(c, 'bot', `bot-${runId}-${lineupId}-${seed}`, { type: 'discard' }); afterAction() }
+            if (!act(() => applyEncounterDiscard(c, pid, all), 'discard', { type: 'discard_damage', cardIndices: all }, pid)) return rec
+          } else if (!post({ type: 'discard_damage', cardIndices: idxs }, pid)) return rec
           break
         }
 
@@ -797,7 +845,7 @@ export function runCampaign(
         const relic = c.heroes[pi]!.relicIds.find(r =>
           (r === 'r-bone-thread' || r === 'r-sainted-scalpel') && !s.flags[`relicUsed:${r}:${pi}`])
         if (relic && s.tavern.length === 0 && s.discard.length >= 2) {
-          if (!act(() => applyActivateRelic(c, pid, undefined, relic), 'relic')) return rec
+          if (!act(() => applyActivateRelic(c, pid, undefined, relic), 'relic', { type: 'activate_relic', relicId: relic }, pid)) return rec
           break
         }
 
@@ -823,46 +871,46 @@ export function runCampaign(
             // wasting Keen Edge on a road Jack and arriving at the gate empty.
             const worthNuke = s.tier === 'boss' || enemy.card.rank === 'K' || enemy.card.rank === 'Q'
             if (worthNuke && c.spells.includes('s-keen-edge') && rawBest < enemy.hp && rawBest * 2 >= enemy.hp) {
-              if (!act(() => applyCastSpell(c, pid, 's-keen-edge'), 'keen-edge')) return rec
+              if (!act(() => applyCastSpell(c, pid, 's-keen-edge'), 'keen-edge', { type: 'cast_spell', spellId: 's-keen-edge' }, pid)) return rec
               break
             }
             // Crownbreaker (×3) only when a double isn't enough but a triple is.
             if (worthNuke && c.spells.includes('s-crownbreaker') && rawBest * 2 < enemy.hp && rawBest * 3 >= enemy.hp) {
-              if (!act(() => applyCastSpell(c, pid, 's-crownbreaker'), 'crownbreaker')) return rec
+              if (!act(() => applyCastSpell(c, pid, 's-crownbreaker'), 'crownbreaker', { type: 'cast_spell', spellId: 's-crownbreaker' }, pid)) return rec
               break
             }
             void bestDmg
           }
           if (c.spells.includes('s-quick-muster') && hand.length <= 2 && s.tavern.length > 0 && p.spellEagerness > 0.2) {
-            if (!act(() => applyCastSpell(c, pid, 's-quick-muster'), 'quick-muster')) return rec
+            if (!act(() => applyCastSpell(c, pid, 's-quick-muster'), 'quick-muster', { type: 'cast_spell', spellId: 's-quick-muster' }, pid)) return rec
             break
           }
           if (c.spells.includes('s-tactical-surge') && fatigue(c) > 0.6 && s.tavern.length > 0 && p.spellEagerness > 0.3) {
-            if (!act(() => applyCastSpell(c, pid, 's-tactical-surge'), 'tactical-surge')) return rec
+            if (!act(() => applyCastSpell(c, pid, 's-tactical-surge'), 'tactical-surge', { type: 'cast_spell', spellId: 's-tactical-surge' }, pid)) return rec
             break
           }
           if (c.spells.includes('s-refit') && s.tavern.length === 0 && s.discard.length >= 3) {
-            if (!act(() => applyCastSpell(c, pid, 's-refit'), 'refit')) return rec
+            if (!act(() => applyCastSpell(c, pid, 's-refit'), 'refit', { type: 'cast_spell', spellId: 's-refit' }, pid)) return rec
             break
           }
           if (c.spells.includes('s-full-recycle') && s.tavern.length === 0 && s.discard.length >= 4) {
-            if (!act(() => applyCastSpell(c, pid, 's-full-recycle'), 'full-recycle')) return rec
+            if (!act(() => applyCastSpell(c, pid, 's-full-recycle'), 'full-recycle', { type: 'cast_spell', spellId: 's-full-recycle' }, pid)) return rec
             break
           }
           if (!canKill && enemy.attack - enemy.shield >= 4 && p.spellEagerness > 0.4) {
             if (c.spells.includes('s-guard-up')) {
-              if (!act(() => applyCastSpell(c, pid, 's-guard-up'), 'guard-up')) return rec
+              if (!act(() => applyCastSpell(c, pid, 's-guard-up'), 'guard-up', { type: 'cast_spell', spellId: 's-guard-up' }, pid)) return rec
               break
             }
             if (c.spells.includes('s-bulwark-chant')) {
-              if (!act(() => applyCastSpell(c, pid, 's-bulwark-chant'), 'bulwark-chant')) return rec
+              if (!act(() => applyCastSpell(c, pid, 's-bulwark-chant'), 'bulwark-chant', { type: 'cast_spell', spellId: 's-bulwark-chant' }, pid)) return rec
               break
             }
           }
           // gambler wager: arm when we predict a kill this turn (per-encounter flag)
           if (canKill && c.heroes[pi]!.classId === 'gambler' && !s.flags['gamblerWagerUsed'] &&
               s.wagerArmedBy === null && p.spellEagerness > 0.5) {
-            if (!act(() => applyArmWager(c, pid), 'wager')) return rec
+            if (!act(() => applyArmWager(c, pid), 'wager', { type: 'arm_wager' }, pid)) return rec
             break
           }
         }
@@ -870,7 +918,7 @@ export function runCampaign(
         // choose among plays / jester / yield
         if (hand.length === 0) {
           rec.yields++
-          if (!act(() => applyEncounterYield(c, pid), 'yield-empty')) return rec
+          if (!act(() => applyEncounterYield(c, pid), 'yield-empty', { type: 'yield_turn' }, pid)) return rec
           break
         }
         const options: PlayOption[] = []
@@ -888,10 +936,10 @@ export function runCampaign(
         const choice = options.reduce((a, b) => (b.score > a.score ? b : a))
         if (choice.kind === 'yield') {
           rec.yields++
-          if (!act(() => applyEncounterYield(c, pid), 'yield')) return rec
+          if (!act(() => applyEncounterYield(c, pid), 'yield', { type: 'yield_turn' }, pid)) return rec
         } else {
           if (hand[choice.idxs[0]!]!.rank === 'Jo') rec.jesters++
-          if (!act(() => applyEncounterPlay(c, pid, choice.idxs), 'play')) return rec
+          if (!act(() => applyEncounterPlay(c, pid, choice.idxs), 'play', { type: 'play_cards', cardIndices: choice.idxs }, pid)) return rec
         }
         break
       }
@@ -916,7 +964,7 @@ export function runCampaign(
             : 'retreat'
           const r = applyDeathVote(c, h.playerId, vote)
           if (r.error) { rec.result = `error:vote:${r.error}`; return rec }
-          afterAction()
+          if (!post({ type: 'death_vote', vote }, h.playerId)) return rec
         }
         break
       }
@@ -924,16 +972,16 @@ export function runCampaign(
       case 'camp': {
         // 1) replace the fallen
         if (c.heroes.some(h => !h.alive)) {
-          if (!act(() => beginReplacement(c, kingdom), 'begin-replacement')) return rec
+          if (!act(() => beginReplacement(c, kingdom), 'begin-replacement', { type: 'begin_replacement' })) return rec
           break
         }
         // (exile-at-camp retired — the deck only grows; nothing to thin here)
-        if (!act(() => applyBreakCamp(c, HOST, HOST), 'break-camp')) return rec
+        if (!act(() => applyBreakCamp(c, HOST, HOST), 'break-camp', { type: 'break_camp' })) return rec
         break
       }
 
       case 'chapter_complete': {
-        if (!act(() => applyContinueChapter(c, HOST, HOST), 'continue')) return rec
+        if (!act(() => applyContinueChapter(c, HOST, HOST), 'continue', { type: 'continue_chapter' })) return rec
         break
       }
 
