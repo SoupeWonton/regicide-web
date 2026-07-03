@@ -215,6 +215,44 @@ const showHandStrip = computed(() =>
   && hasFoughtThisChapter.value
   && props.state.myHand.length > 0)
 
+// The chapter-complete seam, in province/continent terms. `state.chapter` is the
+// JUST-COMPLETED chapter (continue_chapter increments it). Continent 1 = ch1-3
+// (Provinces 1-3; ch3 = the Council of Tens finale); Continent 2 = ch4-6
+// (Provinces 1-3 behind the Jack/Queen/King gates). Mirrors the server copy in
+// campaign.ts completeChapter().
+const ORDINAL = ['', 'First', 'Second', 'Third']
+const chapterComplete = computed(() => {
+  const ch = props.state.chapter
+  if (ch < 3) {
+    // within Continent 1: Province ch claimed → Province ch+1 next
+    return {
+      title: `${ORDINAL[ch]} Province Claimed`,
+      unlock: ch === 1
+        ? 'Kingdom unlocks: specializations, the Commander and the Warden.'
+        : 'The number deck deepens. Your relics and gauntlet carry forward.',
+      note: `Province ${ch + 1} of Continent 1 awaits beyond the seam.`,
+      button: `March to Province ${ch + 1} →`,
+    }
+  }
+  if (ch === 3) {
+    // Council of Tens defeated → cross the continent seam into C2
+    return {
+      title: 'Continent 1 Conquered',
+      unlock: 'The number deck is complete. The royals await.',
+      note: 'Rest, then ascend to Continent 2 — the Broken Court.',
+      button: 'Ascend to Continent 2 →',
+    }
+  }
+  // Continent 2: Province (ch-3) shaped → next gate
+  const nextGate = ch === 4 ? 'the Queen Gate' : 'the King Gate'
+  return {
+    title: `${ORDINAL[ch - 3]} Province Shaped`,
+    unlock: 'Continent 2 bends to your lineage.',
+    note: `${nextGate} waits beyond the seam.`,
+    button: `March to ${nextGate} →`,
+  }
+})
+
 function heroTooltip(h: ClientHero): string {
   const lines = [`${h.className} — ${h.abilityText}`]
   for (const rl of h.relics) lines.push(`🏺 ${rl.name}: ${rl.text}`)
@@ -264,13 +302,11 @@ function heroTooltip(h: ClientHero): string {
     <div v-else-if="phase === 'chapter_complete'" class="flex-1 flex items-center justify-center p-4">
       <div class="card bg-base-100/95 border border-primary/30 shadow-xl text-center py-10 px-8 gap-3 flex flex-col items-center max-w-md">
         <div class="text-6xl crown-rise">🏰</div>
-        <h2 class="text-3xl font-display font-bold gold-title rise-in-2">Chapter One Complete</h2>
-        <p class="text-sm text-base-content/60">
-          Kingdom unlocks: <b>Chapter 2</b>, <b>specializations</b>, <b>Commander</b> and <b>Warden</b>.
-        </p>
-        <p class="text-xs text-base-content/40">The Broken Court is harder and richer. Your relics carry forward.</p>
+        <h2 class="text-3xl font-display font-bold gold-title rise-in-2">{{ chapterComplete.title }}</h2>
+        <p class="text-sm text-base-content/60">{{ chapterComplete.unlock }}</p>
+        <p class="text-xs text-base-content/40">{{ chapterComplete.note }}</p>
         <button v-if="state.isHost" class="btn btn-primary btn-lg mt-2" @click="act({ type: 'continue_chapter' })">
-          March into Chapter 2
+          {{ chapterComplete.button }}
         </button>
         <p v-else class="text-xs text-base-content/40">Waiting for the host…</p>
       </div>
