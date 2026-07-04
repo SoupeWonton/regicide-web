@@ -1897,6 +1897,16 @@ export function buildClientCampaign(c: CampaignState, forPlayerId: string, hostI
       drawSelectKeep: s.turnPhase === 'draw_select' && s.drawSelectHeroIdx === myHeroIndex
         ? (s.drawSelectCap ?? Math.max(0, maxHandSize(c, myHeroIndex) - s.hands[myHeroIndex]!.length))
         : undefined,
+      // ascending-deck: Surgeon recovery picker — only the recovering hero sees it
+      recoverPool: s.turnPhase === 'recover_select' && s.recoverHeroIdx === myHeroIndex
+        ? (s.recoverPool ?? [])
+        : undefined,
+      recoverKeep: s.turnPhase === 'recover_select' && s.recoverHeroIdx === myHeroIndex
+        ? (s.recoverKeep ?? 0)
+        : undefined,
+      recoverMode: s.turnPhase === 'recover_select' && s.recoverHeroIdx === myHeroIndex
+        ? s.recoverMode
+        : undefined,
       // ascending-deck: graft picker — only the hero who landed the kill chooses
       graftSelect: s.turnPhase === 'graft_select' && s.pendingGraft?.heroIdx === myHeroIndex
         ? { suit: s.pendingGraft.suit, rank: s.pendingGraft.rank }

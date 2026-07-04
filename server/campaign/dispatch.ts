@@ -13,7 +13,7 @@ import {
 import {
   applyEncounterPlay, applyEncounterDiscard, applyEncounterYield,
   applyEncounterChooseNext, applyCastSpell, applyActivateRelic, applyArmWager,
-  applySetupReorder, applyKeepDrawn, applyGraftSelect, applyStaffUse,
+  applySetupReorder, applyKeepDrawn, applyRecoverSelect, applyGraftSelect, applyStaffUse,
 } from './encounter'
 
 export type CampaignAction =
@@ -29,6 +29,7 @@ export type CampaignAction =
   | { type: 'activate_relic'; targetIndex?: number; relicId?: string }
   | { type: 'arm_wager' }
   | { type: 'keep_drawn'; keepIndices: number[] }   // ascending-deck: overdraw selection
+  | { type: 'recover_select'; keepIndices: number[] }   // ascending-deck: Surgeon recovery pick (Triage / Last Rites)
   | { type: 'graft_select'; cardIndex: number; mode: 'value' | 'suit' }   // ascending-deck: redundant-kill graft
   | { type: 'staff_use'; cardIndex?: number }        // V3 §2: activated-Staff use (slice 4)
   | { type: 'bracelet_place'; suit: string; crystal?: 'fragment' | 'half' }  // V3 §6: arm a fragment/Half onto a gauntlet suit
@@ -55,6 +56,7 @@ export const HANDLER_LOCATIONS: Record<CampaignAction['type'], string> = {
   activate_relic: 'server/campaign/encounter.ts applyActivateRelic',
   arm_wager: 'server/campaign/encounter.ts applyArmWager',
   keep_drawn: 'server/campaign/encounter.ts applyKeepDrawn',
+  recover_select: 'server/campaign/encounter.ts applyRecoverSelect',
   graft_select: 'server/campaign/encounter.ts applyGraftSelect',
   staff_use: 'server/campaign/encounter.ts applyStaffUse',
   bracelet_place: 'server/campaign/campaign.ts applyBraceletPlace',
@@ -98,6 +100,7 @@ export function applyAction(
     case 'activate_relic': result = applyActivateRelic(c, playerId, action.targetIndex, action.relicId); break
     case 'arm_wager': result = applyArmWager(c, playerId); break
     case 'keep_drawn': result = applyKeepDrawn(c, playerId, action.keepIndices); break
+    case 'recover_select': result = applyRecoverSelect(c, playerId, action.keepIndices); break
     case 'graft_select': result = applyGraftSelect(c, playerId, action.cardIndex, action.mode); break
     case 'staff_use': result = applyStaffUse(c, playerId, action.cardIndex); break
     case 'bracelet_place': result = applyBraceletPlace(c, playerId, action.suit, action.crystal); break

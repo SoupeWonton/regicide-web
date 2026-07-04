@@ -97,6 +97,7 @@ export function stateSummary(c: CampaignState): string[] {
       `defeated=${s.defeatedCount}/${s.totalEnemies} tavern=${s.tavern.length} discard=${s.discard.length} discardNeeded=${s.discardNeeded}`)
     s.hands.forEach((h, i) => L.push(`hand${i}(${c.heroes[i]?.classId}${c.heroes[i]?.alive ? '' : ' DEAD'}): ${h.map(cardLabel).join(' ') || '(empty)'}`))
     if (s.drawPool) L.push(`drawPool: ${s.drawPool.map(cardLabel).join(' ')}`)
+    if (s.recoverPool) L.push(`recoverPool(${s.recoverMode}): ${s.recoverPool.map(cardLabel).join(' ')}`)
     if (s.pendingGraft) L.push(`pendingGraft: hero${s.pendingGraft.heroIdx} ${s.pendingGraft.rank}${s.pendingGraft.suit} (slain ${s.pendingGraft.slain})`)
   } else if (c.deck) {
     c.deck.hands.forEach((h, i) => L.push(`hand${i}(${c.heroes[i]?.classId}): ${h.map(cardLabel).join(' ') || '(empty)'}`))

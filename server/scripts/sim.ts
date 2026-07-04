@@ -18,7 +18,7 @@ import {
 import {
   applyEncounterPlay, applyEncounterDiscard, applyEncounterYield,
   applyEncounterChooseNext, applySetupReorder, applyCastSpell,
-  applyActivateRelic, applyArmWager, applyKeepDrawn, applyGraftSelect, maxHandSize,
+  applyActivateRelic, applyArmWager, applyKeepDrawn, applyRecoverSelect, applyGraftSelect, maxHandSize,
 } from '../campaign/encounter'
 import { checkInvariants } from '../campaign/invariants'
 import { getItem, STARTING_RELICS, STARTING_SPELLS } from '../campaign/content'
@@ -772,6 +772,19 @@ export function runCampaign(
             .sort((a, b) => b.v - a.v)
           const keepIdxs = ranked.slice(0, Math.max(0, slots)).map(x => x.i)
           if (!act(() => applyKeepDrawn(c, selPid, keepIdxs), 'draw_select', { type: 'keep_drawn', keepIndices: keepIdxs }, selPid)) return rec
+          break
+        }
+
+        // ascending-deck: Surgeon recovery pick (Triage / Last Rites) — greedily
+        // keep the highest-value cards
+        if (s.turnPhase === 'recover_select') {
+          const rHero = s.recoverHeroIdx!
+          const rPid = c.heroes[rHero]!.playerId
+          const rPool = s.recoverPool ?? []
+          const keepN = s.recoverKeep ?? 0
+          const rKeep = rPool.map((card, i) => ({ i, v: val(card) }))
+            .sort((a, b) => b.v - a.v).slice(0, Math.min(keepN, rPool.length)).map(x => x.i)
+          if (!act(() => applyRecoverSelect(c, rPid, rKeep), 'recover_select', { type: 'recover_select', keepIndices: rKeep }, rPid)) return rec
           break
         }
 

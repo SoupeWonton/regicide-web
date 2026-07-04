@@ -252,6 +252,7 @@ export type CampaignTurnPhase =
   | 'play' | 'discard' | 'choose_next'   // mirrors base TurnPhase
   | 'setup'                               // encounter setup peek
   | 'draw_select'                         // ascending-deck: overdraw hold
+  | 'recover_select'                      // ascending-deck: Triage/Last Rites recovery pick
   | 'graft_select'                        // ascending-deck: redundant exact-kill graft pick
   | 'over'                                // encounter finished
 
@@ -293,6 +294,19 @@ export interface EncounterState {
   // keep-limit override for the current draw_select. Diamonds leave this unset
   // (limit = empty hand slots); Tactical Surge sets a fixed cap ("keep 2 of 5").
   drawSelectCap?: number
+
+  // ascending-deck: Surgeon recovery pick (Triage / Last Rites). The eligible
+  // cards are moved aside here at recovery time and the pause fires as the last
+  // step of the turn (chained after any draw_select). Only populated when
+  // turnPhase === 'recover_select'.
+  //   'triage'     — pool is the whole discard; pick up to recoverKeep to send
+  //                  to the Tavern; the rest return to the discard.
+  //   'last-rites' — pool is the recovered cards; pick exactly ONE for your
+  //                  hand; the rest shuffle into the Tavern.
+  recoverPool?: Card[]
+  recoverHeroIdx?: number
+  recoverMode?: 'triage' | 'last-rites'
+  recoverKeep?: number
 
   // Replacement graft (V3 §1): a redundant exact-kill pauses to rewrite one
   // held card. Only populated when turnPhase === 'graft_select'. `suit`/`rank`
@@ -563,6 +577,12 @@ export interface ClientEncounterState {
   drawPool?: Card[]
   // how many of the drawPool the viewing hero may keep (empty slots, or a spell cap)
   drawSelectKeep?: number
+  // ascending-deck: Surgeon recovery pick (only present during recover_select)
+  recoverPool?: Card[]
+  // how many pool cards the viewing hero picks (Triage: up to N; Last Rites: 1)
+  recoverKeep?: number
+  // which recovery staff drives the pick (changes the picker's copy)
+  recoverMode?: 'triage' | 'last-rites'
   // Replacement graft (V3 §1): present during graft_select for the hero
   // choosing — the slain card's suit + royal-capped rank. The player rewrites
   // one held card's value OR suit to these.

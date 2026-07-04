@@ -25,7 +25,7 @@ under `ascendingDeck`; code deletion waits for slice 9).
 | Staff | Pin |
 |---|---|
 | Hold the Line | Activated, once/enemy, play phase. ⚑ **Auto-picks the highest ♠ in the discard** (a full pick UI is deferred); its value adds to shield; the card **stays in the discard**; counts as a Spade card for Bastion. |
-| Reinforce | Passive. A same-rank combo may include ONE ♠ of adjacent rank (±1). No Ace combos; combo cap unchanged; the odd card adds its own value. |
+| Reinforce | Passive. A same-rank combo may include ONE ♠ of **any** rank (⚑ ±1 restriction dropped 2026-07-03 — "add a spade to any combo"). No Ace combos; the ≤10 combo cap still applies; the odd card adds its own value. |
 | Footwork | Activated, once/enemy, play phase, targets a hand ♠: buried to the **Tavern bottom** (drawn last), then draw 1. |
 | Parry | Activated, once/enemy, **discard (pay) phase**, targets a hand ♠: value adds to shield AND reduces the required payment; card is spent to the discard; counts toward Bastion. Payment reaching 0 ends the counter. |
 
@@ -43,7 +43,7 @@ under `ascendingDeck`; code deletion waits for slice 9).
 | Staff | Pin |
 |---|---|
 | Dovetail | Passive: as Reinforce but the adjacent card may be **any suit**. |
-| Ace in the Hole | ⚑ Re-pinned as an **activated toggle** (the wiki's "may" needs player intent — auto-copying would wreck exact-kill fishing): the next Ace pair plays the Ace at its partner's value. |
+| Ace in the Hole | ⚑ Re-pinned as an **activated toggle** (the wiki's "may" needs player intent — auto-copying would wreck exact-kill fishing): the next Ace pair plays the Ace at its partner's value. **Bugfix 2026-07-03**: the `StaffDef` was missing `activated: true`, so `staff_use` bounced it ("always on — nothing to activate") and the toggle was unreachable; now armable. |
 | Stockpile | ⚑ **Re-mapped**: the engine has no forced discard-to-hand-size; the only forced give-back is the overdraw return. Pin: once/enemy, keep ONE extra card from an overdraw pool (hand may exceed cap by 1; draws stop until back under). Consumed only when actually used. |
 | Provisioner | Activated, once/enemy, targets a hand card. ⚑ Order swapped to keep it one action: **discard 1, then draw 1** (net dig identical). |
 
@@ -51,8 +51,8 @@ under `ascendingDeck`; code deletion waits for slice 9).
 
 | Staff | Pin |
 |---|---|
-| Triage | Passive. ⚑ Placeholder for "choose": recoveries return the **highest-value** cards from the discard instead of the oldest (full picker UI deferred to the Gab pass). |
-| Last Rites | Passive, once/enemy: the best card of a recovery goes **to hand** (cap permitting) instead of the Tavern. |
+| Triage | Passive. ⚑ **Player-choice picker built** (2026-07-03): a recovery pauses in a `recover_select` phase — the player picks **any** cards (up to the recovered amount) from the discard to return to the Tavern; the rest stay in the discard. |
+| Last Rites | Passive, once/enemy: a recovery pauses in `recover_select` and the player picks **any one** recovered card to go **to hand** (cap permitting); the rest shuffle to the Tavern. |
 | Transfuse | Activated toggle, once/enemy: the next ♥ play skips recovery; the play's base value becomes **shield**. ⚑ The "or damage" variant is deferred (a played card already deals its value as damage). |
 | Field Dressing | Passive, once/enemy: the first recovery each enemy recovers +1. |
 
@@ -91,3 +91,11 @@ C3/C4 rung texts ship verbatim from the wiki table as locked data (`paths.ts`).
   slice 9 (lineage); until then non-home paths are display-only.
 - ⚑ Staff swap cadence (Fallen Heroes: one random Staff per class, free, repeatable)
   lands in slice 8 with the landmark.
+- ⚑ **Recovery pick timing** (Triage / Last Rites, 2026-07-03): recovery resolves
+  before damage/diamonds/counter, so the pick can't pause in place. The eligible
+  cards are moved aside into `recoverPool` at recovery time (snapshotting the
+  discard before the played cards land) and the `recover_select` pause fires as
+  the **last step of the turn**, chained after any overdraw (`draw_select`) pick
+  and resuming the counterattack. Net effect: recovered cards enter the Tavern at
+  end-of-turn rather than mid-play, so they can't be re-drawn by a same-turn
+  Diamond. Negligible and arguably clearer.

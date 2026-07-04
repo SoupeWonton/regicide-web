@@ -122,6 +122,13 @@ export interface ClientEncounterState {
   drawPool?: Card[]
   // how many of the drawPool the viewing hero may keep
   drawSelectKeep?: number
+  // ascending-deck: Surgeon recovery pick (Triage / Last Rites), present only
+  // for the recovering hero during recover_select
+  recoverPool?: Card[]
+  // how many pool cards the viewing hero picks (Triage: up to N; Last Rites: 1)
+  recoverKeep?: number
+  // which recovery staff drives the pick (changes the picker's copy)
+  recoverMode?: 'triage' | 'last-rites'
   // Replacement graft (V3 §1): the slain card's suit + royal-capped rank —
   // the player rewrites one held card's value OR suit to these. Present only
   // for the hero choosing, during graft_select.

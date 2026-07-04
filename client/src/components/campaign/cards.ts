@@ -111,7 +111,7 @@ export interface StaffChoice { id: string; name: string; text: string; activated
 export const STAFF_CHOICES: Record<string, StaffChoice[]> = {
   sentinel: [
     { id: 'hold-the-line', name: 'Hold the Line', activated: true, text: 'Once per enemy: replay your best discard Spade for shield only (it stays in the discard).' },
-    { id: 'reinforce', name: 'Reinforce', text: 'Combos may include ONE Spade of adjacent rank (±1).' },
+    { id: 'reinforce', name: 'Reinforce', text: 'Add one Spade of any rank to a combo (still ≤10 total).' },
     { id: 'footwork', name: 'Footwork', activated: true, usesCard: true, text: 'Once per enemy: bury a hand Spade to the Tavern bottom, draw 1.' },
     { id: 'parry', name: 'Parry', activated: true, usesCard: true, text: 'Once per enemy, while paying a counter: a hand Spade blocks (its value reduces the payment).' },
   ],
@@ -123,13 +123,13 @@ export const STAFF_CHOICES: Record<string, StaffChoice[]> = {
   ],
   quartermaster: [
     { id: 'dovetail', name: 'Dovetail', text: 'Combos may include ONE card of adjacent rank (±1).' },
-    { id: 'ace-in-the-hole', name: 'Ace in the Hole', activated: true, text: 'Toggle: your next Ace pair copies its partner’s rank.' },
+    { id: 'ace-in-the-hole', name: 'Ace in the Hole', activated: true, text: 'Toggle: your next Ace acts as the value of the card it combos with.' },
     { id: 'stockpile', name: 'Stockpile', text: 'Once per enemy: keep one EXTRA card from an overdraw pool.' },
     { id: 'provisioner', name: 'Provisioner', activated: true, usesCard: true, text: 'Once per enemy: discard a card, then draw 1.' },
   ],
   surgeon: [
-    { id: 'triage', name: 'Triage', text: 'Your recoveries return the HIGHEST-value cards from the discard.' },
-    { id: 'last-rites', name: 'Last Rites', text: 'Once per enemy: the best recovered card goes straight to your HAND.' },
+    { id: 'triage', name: 'Triage', text: 'Your recoveries return any cards of your choice from the discard.' },
+    { id: 'last-rites', name: 'Last Rites', text: 'Once per enemy: choose any recovered card to go straight to your HAND.' },
     { id: 'transfuse', name: 'Transfuse', activated: true, text: 'Toggle, once per enemy: your next Heart shields instead of recovering.' },
     { id: 'field-dressing', name: 'Field Dressing', text: 'Once per enemy: your first recovery recovers 1 extra card.' },
   ],

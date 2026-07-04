@@ -25,6 +25,9 @@ export function checkInvariants(c: CampaignState): string[] {
     s.hands.forEach((h, i) => zones.push([`enc.hands[${i}]`, h]))
     zones.push(['enc.tavern', s.tavern], ['enc.discard', s.discard])
     if (s.drawPool) zones.push(['enc.drawPool', s.drawPool])
+    // recoverPool holds cards aside from recovery time through the end-of-turn
+    // pick (Triage / Last Rites), so it is a live zone even during 'play'.
+    if (s.recoverPool) zones.push(['enc.recoverPool', s.recoverPool])
   } else if (c.deck) {
     c.deck.hands.forEach((h, i) => zones.push([`deck.hands[${i}]`, h]))
     zones.push(['deck.tavern', c.deck.tavern], ['deck.discard', c.deck.discard])
@@ -70,6 +73,7 @@ export function checkInvariants(c: CampaignState): string[] {
   if (c.phase === 'landmark' && !c.pendingChoice) v.push('landmark-no-choice')
   if (c.phase === 'death_vote' && !c.deathVote) v.push('death-vote-no-state')
   if (s && s.turnPhase === 'draw_select' && !s.drawPool) v.push('draw-select-no-pool')
+  if (s && s.turnPhase === 'recover_select' && !s.recoverPool) v.push('recover-select-no-pool')
   if (s && s.turnPhase === 'graft_select' && !s.pendingGraft) v.push('graft-select-no-pending')
 
   return v

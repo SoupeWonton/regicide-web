@@ -6,7 +6,7 @@
 
 import { createCampaign, applyClassPick, applyRoadChoose, applyChoice, applyDeathVote, applyBreakCamp, beginReplacement, applyContinueChapter, buildClientCampaign, checkEncounterEnd, startTutorial } from '../campaign/campaign'
 import { advanceTutorialStep } from '../campaign/tutorial'
-import { applyEncounterPlay, applyEncounterDiscard, applyEncounterYield, applyEncounterChooseNext, applySetupReorder, applyCastSpell, applyKeepDrawn, applyGraftSelect, maxHandSize } from '../campaign/encounter'
+import { applyEncounterPlay, applyEncounterDiscard, applyEncounterYield, applyEncounterChooseNext, applySetupReorder, applyCastSpell, applyKeepDrawn, applyRecoverSelect, applyGraftSelect, applyStaffUse, maxHandSize } from '../campaign/encounter'
 import { spendDelta } from '../campaign/tokens'
 import { loadKingdom, saveCampaign, loadCampaign } from '../campaign/store'
 import { checkInvariants } from '../campaign/invariants'
@@ -101,6 +101,17 @@ function drive(c: CampaignState, opts: { cheatKill: boolean; budget?: number; st
           if (vIdx >= 0) step(c, gpid, () => applyGraftSelect(c, gpid, vIdx, 'value'), 'graft select')
           else if (sIdx >= 0) step(c, gpid, () => applyGraftSelect(c, gpid, sIdx, 'suit'), 'graft select')
           else step(c, gpid, () => applyGraftSelect(c, gpid, -1, 'value'), 'graft decline')
+          break
+        }
+        // ascending-deck: Surgeon recovery pick — greedily keep the highest cards
+        if (s.turnPhase === 'recover_select') {
+          const rpi = s.recoverHeroIdx!
+          const rpid = c.heroes[rpi]!.playerId
+          const rpool = s.recoverPool ?? []
+          const keepN = s.recoverKeep ?? 0
+          const keepIdxs = rpool.map((card, i) => ({ i, v: cardValue(card.rank) }))
+            .sort((a, b) => b.v - a.v).slice(0, Math.min(keepN, rpool.length)).map(x => x.i)
+          step(c, rpid, () => applyRecoverSelect(c, rpid, keepIdxs), 'recover select')
           break
         }
         const pi = s.currentPlayerIndex
@@ -1136,6 +1147,172 @@ console.log('Test J: classes — Staff pick, identical start, Staff effects, C2 
   assert(!se.tavern.some(cd => cd.suit === 'D' && cd.rank === '6'), 'the recruit did not slide under the Tavern')
   ok('classes: Field Promotion — recruits enter the hand')
 
+  // (e2) Triage (Surgeon Staff): recovery returns the cards the PLAYER picks —
+  // not the auto-highest — pausing in recover_select for the choice.
+  const ct = createCampaign([{ id: P1, name: 'Gab' }], 1, 'staff-triage', kingdom).campaign!
+  applyClassPick(ct, P1, 'surgeon', 'triage')
+  drive(ct, { cheatKill: false, stopAt: ['encounter'], budget: 80 })
+  const st = ct.encounter!
+  while (st.turnPhase === 'setup') applySetupReorder(ct, st.setupPeek!.playerId, st.setupPeek!.cards.map((_, i) => i))
+  st.modifierId = null
+  delete st.flags['enemy.guard']
+  const te = st.currentEnemy!
+  te.card = { suit: 'S', rank: 'Q', id: 'enemy-sq' }   // Spade enemy — Hearts not nullified
+  te.hp = 30; te.attack = 0; te.shield = 0
+  st.turnPhase = 'play'
+  st.currentPlayerIndex = 0
+  st.discard = [
+    { suit: 'C', rank: '2', id: 'disc-c2' },   // low
+    { suit: 'C', rank: 'K', id: 'disc-ck' },   // high
+    { suit: 'C', rank: '5', id: 'disc-c5' },   // mid
+  ]
+  st.hands[0] = [{ suit: 'H', rank: '3', id: 'test-h3' }]   // recover up to 3
+  const rt = applyEncounterPlay(ct, P1, [0])
+  assert(!rt.error, `triage play: ${rt.error}`)
+  assert(st.turnPhase === 'recover_select', `Triage pauses for the pick (got ${st.turnPhase})`)
+  assert(st.recoverMode === 'triage', 'recover mode is triage')
+  assert((st.recoverPool?.length ?? 0) === 3, 'the whole discard is offered')
+  assert(st.recoverKeep === 3, 'may recover up to the recovered amount (3)')
+  // pick ONLY the low card — proving it is the player's choice, not auto-highest
+  const lowIdx = st.recoverPool!.findIndex(cd => cd.id === 'disc-c2')
+  const rt2 = applyRecoverSelect(ct, P1, [lowIdx])
+  assert(!rt2.error, `recover_select: ${rt2.error}`)
+  assert(st.turnPhase !== 'recover_select', 'the recovery pick resolved')
+  assert(st.tavern.some(cd => cd.id === 'disc-c2'), 'the chosen low card went to the Tavern')
+  assert(!st.tavern.some(cd => cd.id === 'disc-ck'), 'the high card was NOT auto-recovered')
+  assert(st.discard.some(cd => cd.id === 'disc-ck'), 'the unpicked high card stayed in the discard')
+  ok('classes: Triage — recovery returns the cards the player chooses')
+
+  // (e3) Last Rites (Surgeon Staff): the player picks which recovered card jumps
+  // to the hand — not the auto-best.
+  const cl = createCampaign([{ id: P1, name: 'Gab' }], 1, 'staff-lastrites', kingdom).campaign!
+  applyClassPick(cl, P1, 'surgeon', 'last-rites')
+  drive(cl, { cheatKill: false, stopAt: ['encounter'], budget: 80 })
+  const sl = cl.encounter!
+  while (sl.turnPhase === 'setup') applySetupReorder(cl, sl.setupPeek!.playerId, sl.setupPeek!.cards.map((_, i) => i))
+  sl.modifierId = null
+  delete sl.flags['enemy.guard']
+  const le = sl.currentEnemy!
+  le.card = { suit: 'S', rank: 'Q', id: 'enemy-sq2' }
+  le.hp = 30; le.attack = 0; le.shield = 0
+  sl.turnPhase = 'play'
+  sl.currentPlayerIndex = 0
+  sl.discard = [
+    { suit: 'C', rank: '2', id: 'lr-c2' },   // low
+    { suit: 'C', rank: 'K', id: 'lr-ck' },   // high
+  ]
+  sl.hands[0] = [{ suit: 'H', rank: '2', id: 'test-h2' }]   // recover 2 → both cards, pick 1 to hand
+  const rl = applyEncounterPlay(cl, P1, [0])
+  assert(!rl.error, `last-rites play: ${rl.error}`)
+  assert(sl.turnPhase === 'recover_select', `Last Rites pauses for the pick (got ${sl.turnPhase})`)
+  assert(sl.recoverMode === 'last-rites', 'recover mode is last-rites')
+  assert(sl.recoverKeep === 1, 'exactly one card goes to the hand')
+  assert((sl.recoverPool?.length ?? 0) === 2, 'the recovered cards are offered')
+  // pick the LOW card for the hand — proving it is not the auto-best
+  const lowI = sl.recoverPool!.findIndex(cd => cd.id === 'lr-c2')
+  const rl2 = applyRecoverSelect(cl, P1, [lowI])
+  assert(!rl2.error, `recover_select: ${rl2.error}`)
+  assert(sl.hands[0]!.some(cd => cd.id === 'lr-c2'), 'the chosen low card entered the hand')
+  assert(sl.tavern.some(cd => cd.id === 'lr-ck'), 'the unpicked high card went to the Tavern')
+  assert(!sl.hands[0]!.some(cd => cd.id === 'lr-ck'), 'the high card was NOT auto-taken to hand')
+  ok('classes: Last Rites — the player chooses which recovered card goes to hand')
+
+  // (f) Reinforce (Staff): a same-rank combo may include ONE adjacent-rank
+  // Spade — must accept regardless of which card (base or Spade) sorts first
+  // in hand (regression: the check used to key off array order, not suit).
+  const cr = createCampaign([{ id: P1, name: 'Gab' }], 1, 'staff-reinforce', kingdom).campaign!
+  applyClassPick(cr, P1, 'sentinel', 'reinforce')
+  drive(cr, { cheatKill: false, stopAt: ['encounter'], budget: 80 })
+  const sr = cr.encounter!
+  while (sr.turnPhase === 'setup') applySetupReorder(cr, sr.setupPeek!.playerId, sr.setupPeek!.cards.map((_, i) => i))
+  sr.modifierId = null
+  delete sr.flags['enemy.guard']
+  const er = sr.currentEnemy!
+  er.card = { suit: 'D', rank: '7', id: 'enemy-d7' }
+  er.hp = 20; er.attack = 0; er.shield = 0
+  sr.turnPhase = 'play'
+  sr.currentPlayerIndex = 0
+  // Spade (5) sorts AFTER the non-Spade base (4) in hand order.
+  sr.hands[0] = [
+    { suit: 'H', rank: '4', id: pbp(cr, 'H4')!.physicalId },
+    { suit: 'S', rank: '5', id: pbp(cr, 'S5')!.physicalId },
+  ]
+  const rr = applyEncounterPlay(cr, P1, [0, 1])
+  assert(!rr.error, `Reinforce combo (base before Spade in hand order): ${rr.error}`)
+  ok('classes: Reinforce — a 4 + an adjacent 5♠ combos regardless of hand order')
+
+  // (f2) Reinforce now adds a Spade of ANY rank (the ±1 restriction is gone),
+  // still bound by the ≤10 combo total.
+  const cr2 = createCampaign([{ id: P1, name: 'Gab' }], 1, 'staff-reinforce2', kingdom).campaign!
+  applyClassPick(cr2, P1, 'sentinel', 'reinforce')
+  drive(cr2, { cheatKill: false, stopAt: ['encounter'], budget: 80 })
+  const sr2 = cr2.encounter!
+  while (sr2.turnPhase === 'setup') applySetupReorder(cr2, sr2.setupPeek!.playerId, sr2.setupPeek!.cards.map((_, i) => i))
+  sr2.modifierId = null
+  delete sr2.flags['enemy.guard']
+  const er2 = sr2.currentEnemy!
+  er2.card = { suit: 'D', rank: '7', id: 'enemy-d7b' }
+  er2.hp = 20; er2.attack = 0; er2.shield = 0
+  sr2.turnPhase = 'play'
+  sr2.currentPlayerIndex = 0
+  // 2 + 6♠ — NOT adjacent (|2−6| = 4, would fail the old ±1 rule); total 8 ≤ 10
+  sr2.hands[0] = [
+    { suit: 'H', rank: '2', id: 'rf2-h2' },
+    { suit: 'S', rank: '6', id: 'rf2-s6' },
+  ]
+  const rr2 = applyEncounterPlay(cr2, P1, [0, 1])
+  assert(!rr2.error, `Reinforce any-rank Spade combo (2 + 6♠): ${rr2.error}`)
+  ok('classes: Reinforce — a non-adjacent Spade (2 + 6♠) now combos')
+
+  // (f3) but only a SPADE may be added — a non-Spade off-rank card is rejected.
+  const cr3 = createCampaign([{ id: P1, name: 'Gab' }], 1, 'staff-reinforce3', kingdom).campaign!
+  applyClassPick(cr3, P1, 'sentinel', 'reinforce')
+  drive(cr3, { cheatKill: false, stopAt: ['encounter'], budget: 80 })
+  const sr3 = cr3.encounter!
+  while (sr3.turnPhase === 'setup') applySetupReorder(cr3, sr3.setupPeek!.playerId, sr3.setupPeek!.cards.map((_, i) => i))
+  sr3.modifierId = null
+  delete sr3.flags['enemy.guard']
+  sr3.currentEnemy!.card = { suit: 'D', rank: '7', id: 'enemy-d7c' }
+  sr3.currentEnemy!.hp = 20; sr3.currentEnemy!.attack = 0; sr3.currentEnemy!.shield = 0
+  sr3.turnPhase = 'play'
+  sr3.currentPlayerIndex = 0
+  sr3.hands[0] = [
+    { suit: 'H', rank: '2', id: 'rf3-h2' },
+    { suit: 'C', rank: '6', id: 'rf3-c6' },   // off-rank CLUB — not a Spade
+  ]
+  const rr3 = applyEncounterPlay(cr3, P1, [0, 1])
+  assert(!!rr3.error, 'Reinforce still rejects a non-Spade off-rank card in a combo')
+  ok('classes: Reinforce — only a Spade may be added (a Club is rejected)')
+
+  // (g) Ace in the Hole (Staff): a toggle that was silently unusable (its def
+  // lacked `activated`, so staff_use bounced). Armed, the next Ace hits at its
+  // partner's value instead of only +1.
+  const ca = createCampaign([{ id: P1, name: 'Gab' }], 1, 'staff-ace', kingdom).campaign!
+  applyClassPick(ca, P1, 'quartermaster', 'ace-in-the-hole')
+  drive(ca, { cheatKill: false, stopAt: ['encounter'], budget: 80 })
+  const sa = ca.encounter!
+  while (sa.turnPhase === 'setup') applySetupReorder(ca, sa.setupPeek!.playerId, sa.setupPeek!.cards.map((_, i) => i))
+  sa.modifierId = null
+  delete sa.flags['enemy.guard']
+  const ea = sa.currentEnemy!
+  ea.card = { suit: 'D', rank: '9', id: 'enemy-d9' }   // Diamond enemy — Spades not nullified
+  ea.hp = 20; ea.attack = 0; ea.shield = 0
+  sa.turnPhase = 'play'
+  sa.currentPlayerIndex = 0
+  const arm = applyStaffUse(ca, P1)
+  assert(!arm.error, `Ace in the Hole activates (was broken by missing 'activated'): ${arm.error}`)
+  // A♠ + 7♠ — the Ace-pair exemption makes it legal; armed, the Ace acts as 7,
+  // so the play hits for 7+7 = 14 (vs 8 if the Ace only added +1).
+  sa.hands[0] = [
+    { suit: 'S', rank: 'A', id: 'ace-sa' },
+    { suit: 'S', rank: '7', id: 'ace-s7' },
+  ]
+  const hpBefore = ea.hp
+  const ra = applyEncounterPlay(ca, P1, [0, 1])
+  assert(!ra.error, `ace pair play: ${ra.error}`)
+  assert(hpBefore - ea.hp === 14, `armed Ace acts as 7 → 14 damage (got ${hpBefore - ea.hp})`)
+  ok('classes: Ace in the Hole — armed, the Ace hits at its partner’s value')
+
 }
 
 // ── Test K: V3 §5 — forgiveness: opening ♦, Camp bundle, seam reset ──────────
@@ -1568,6 +1745,8 @@ console.log('Test O: cutover — v3 kingdom, no-resume, paths unlock, §11 syste
         r = applyEncounterDiscard(t, P1, pick)
       } else if (s.turnPhase === 'draw_select') {
         r = applyKeepDrawn(t, P1, (s.drawPool ?? []).map((_, k) => k).slice(0, proj.drawSelectKeep ?? 0))
+      } else if (s.turnPhase === 'recover_select') {
+        r = applyRecoverSelect(t, P1, (s.recoverPool ?? []).map((_, k) => k).slice(0, s.recoverKeep ?? 0))
       } else if (s.turnPhase === 'graft_select') {
         // replacement graft on the rail: rewrite a FODDER card whose rank differs
         // (tool cards are guarded — tutorialBlocksGraft — so later beats survive)

@@ -866,32 +866,40 @@ function resolveHearts(c: CampaignState, s: EncounterState, playerIdx: number, a
 
   const toRecover = Math.min(amount, s.discard.length)
   if (toRecover > 0) {
-    // V3 Staff — Triage: recover the HIGHEST-value cards instead of the oldest
-    // (placeholder for the full pick-your-cards UI — ⚑ contracts doc).
-    let recovered: Card[]
-    if (EXPERIMENTS.ascendingDeck && holder.staffId === 'triage') {
-      const byValue = s.discard.map((cd, i) => ({ i, v: cardValue(cd.rank) }))
-        .sort((a, b) => b.v - a.v).slice(0, toRecover).map(x => x.i).sort((a, b) => b - a)
-      recovered = byValue.map(i => s.discard.splice(i, 1)[0]!)
-      clog(c, '   🩺 Triage: the best cards return.')
-    } else {
-      recovered = s.discard.splice(0, toRecover)
+    const asc = EXPERIMENTS.ascendingDeck
+    // V3 Staff — Triage: rather than auto-returning the oldest cards, the player
+    // picks which ones come back. The whole discard is moved aside now (before
+    // the played cards land in it), and the pick resolves as the LAST step of the
+    // turn — a `recover_select` pause chained after any overdraw pick.
+    if (asc && holder.staffId === 'triage') {
+      s.recoverPool = s.discard.splice(0)
+      s.recoverHeroIdx = playerIdx
+      s.recoverMode = 'triage'
+      s.recoverKeep = toRecover
+      s.flags['recoverPending'] = true
+      clog(c, `   🩺 Triage: choose up to ${toRecover} card${toRecover !== 1 ? 's' : ''} to recover.`)
+      ev(s, 'suit', `🩺 Triage — pick ${toRecover} to recover`, 'info')
+      return
     }
-    // V3 Staff — Last Rites: once per enemy, the best recovered card goes
-    // straight to the hand (cap permitting) instead of the Tavern.
-    if (EXPERIMENTS.ascendingDeck && holder.staffId === 'last-rites' && recovered.length
-        && s.hands[playerIdx]!.length < maxHandSize(c, playerIdx) && once(s, 'enemy.lastRites')) {
-      recovered.sort((a, b) => cardValue(b.rank) - cardValue(a.rank))
-      const best = recovered.shift()!
-      s.hands[playerIdx]!.push(best)
-      clog(c, `   ⚱️ Last Rites: ${cardLabel(best)} returns to your hand.`)
-      ev(s, 'proc', `⚱️ Last Rites — ${cardLabel(best)} to hand`, 'gold')
+    // V3 Staff — Last Rites: recovery is normal, but the player picks which one
+    // recovered card jumps to the HAND (cap permitting) instead of the Tavern.
+    if (asc && holder.staffId === 'last-rites'
+        && s.hands[playerIdx]!.length < maxHandSize(c, playerIdx)
+        && once(s, 'enemy.lastRites')) {
+      s.recoverPool = s.discard.splice(0, toRecover)
+      s.recoverHeroIdx = playerIdx
+      s.recoverMode = 'last-rites'
+      s.recoverKeep = 1
+      s.flags['recoverPending'] = true
+      clog(c, '   ⚱️ Last Rites: choose one recovered card for your hand.')
+      ev(s, 'suit', '⚱️ Last Rites — pick 1 for your hand', 'info')
+      return
     }
-    if (recovered.length) {
-      const { r, done } = rng(c)
-      s.tavern.unshift(...r.shuffle(recovered))
-      done()
-    }
+    // Default: the oldest cards shuffle back into the Tavern.
+    const recovered = s.discard.splice(0, toRecover)
+    const { r, done } = rng(c)
+    s.tavern.unshift(...r.shuffle(recovered))
+    done()
   }
   clog(c, `   ♥ Recovered ${toRecover} card${toRecover !== 1 ? 's' : ''} into the Tavern.`)
   ev(s, 'suit', `♥ ${toRecover} back to the Tavern`, 'info')
@@ -951,11 +959,12 @@ function scryTopTavern(c: CampaignState, s: EncounterState) {
 
 /**
  * `adjacent` (V3): a same-rank combo may include ONE off-rank card —
- * 'S' = an adjacent-rank (±1) Spade (Reinforce Staff), 'any' = adjacent rank
- * any suit (Dovetail Staff), 'free' = ANY rank (Commit, the ♣ Half crystal).
- * Ace pairs and the combo cap are unchanged.
+ * 'S-any' = a Spade of ANY rank (Reinforce Staff), 'any' = an adjacent-rank
+ * (±1) card of any suit (Dovetail Staff), 'free' = ANY rank + suit (Commit, the
+ * ♣ Half crystal). ('S' = an adjacent-rank Spade — kept for compatibility.)
+ * Ace pairs and the ≤ maxTotal combo cap are unchanged.
  */
-function validateCampaignCombo(cards: Card[], maxTotal = 10, adjacent?: 'S' | 'any' | 'free'): string | null {
+function validateCampaignCombo(cards: Card[], maxTotal = 10, adjacent?: 'S' | 'S-any' | 'any' | 'free'): string | null {
   if (cards.length === 0) return 'No cards selected.'
   if (cards.length === 1) return null
   if (cards.some(card => card.rank === 'Jo')) return 'Jesters must be played alone.'
@@ -969,14 +978,19 @@ function validateCampaignCombo(cards: Card[], maxTotal = 10, adjacent?: 'S' | 'a
     for (const card of cards) counts.set(card.rank, (counts.get(card.rank) ?? 0) + 1)
     if (counts.size !== 2) return 'Cards must share a rank (or pair with an Ace).'
     const [a, b] = [...counts.entries()]
-    const [minorRank] = (a![1] <= b![1] ? a : b)!
-    const [majorRank] = (a![1] <= b![1] ? b : a)!
-    const minorCount = Math.min(a![1], b![1])
-    const minorCard = cards.find(card => card.rank === minorRank)!
-    if (minorCount !== 1
-      || (adjacent !== 'free' && Math.abs(cardValue(majorRank) - cardValue(minorRank)) !== 1)
-      || (adjacent === 'S' && minorCard.suit !== 'S'))
+    if (Math.min(a![1], b![1]) !== 1) return 'Cards must share a rank (or pair with an Ace).'
+    // Reinforce ('S-any') and Commit ('free') drop the ±1 rank-distance rule.
+    if (adjacent !== 'free' && adjacent !== 'S-any' && Math.abs(cardValue(a![0]) - cardValue(b![0])) !== 1)
       return 'Cards must share a rank (or pair with an Ace).'
+    if (adjacent === 'S' || adjacent === 'S-any') {
+      // The off-rank card must be a Spade. Tied 1-vs-1 groups are ambiguous which
+      // side is "the added card" — accept if EITHER rank's card is the Spade,
+      // not just the one that happens to sort first.
+      const aIsMinor = a![1] <= b![1]
+      const minorRanks = a![1] === b![1] ? [a![0], b![0]] : [aIsMinor ? a![0] : b![0]]
+      const hasSpadeMinor = cards.some(card => minorRanks.includes(card.rank) && card.suit === 'S')
+      if (!hasSpadeMinor) return 'Cards must share a rank (or pair with an Ace).'
+    }
   }
   if (cards.reduce((t, card) => t + cardValue(card.rank), 0) > maxTotal) return `Combo total exceeds ${maxTotal}.`
   return null
@@ -995,12 +1009,13 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   const cards = sorted.map(i => hand[i]!).reverse()
   // Combat Cache relic: matched combos may total up to 12 instead of 10.
   const comboMax = c.heroes[pi]!.relicIds.includes('r-combat-cache') ? 12 : 10
-  // V3 Staffs — Reinforce (one adjacent Spade) / Dovetail (one adjacent card);
-  // Commit (♣ Half crystal, armed) tops both: one extra card of ANY rank.
+  // V3 Staffs — Reinforce (one Spade of ANY rank) / Dovetail (one adjacent-rank
+  // card, any suit); Commit (♣ Half crystal, armed) tops both: one extra card of
+  // ANY rank and suit.
   const commitArmed = EXPERIMENTS.ascendingDeck && s.flags[flagKey('commit', pi)] === true
   const adjacent = commitArmed ? 'free' as const
     : EXPERIMENTS.ascendingDeck
-      ? (c.heroes[pi]!.staffId === 'reinforce' ? 'S' as const
+      ? (c.heroes[pi]!.staffId === 'reinforce' ? 'S-any' as const
         : c.heroes[pi]!.staffId === 'dovetail' ? 'any' as const : undefined)
       : undefined
   const comboError = validateCampaignCombo(cards, comboMax, adjacent)
@@ -1250,7 +1265,7 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
       // choose-next is a multiplayer privilege; solo the Gambler just plays on
       if (s.outcome === 'active' && aliveIndices(c).length > 1) { s.turnPhase = 'choose_next'; s.pendingChooseNext = false }
     }
-    return {}
+    return afterKill(c, s, pi)
   }
 
   if (wagered) {
@@ -1270,15 +1285,11 @@ export function applyEncounterPlay(c: CampaignState, playerId: string, cardIndic
   // once attrition pressure appears NATURALLY, and a per-turn ATK ramp would cut
   // short the long comeback fights that made it click. Keep enemies static.)
 
-  // Enemy survives: now resolve the diamond draw. If it pauses for selection,
-  // SUSPEND here — the counterattack runs after the player picks (applyKeepDrawn).
+  // Enemy survives: now resolve the diamond draw, then the recovery pick, then
+  // the counterattack. Each may pause; a pause suspends the counter via
+  // pendingCounterPi and the chain resumes on the player's choice.
   if (activeSuits.has('D')) resolveDiamonds(c, s, pi, base, drawB, true)
-  if (s.turnPhase === 'draw_select') {
-    s.flags['pendingCounterPi'] = pi
-    return {}
-  }
-
-  return counterattack(c, s, pi)
+  return finishAttackTurn(c, s, pi)
 }
 
 // ── V3 §7: the recruit pipeline (slice 7) ────────────────────────────────────
@@ -1800,6 +1811,116 @@ export function applyEncounterDiscard(c: CampaignState, playerId: string, cardIn
   return {}
 }
 
+// ── Surgeon recovery pick (Triage / Last Rites) ──────────────────────────────
+// Recovery resolves before damage/diamonds/counter, so the pick can't pause in
+// place. resolveHearts moves the eligible cards aside into `recoverPool` and
+// raises `recoverPending`; the pause fires here as the LAST step of the turn,
+// chained after any overdraw (draw_select) pick, resuming the counter exactly
+// like applyKeepDrawn does.
+
+/** Move a raised `recoverPending` into the actual pause. */
+function enterRecoverSelect(c: CampaignState, s: EncounterState): void {
+  delete s.flags['recoverPending']
+  s.turnPhase = 'recover_select'
+  clog(c, `   ⏳ ${c.heroes[s.recoverHeroIdx!]!.playerName} chooses which cards to recover.`)
+}
+
+/** Apply a recovery pick (chosen indices into `recoverPool`) and clear the pool.
+ *  Triage: chosen → Tavern (shuffled), the rest fall back to the discard.
+ *  Last Rites: the one chosen → hand, the rest shuffle into the Tavern. */
+function resolveRecoverPick(c: CampaignState, s: EncounterState, pi: number, keepIndices: number[]): void {
+  const pool = s.recoverPool ?? []
+  const keep = [...new Set(keepIndices)].filter(i => i >= 0 && i < pool.length)
+  if (s.recoverMode === 'last-rites') {
+    const handIdx = keep[0]
+    const toHand = handIdx !== undefined ? pool[handIdx]! : undefined
+    const rest = pool.filter((_, i) => i !== handIdx)
+    if (toHand) {
+      s.hands[pi]!.push(toHand)
+      clog(c, `   ⚱️ Last Rites: ${cardLabel(toHand)} returns to your hand.`)
+      ev(s, 'proc', `⚱️ Last Rites — ${cardLabel(toHand)} to hand`, 'gold')
+    }
+    if (rest.length) { const { r, done } = rng(c); s.tavern.unshift(...r.shuffle(rest)); done() }
+    const back = toHand ? 1 : 0
+    clog(c, `   ♥ Recovered ${pool.length} card${pool.length !== 1 ? 's' : ''} (${back} to hand).`)
+    ev(s, 'suit', `♥ ${pool.length - back} back to the Tavern`, 'info')
+  } else { // triage
+    const chosen = keep.map(i => pool[i]!)
+    const back = pool.filter((_, i) => !keep.includes(i))
+    if (chosen.length) { const { r, done } = rng(c); s.tavern.unshift(...r.shuffle(chosen)); done() }
+    s.discard.push(...back)   // unchosen cards stay in the discard
+    clog(c, `   🩺 Triage: recovered ${chosen.length} card${chosen.length !== 1 ? 's' : ''} into the Tavern.`)
+    ev(s, 'suit', `♥ ${chosen.length} back to the Tavern`, 'info')
+  }
+  s.recoverPool = undefined
+  s.recoverHeroIdx = undefined
+  s.recoverMode = undefined
+  s.recoverKeep = undefined
+  delete s.flags['recoverPending']
+}
+
+/** Auto-resolve an owed recovery (highest-value first) when we can't cleanly
+ *  pause — encounter already ended, or a handoff phase took over. */
+function flushRecoverPending(c: CampaignState, s: EncounterState, pi: number): void {
+  const pool = s.recoverPool ?? []
+  const keepN = s.recoverKeep ?? 0
+  const idx = pool.map((cd, i) => ({ i, v: cardValue(cd.rank) }))
+    .sort((a, b) => b.v - a.v).slice(0, keepN).map(x => x.i)
+  resolveRecoverPick(c, s, pi, idx)
+}
+
+/** Survive-path wrap-up: overdraw pick → recovery pick → counterattack, each an
+ *  optional pause that suspends the counter via pendingCounterPi. */
+function finishAttackTurn(c: CampaignState, s: EncounterState, pi: number): { error?: string } {
+  if (s.turnPhase === 'draw_select') { s.flags['pendingCounterPi'] = pi; return {} }
+  if (s.flags['recoverPending']) { s.flags['pendingCounterPi'] = pi; enterRecoverSelect(c, s); return {} }
+  return counterattack(c, s, pi)
+}
+
+/** Kill-path wrap-up: a kill has no counterattack, so a recovery pick just
+ *  resumes into `play`. Chains after any overdraw pick. */
+function afterKill(c: CampaignState, s: EncounterState, pi: number): { error?: string } {
+  if (s.turnPhase === 'draw_select') return {}   // recovery chains after the overdraw pick
+  if (s.flags['recoverPending']) {
+    if (s.outcome === 'active' && s.turnPhase === 'play') { enterRecoverSelect(c, s); return {} }
+    flushRecoverPending(c, s, pi)   // can't pause cleanly — auto-resolve so nothing dangles
+  }
+  return {}
+}
+
+/**
+ * Ascending-deck: the Surgeon staff recovery pick (Triage / Last Rites).
+ * `keepIndices` index into `recoverPool`. Triage keeps up to `recoverKeep`
+ * cards (the rest return to the discard); Last Rites keeps exactly one for the
+ * hand (the rest shuffle into the Tavern).
+ */
+export function applyRecoverSelect(c: CampaignState, playerId: string, keepIndices: number[]): { error?: string } {
+  const s = c.encounter
+  if (!s || s.turnPhase !== 'recover_select') return { error: 'Not in recover-select phase.' }
+  if (!EXPERIMENTS.ascendingDeck) return { error: 'Ascending deck is not active.' }
+  const pi = c.heroes.findIndex(h => h.playerId === playerId)
+  if (pi !== s.recoverHeroIdx) return { error: 'Not your recovery.' }
+  const pool = s.recoverPool ?? []
+  const keepN = s.recoverKeep ?? 0
+  const unique = [...new Set(keepIndices)]
+  if (unique.some(i => i < 0 || i >= pool.length)) return { error: 'Invalid pool index.' }
+  if (unique.length > keepN) return { error: `Can pick at most ${keepN} card${keepN !== 1 ? 's' : ''}.` }
+  if (s.recoverMode === 'last-rites' && pool.length > 0 && unique.length < 1)
+    return { error: 'Pick one card for your hand.' }
+
+  beginEvents(s)
+  resolveRecoverPick(c, s, pi, unique)
+  s.turnPhase = 'play'
+
+  // Resume the suspended turn: the recovery pause held the counterattack.
+  if (s.flags['pendingCounterPi'] !== undefined) {
+    const cpi = s.flags['pendingCounterPi'] as number
+    delete s.flags['pendingCounterPi']
+    return counterattack(c, s, cpi)
+  }
+  return {}
+}
+
 /**
  * Ascending-deck Step 1: the player selects which cards to keep from the
  * overdraw pool. `keepIndices` is the subset of `s.drawPool` to keep;
@@ -1849,6 +1970,11 @@ export function applyKeepDrawn(c: CampaignState, playerId: string, keepIndices: 
 
   clog(c, `   ♦ ${c.heroes[pi]!.playerName} keeps ${kept.length} card${kept.length !== 1 ? 's' : ''}, returns ${returned.length}.`)
   ev(s, 'suit', `♦ Kept ${kept.length}, returned ${returned.length}`, 'info')
+
+  // Chain: a Surgeon recovery pick may still be owed after the overdraw pick.
+  // It pauses next; applyRecoverSelect resumes the counter (pendingCounterPi
+  // stays set) or just returns to play (kill path).
+  if (s.flags['recoverPending']) { enterRecoverSelect(c, s); return {} }
 
   // Resume the suspended turn: the diamond draw paused before the counterattack.
   if (s.flags['pendingCounterPi'] !== undefined) {

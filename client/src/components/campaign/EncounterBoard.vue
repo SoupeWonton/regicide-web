@@ -122,6 +122,23 @@ const sortedDrawPool = computed<{ card: Card; i: number }[]>(() => {
     })
 })
 
+// ascending-deck: Surgeon recovery pick (Triage / Last Rites). Triage picks up
+// to N discard cards to recover; Last Rites picks exactly one recovered card to
+// take into hand. Same pool-index discipline as the overdraw picker.
+const inRecoverSelect = computed(() =>
+  enc.value.turnPhase === 'recover_select' && enc.value.recoverPool !== undefined && isMyTurn.value)
+const recoverSelected = ref<number[]>([])
+const sortedRecoverPool = computed<{ card: Card; i: number }[]>(() => {
+  const suitRank: Record<string, number> = { S: 0, H: 1, C: 2, D: 3 }
+  return (enc.value.recoverPool ?? [])
+    .map((card, i) => ({ card, i }))
+    .sort((a, b) => {
+      const ja = a.card.rank === 'Jo', jb = b.card.rank === 'Jo'
+      if (ja !== jb) return ja ? 1 : -1
+      return (suitRank[a.card.suit]! - suitRank[b.card.suit]!) || (cardValue(a.card.rank) - cardValue(b.card.rank))
+    })
+})
+
 const hand = computed(() => enc.value.myHand)
 
 // Keep the display order in sync with the real hand: surviving cards hold their
@@ -334,7 +351,24 @@ function comboErrorFor(cards: Card[]): string | null {
   const nonAces = cards.filter(c => c.rank !== 'A')
   if (aces.length === 1 && nonAces.length === 1) return null
   if (aces.length > 1) return 'Only one Ace per combo'
-  if (new Set(cards.map(c => c.rank)).size > 1) return 'Must be same rank (or use Ace)'
+  if (new Set(cards.map(c => c.rank)).size > 1) {
+    // Reinforce (Sentinel) / Dovetail (Quartermaster): the combo may include
+    // ONE adjacent-rank card — 'S' must be a Spade, 'any' allows any suit.
+    // (Commit's 'free' adjacency isn't projected to the client yet, so it
+    // still falls through to the same-rank error below.)
+    const staffId = props.state.heroes[props.state.myHeroIndex]?.staff?.id
+    const adjacent = staffId === 'reinforce' ? 'S' : staffId === 'dovetail' ? 'any' : undefined
+    const counts = new Map<string, number>()
+    for (const c of cards) counts.set(c.rank, (counts.get(c.rank) ?? 0) + 1)
+    const [a, b] = [...counts.entries()]
+    const tiedOk = adjacent && counts.size === 2 && Math.min(a![1], b![1]) === 1
+      && Math.abs(cardValue(a![0]) - cardValue(b![0])) === 1
+    const suitOk = adjacent !== 'S' || (tiedOk && cards.some(c => {
+      const minorRanks = a![1] === b![1] ? [a![0], b![0]] : [a![1] < b![1] ? a![0] : b![0]]
+      return minorRanks.includes(c.rank) && c.suit === 'S'
+    }))
+    if (!tiedOk || !suitOk) return 'Must be same rank (or use Ace)'
+  }
   const total = cards.reduce((s, c) => s + cardValue(c.rank), 0)
   const max = enc.value.myBoosts?.comboMax ?? 10   // Combat Cache raises this to 12
   if (total > max) return `Total ${total} exceeds ${max}`
@@ -609,6 +643,22 @@ function confirmKeepDrawn() {
   drawPoolSelected.value = []
 }
 
+// ascending-deck: Surgeon recovery pick (Triage / Last Rites)
+function toggleRecoverPool(i: number) {
+  const idx = recoverSelected.value.indexOf(i)
+  if (idx >= 0) { recoverSelected.value.splice(idx, 1); return }
+  const cap = enc.value.recoverKeep ?? 0
+  // Last Rites picks exactly one — a new pick replaces the old.
+  if (enc.value.recoverMode === 'last-rites') { recoverSelected.value = [i]; return }
+  if (recoverSelected.value.length >= cap) return
+  recoverSelected.value.push(i)
+}
+
+function confirmRecover() {
+  act({ type: 'recover_select', keepIndices: [...recoverSelected.value] })
+  recoverSelected.value = []
+}
+
 // ascending-deck: resolve the graft — reinforce the chosen hand card (+value / +suit), or skip
 function confirmGraft(mode: 'value' | 'suit') {
   if (graftCardIdx.value === null) return
@@ -731,6 +781,55 @@ const netAttack = computed(() => {
       </template>
       <p v-else class="text-sm text-center text-base-content/50 soft-pulse">
         ♦ Someone is selecting from their draw pool…
+      </p>
+    </OverlayModal>
+
+    <!-- Ascending-deck: Surgeon recovery pick (Triage / Last Rites) -->
+    <OverlayModal v-if="enc.turnPhase === 'recover_select'" tone="primary">
+      <template v-if="inRecoverSelect">
+        <p class="text-sm font-semibold text-center">
+          <template v-if="enc.recoverMode === 'last-rites'">
+            ⚱️ Last Rites — choose one recovered card for your hand
+          </template>
+          <template v-else>
+            🩺 Triage — choose up to {{ enc.recoverKeep ?? 0 }}
+            card{{ (enc.recoverKeep ?? 0) !== 1 ? 's' : '' }} to recover
+          </template>
+        </p>
+        <p class="text-[11px] text-center text-base-content/60">
+          <template v-if="enc.recoverMode === 'last-rites'">
+            The picked card goes to your hand; the rest return to the Tavern.
+          </template>
+          <template v-else>
+            Picked cards return to the Tavern; the rest stay in the discard.
+          </template>
+        </p>
+        <div class="flex gap-2 justify-center flex-wrap">
+          <button
+            v-for="entry in sortedRecoverPool" :key="entry.card.id"
+            class="card-face w-14 h-20 font-mono flex flex-col items-center justify-center relative transition-all duration-150"
+            :class="recoverSelected.includes(entry.i)
+              ? '-translate-y-1.5 scale-105 ring-2 ring-primary bg-primary/20 shadow-lg shadow-primary/40 z-10'
+              : 'ring-1 ring-base-content/10 hover:-translate-y-1'"
+            @click="toggleRecoverPool(entry.i)"
+          >
+            <span class="text-xl font-bold" :class="suitClass(entry.card.suit)">{{ entry.card.rank === 'Jo' ? '🃏' : entry.card.rank }}</span>
+            <span class="text-base" :class="suitClass(entry.card.suit)">{{ entry.card.rank !== 'Jo' ? suitSymbol(entry.card.suit) : '' }}</span>
+            <span v-if="recoverSelected.includes(entry.i)"
+              class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-primary text-primary-content text-[10px] font-bold flex items-center justify-center shadow">✓</span>
+          </button>
+        </div>
+        <button
+          class="btn btn-primary btn-sm"
+          :disabled="enc.recoverMode === 'last-rites' && recoverSelected.length < 1"
+          @click="confirmRecover"
+        >
+          <template v-if="enc.recoverMode === 'last-rites'">Take to hand</template>
+          <template v-else>Recover {{ recoverSelected.length }} card{{ recoverSelected.length !== 1 ? 's' : '' }}</template>
+        </button>
+      </template>
+      <p v-else class="text-sm text-center text-base-content/50 soft-pulse">
+        ♥ Someone is choosing which cards to recover…
       </p>
     </OverlayModal>
 
