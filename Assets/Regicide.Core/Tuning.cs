@@ -34,6 +34,12 @@ namespace Regicide.Core
         /// <summary>Renewal rung (Surgeon ♥): min cards paid to a counter to recover 1 (§10).</summary>
         public const int RenewalMinPayCards = 3;
 
+        /// <summary>Whetstone staff (§10): max overshoot auto-shaved down to an exact kill.</summary>
+        public const int WhetstoneShaveMax = 2;
+
+        /// <summary>Field Dressing staff (§10): bonus to the first recovery each enemy.</summary>
+        public const int FieldDressingBonus = 1;
+
         /// <summary>Chapters per continent — provinces are chapters within a continent (§4).</summary>
         public const int ChaptersPerContinent = 3;
 

@@ -92,10 +92,27 @@ namespace Regicide.Core
         public int CurrentIndex;
         /// <summary>Camp bonus: the first attack of this fight deals double (§9). Consumed on first play.</summary>
         public bool FirstAttackDouble;
-        /// <summary>Royal gate fight: kills give no mid-fight reward; keeps resolve after (§6).</summary>
+        /// <summary>Royal gate fight: the keep pyramid resolves after the gate clears (§6).</summary>
         public bool IsGate;
         /// <summary>The gate's royal rank (Jack/Queen/King) when <see cref="IsGate"/>.</summary>
         public Rank GateRank;
+
+        /// <summary>Once-per-enemy ability ids already used (staffs/amulets §8, §10). Cleared per enemy.</summary>
+        public HashSet<string> UsedThisEnemy = new HashSet<string>();
+        /// <summary>Once-per-fight ability ids already used.</summary>
+        public HashSet<string> UsedThisFight = new HashSet<string>();
+
+        // Armed staff toggles (§10) — consumed by the play they modify.
+        /// <summary>Steady Hand: the next play skips the ♣ double.</summary>
+        public bool SteadyHandArmed;
+        /// <summary>Transfuse (once/enemy): the next ♥ play converts recovery to shield.</summary>
+        public bool TransfuseArmed;
+        /// <summary>Ace in the Hole: the next Ace pair plays the Ace at the partner's value.</summary>
+        public bool AceInHoleArmed;
+        /// <summary>Stockpile (once/enemy): hand may exceed the cap by 1 while this enemy lives.</summary>
+        public bool StockpileArmed;
+        /// <summary>Banked bonus damage for the next play (Bloodletting ⌊v/2⌋ etc.). Consumed on play.</summary>
+        public int AttackBank;
 
         public EnemyState Current =>
             CurrentIndex < Enemies.Count ? Enemies[CurrentIndex] : null;
@@ -113,6 +130,10 @@ namespace Regicide.Core
         HuntSelect,
         /// <summary>Cleared royal gate: resolve the 3/2/1 keep pyramid (§6).</summary>
         RoyalKeep,
+        /// <summary>Triage staff (§10): pick which discards recover instead of random ones.</summary>
+        RecoverSelect,
+        /// <summary>Last Rites staff (§10): optionally pick one recovered card into hand.</summary>
+        RecoverToHand,
     }
 
     /// <summary>A decision blocking the game until the player answers (§4).</summary>
@@ -133,6 +154,10 @@ namespace Regicide.Core
         public int PicksRemaining;
         /// <summary>RoyalKeep: true at the Jack Gate — the pick is the royal to LEAVE (§6).</summary>
         public bool PickIsLeave;
+        /// <summary>RecoverSelect/RecoverToHand: the physicalIds the player may pick from.</summary>
+        public List<int> RecoverIds;
+        /// <summary>RecoverSelect: max cards the player may pick (the recovered amount).</summary>
+        public int RecoverMax;
     }
 
     /// <summary>The root state. Core owns it; the UI is a pure view of it (§4).</summary>
@@ -176,8 +201,20 @@ namespace Regicide.Core
 
         public List<string> Log = new List<string>();
 
-        /// <summary>Current max hand size (base 5; relics/staffs adjust later).</summary>
-        public int MaxHandSize = Tuning.BaseMaxHandSize;
+        /// <summary>
+        /// Fallen Heroes offer (§10): one random Staff per class, live while standing
+        /// on the Heroes node (swap is free and repeatable there). Null elsewhere.
+        /// </summary>
+        public List<string> StaffOffer;
+
+        /// <summary>
+        /// Current max hand size — derived, never stored (§3 base 5; Depot rung +2;
+        /// Stockpile staff +1 while armed; relics add more in step 8).
+        /// </summary>
+        public int MaxHandSize =>
+            Tuning.BaseMaxHandSize
+            + (Hero.PathC2 == ClassTables.RungDepot ? Tuning.DepotHandBonus : 0)
+            + (Encounter != null && Encounter.StockpileArmed ? 1 : 0);
 
         /// <summary>True if any owned card's *effective* face matches — the graft trigger test (§6).</summary>
         public bool OwnsFace(CardFace face)

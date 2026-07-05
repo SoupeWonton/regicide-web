@@ -87,4 +87,35 @@ namespace Regicide.Core
         public Suit Suit;
         public ChooseRoyal(Suit suit) { Suit = suit; }
     }
+
+    /// <summary>
+    /// Use the hero's Staff (§10) in combat. Toggles arm/disarm themselves; targeted
+    /// staffs (Footwork, Parry, Bloodletting, Provisioner) name a hand card. Parry is
+    /// the only staff usable while a Defend is pending — that's its whole point.
+    /// </summary>
+    public sealed class ActivateStaff : IAction
+    {
+        /// <summary>Hand card the staff acts on; 0 for untargeted staffs.</summary>
+        public int TargetPhysicalId;
+        public ActivateStaff(int targetPhysicalId = 0) { TargetPhysicalId = targetPhysicalId; }
+    }
+
+    /// <summary>Fallen Heroes (§10): swap to one of the four offered Staffs (free, repeatable there).</summary>
+    public sealed class SwapStaff : IAction
+    {
+        public string StaffId;
+        public SwapStaff(string staffId) { StaffId = staffId; }
+    }
+
+    /// <summary>
+    /// Answer a RecoverSelect (Triage: pick up to Max discards to recover) or
+    /// RecoverToHand (Last Rites: pick ≤1 recovered card into hand) pending choice.
+    /// An empty list is a legal "none" answer for both (§10).
+    /// </summary>
+    public sealed class ChooseRecover : IAction
+    {
+        public List<int> PhysicalIds;
+        public ChooseRecover(List<int> physicalIds) { PhysicalIds = physicalIds; }
+        public ChooseRecover(params int[] physicalIds) { PhysicalIds = new List<int>(physicalIds); }
+    }
 }

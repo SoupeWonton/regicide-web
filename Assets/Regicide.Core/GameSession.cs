@@ -48,6 +48,9 @@ namespace Regicide.Core
                 MoveToNode a => HandleMoveToNode(a),
                 ChooseHunt a => HandleChooseHunt(a),
                 ChooseRoyal a => HandleChooseRoyal(a),
+                ActivateStaff a => HandleActivateStaff(a),
+                SwapStaff a => HandleSwapStaff(a),
+                ChooseRecover a => HandleChooseRecover(a),
                 ContinueRun _ => HandleContinueRun(),
                 _ => Result.Fail($"Unknown action {action?.GetType().Name ?? "null"}"),
             };
@@ -184,6 +187,17 @@ namespace Regicide.Core
             var enemy = State.Encounter.Current;
 
             int baseAttack = cards.Sum(c => c.EffectiveValue());
+
+            // Ace in the Hole (§10): the next Ace pair plays the Ace at the partner's value.
+            if (State.Encounter.AceInHoleArmed && cards.Count == 2 &&
+                cards.Count(c => c.EffectiveFace().Rank == Rank.Ace) == 1)
+            {
+                var partner = cards.First(c => c.EffectiveFace().Rank != Rank.Ace);
+                baseAttack = partner.EffectiveValue() * 2;
+                State.Encounter.AceInHoleArmed = false;
+                events.Add(new StaffTriggered { StaffId = "ace_in_the_hole", Note = $"the Ace plays at {partner.EffectiveValue()}" });
+            }
+
             var activeSuits = cards.SelectMany(c => c.EffectiveSuits()).Distinct().ToList();
             Suit? blocked = enemy.ImmuneSuit is Suit imm && activeSuits.Contains(imm) ? (Suit?)imm : null;
             bool SuitActive(Suit s) => activeSuits.Contains(s) && blocked != s;
@@ -208,15 +222,73 @@ namespace Regicide.Core
             }
             if (SuitActive(Suit.Hearts))
             {
-                // Recover BEFORE the played cards land in discard (they are still in play).
-                int n = System.Math.Min(baseAttack, State.Deck.Discard.Count);
-                if (n > 0)
+                var enc = State.Encounter;
+                if (enc.TransfuseArmed)
                 {
-                    _rng.Shuffle(State.Deck.Discard);
-                    var recovered = State.Deck.Discard.Take(n).ToList();
-                    State.Deck.Discard.RemoveRange(0, n);
-                    State.Deck.Tavern.AddRange(recovered); // bottom of the Tavern
-                    events.Add(new CardsRecovered { Count = n });
+                    // Transfuse (§10): this ♥ play skips recovery; its value becomes shield.
+                    enc.TransfuseArmed = false;
+                    enemy.Shield += baseAttack;
+                    events.Add(new StaffTriggered { StaffId = "transfuse", Note = $"recovery becomes {baseAttack} shield" });
+                    events.Add(new ShieldGained { Amount = baseAttack, Total = enemy.Shield });
+                }
+                else
+                {
+                    // Recover BEFORE the played cards land in discard (they are still in play).
+                    // Field Dressing (§10): the first recovery each enemy recovers +1.
+                    int bonus = State.Hero.StaffId == "field_dressing" &&
+                                !enc.UsedThisEnemy.Contains("field_dressing")
+                        ? Tuning.FieldDressingBonus : 0;
+                    int n = System.Math.Min(baseAttack + bonus, State.Deck.Discard.Count);
+                    if (n > 0)
+                    {
+                        if (bonus > 0) enc.UsedThisEnemy.Add("field_dressing");
+
+                        if (State.Hero.StaffId == "triage")
+                        {
+                            // Triage (§10): recovery pauses — the player picks which
+                            // discards return, instead of random ones. Queued so the
+                            // rest of the play (draws, damage, kill) resolves first.
+                            State.PendingChoices.Add(new PendingChoice
+                            {
+                                Kind = PendingChoiceKind.RecoverSelect,
+                                RecoverIds = new List<int>(State.Deck.Discard),
+                                RecoverMax = n,
+                            });
+                            events.Add(new RecoverChoiceOffered
+                            {
+                                Kind = PendingChoiceKind.RecoverSelect,
+                                Options = new List<int>(State.Deck.Discard),
+                                Max = n,
+                            });
+                        }
+                        else
+                        {
+                            _rng.Shuffle(State.Deck.Discard);
+                            var recovered = State.Deck.Discard.Take(n).ToList();
+                            State.Deck.Discard.RemoveRange(0, n);
+                            State.Deck.Tavern.AddRange(recovered); // bottom of the Tavern
+                            events.Add(new CardsRecovered { Count = n });
+
+                            // Last Rites (§10, once/enemy): pick one recovered card into hand.
+                            if (State.Hero.StaffId == "last_rites" &&
+                                !enc.UsedThisEnemy.Contains("last_rites") &&
+                                State.Deck.Hand.Count < State.MaxHandSize)
+                            {
+                                enc.UsedThisEnemy.Add("last_rites");
+                                State.PendingChoices.Add(new PendingChoice
+                                {
+                                    Kind = PendingChoiceKind.RecoverToHand,
+                                    RecoverIds = recovered,
+                                });
+                                events.Add(new RecoverChoiceOffered
+                                {
+                                    Kind = PendingChoiceKind.RecoverToHand,
+                                    Options = new List<int>(recovered),
+                                    Max = 1,
+                                });
+                            }
+                        }
+                    }
                 }
             }
             if (SuitActive(Suit.Diamonds))
@@ -234,12 +306,36 @@ namespace Regicide.Core
                 if (drawn.PhysicalIds.Count > 0) events.Add(drawn);
             }
 
+            // Damage pipeline: multipliers first (♣, Camp), then flat banked bonuses,
+            // then the Whetstone shave against the final number.
             bool doubled = SuitActive(Suit.Clubs);
+            if (doubled && State.Encounter.SteadyHandArmed)
+            {
+                // Steady Hand (§10): deal single damage on purpose. Consumed here.
+                doubled = false;
+                State.Encounter.SteadyHandArmed = false;
+                events.Add(new StaffTriggered { StaffId = "steady_hand", Note = "♣ double skipped" });
+            }
             int damage = doubled ? baseAttack * 2 : baseAttack;
             if (State.Encounter.FirstAttackDouble)
             {
                 damage *= 2; // Camp bonus: the fight's first attack deals double (§9)
                 State.Encounter.FirstAttackDouble = false;
+            }
+            if (State.Encounter.AttackBank > 0)
+            {
+                damage += State.Encounter.AttackBank; // Bloodletting bank (§10)
+                events.Add(new StaffTriggered { StaffId = "bloodletting", Note = $"+{State.Encounter.AttackBank} banked damage" });
+                State.Encounter.AttackBank = 0;
+            }
+            if (State.Hero.StaffId == "whetstone" &&
+                !State.Encounter.UsedThisEnemy.Contains("whetstone") &&
+                damage > enemy.Hp && damage - enemy.Hp <= Tuning.WhetstoneShaveMax)
+            {
+                // Whetstone (§10, once/enemy): shave a 1–2 point overshoot to an exact kill.
+                State.Encounter.UsedThisEnemy.Add("whetstone");
+                events.Add(new StaffTriggered { StaffId = "whetstone", Note = $"overshoot shaved {damage - enemy.Hp} → exact" });
+                damage = enemy.Hp;
             }
             enemy.Hp -= damage;
             events.Add(new DamageDealt { Amount = damage, Doubled = doubled });
@@ -268,8 +364,14 @@ namespace Regicide.Core
             return null;
         }
 
-        /// <summary>Legal plays: 1 card · Ace + one non-Ace · same-rank set totalling ≤ 10 (§3).</summary>
-        private static string ValidateCombo(List<PhysicalCard> cards)
+        /// <summary>
+        /// Legal plays: 1 card · Ace + one non-Ace · same-rank set totalling ≤ 10 (§3).
+        /// Staff passives widen this (§10): Reinforce lets a same-rank set include ONE
+        /// true ♠ of any rank (the ♠ rides outside the value cap — "any rank" would be
+        /// dead text otherwise); Dovetail lets it include ONE adjacent-rank card (the
+        /// cap covers the whole play — adjacency, not rank freedom, is its point).
+        /// </summary>
+        private string ValidateCombo(List<PhysicalCard> cards)
         {
             if (cards.Count == 1) return null;
 
@@ -279,15 +381,44 @@ namespace Regicide.Core
             if (cards.Count == 2 && aces == 1)
                 return null; // animal companion: one Ace + one non-Ace of any rank/suit
 
-            if (faces.Select(f => f.Rank).Distinct().Count() == 1)
+            if (SameRankTotal(cards, out int total) && total <= Tuning.ComboValueCap)
+                return null;
+
+            string staff = State.Hero.StaffId;
+            if (staff == "reinforce")
             {
-                int total = cards.Sum(c => c.EffectiveValue());
-                return total <= Tuning.ComboValueCap
-                    ? null
-                    : $"Same-rank combo total {total} exceeds {Tuning.ComboValueCap}";
+                for (int i = 0; i < cards.Count; i++)
+                {
+                    if (cards[i].EffectiveFace().Suit != Suit.Spades) continue;
+                    var rest = cards.Where((_, j) => j != i).ToList();
+                    if (SameRankTotal(rest, out int t) && t <= Tuning.ComboValueCap)
+                        return null;
+                }
+            }
+            if (staff == "dovetail")
+            {
+                for (int i = 0; i < cards.Count; i++)
+                {
+                    var rest = cards.Where((_, j) => j != i).ToList();
+                    if (!SameRankTotal(rest, out _)) continue;
+                    int restRank = (int)rest[0].EffectiveFace().Rank;
+                    int oddRank = (int)cards[i].EffectiveFace().Rank;
+                    if (System.Math.Abs(restRank - oddRank) == 1 &&
+                        cards.Sum(c => c.EffectiveValue()) <= Tuning.ComboValueCap)
+                        return null;
+                }
             }
 
+            if (SameRankTotal(cards, out int over))
+                return $"Same-rank combo total {over} exceeds {Tuning.ComboValueCap}";
             return "Illegal combo: play 1 card, an Ace + one card, or a same-rank set totalling ≤ 10";
+        }
+
+        private static bool SameRankTotal(List<PhysicalCard> cards, out int total)
+        {
+            total = cards.Sum(c => c.EffectiveValue());
+            return cards.Count > 0 &&
+                   cards.Select(c => c.EffectiveFace().Rank).Distinct().Count() == 1;
         }
 
         // ── combat resolution ───────────────────────────────────────────────────
@@ -323,10 +454,11 @@ namespace Regicide.Core
                 else
                 {
                     // Recruit: mint a PhysicalCard, shuffle it into the Tavern (§6) —
-                    // or straight into the hand under the Conscript rung (§10).
+                    // or straight into the hand under Conscript / Field Promotion (§10).
                     var card = State.Cards.Mint(enemy.Suit, enemy.Rank);
                     State.OwnedCards.Add(card.PhysicalId);
-                    bool toHand = State.Hero.PathC2 == ClassTables.RungConscript &&
+                    bool toHand = (State.Hero.PathC2 == ClassTables.RungConscript ||
+                                   State.Hero.StaffId == "field_promotion") &&
                                   State.Deck.Hand.Count < State.MaxHandSize;
                     if (toHand)
                         State.Deck.Hand.Add(card.PhysicalId);
@@ -430,6 +562,11 @@ namespace Regicide.Core
             }
             else
             {
+                // A fresh duel: once-per-enemy abilities refresh; unspent per-enemy
+                // arms (Transfuse, Stockpile) lapse with the enemy they targeted.
+                enc.UsedThisEnemy.Clear();
+                enc.StockpileArmed = false;
+                enc.TransfuseArmed = false;
                 events.Add(new NextEnemy { Face = enc.Current.Face });
             }
         }
@@ -603,6 +740,7 @@ namespace Regicide.Core
 
             // ── validated; mutate ──
             var events = new List<GameEvent>();
+            State.StaffOffer = null; // walking away from a Fallen Heroes stop closes its offer (§10)
             State.Map.CurrentNodeId = node.Id;
             node.Known = node.Visited = true;
             foreach (int next in node.Next) State.Map.Get(next).Known = true;
@@ -643,8 +781,17 @@ namespace Regicide.Core
                     events.Add(new HuntOffered { Options = options });
                     break;
 
+                case RoadNodeKind.Heroes:
+                    // Fallen Heroes (§10): one random Staff from each of the four classes
+                    // (own class included). Free and repeatable while standing here.
+                    State.StaffOffer = ClassTables.ClassOrder
+                        .Select(id => _rng.Pick(ClassTables.Classes[id].StaffIds))
+                        .ToList();
+                    events.Add(new StaffSwapOffered { Offer = new List<string>(State.StaffOffer) });
+                    break;
+
                 default:
-                    // Forge/Lair/Caravan/Sanctum/Shrine/Event/Heroes land in steps 6–9.
+                    // Forge/Lair/Caravan/Sanctum/Shrine/Event land in steps 7–9.
                     events.Add(new LandmarkVisited { Kind = node.Kind, Note = "nothing here yet (later build step)" });
                     break;
             }
@@ -698,9 +845,8 @@ namespace Regicide.Core
             if (State.Chapter == Tuning.ChaptersPerContinent + 1)
             {
                 // Entering C2 lights the class's home-suit path rung (§4, §10).
+                // (Depot's +2 hand flows from the MaxHandSize derivation.)
                 State.Hero.PathC2 = ClassTables.HomeRungId(State.Hero.ClassId);
-                if (State.Hero.PathC2 == ClassTables.RungDepot)
-                    State.MaxHandSize += Tuning.DepotHandBonus;
                 events.Add(new ContinentEntered { Continent = 2, LitRungId = State.Hero.PathC2 });
             }
 
@@ -794,6 +940,199 @@ namespace Regicide.Core
                 },
             };
             AdvancePastDead(events); // resume the fight (or win it)
+            return Result.Success(events);
+        }
+
+        // ── staffs (§10) ────────────────────────────────────────────────────────
+
+        private Result HandleActivateStaff(ActivateStaff a)
+        {
+            if (State.Phase != CampaignPhase.Encounter || State.Encounter?.Current == null)
+                return Result.Fail("Staffs activate in combat");
+
+            string staff = State.Hero.StaffId;
+            var enc = State.Encounter;
+            var enemy = enc.Current;
+            var pending = State.PendingChoice;
+
+            // Parry is the one staff whose moment IS the pay step.
+            if (pending != null && !(pending.Kind == PendingChoiceKind.Defend && staff == "parry"))
+                return Result.Fail($"Resolve the pending {pending.Kind} first");
+            if (staff == "parry" && pending == null)
+                return Result.Fail("Parry works during the pay step — no counterattack to parry");
+
+            PhysicalCard Target()
+            {
+                if (a.TargetPhysicalId == 0 || !State.Deck.Hand.Contains(a.TargetPhysicalId)) return null;
+                return State.Cards.Get(a.TargetPhysicalId);
+            }
+            List<GameEvent> One(GameEvent e) => new List<GameEvent> { e };
+            Result Trigger(string note, params GameEvent[] extra)
+            {
+                var evs = One(new StaffTriggered { StaffId = staff, Note = note });
+                evs.AddRange(extra);
+                return Result.Success(evs);
+            }
+
+            switch (staff)
+            {
+                case "hold_the_line": // once/enemy: highest ♠ in discard adds to shield; stays there
+                {
+                    if (enc.UsedThisEnemy.Contains(staff)) return Result.Fail("Hold the Line already used vs this enemy");
+                    var spades = State.Deck.Discard.Where(id => State.Cards.Get(id).FiresSuit(Suit.Spades)).ToList();
+                    if (spades.Count == 0) return Result.Fail("No ♠ in the discard to hold with");
+                    int best = spades.OrderByDescending(id => State.Cards.Get(id).EffectiveValue()).First();
+                    int v = State.Cards.Get(best).EffectiveValue();
+                    enc.UsedThisEnemy.Add(staff);
+                    enemy.Shield += v;
+                    return Trigger($"braced behind the {State.Cards.Get(best)}",
+                        new ShieldGained { Amount = v, Total = enemy.Shield });
+                }
+
+                case "footwork": // bury a hand ♠ to the Tavern bottom, draw 1
+                {
+                    var card = Target();
+                    if (card == null) return Result.Fail("Footwork needs a hand card target");
+                    if (!card.FiresSuit(Suit.Spades)) return Result.Fail("Footwork buries a ♠");
+                    State.Deck.Hand.Remove(card.PhysicalId);
+                    State.Deck.Tavern.Add(card.PhysicalId);
+                    var drawn = new CardsDrawn();
+                    if (State.Deck.Tavern.Count > 0)
+                    {
+                        int id = State.Deck.Tavern[0];
+                        State.Deck.Tavern.RemoveAt(0);
+                        State.Deck.Hand.Add(id);
+                        drawn.PhysicalIds.Add(id);
+                    }
+                    return Trigger($"buried #{card.PhysicalId}, drew {drawn.PhysicalIds.Count}", drawn);
+                }
+
+                case "parry": // pay step: spend a hand ♠ — shield up, payment owed down
+                {
+                    var card = Target();
+                    if (card == null) return Result.Fail("Parry needs a hand card target");
+                    if (!card.FiresSuit(Suit.Spades)) return Result.Fail("Parry spends a ♠");
+                    int v = card.EffectiveValue();
+                    State.Deck.Hand.Remove(card.PhysicalId);
+                    State.Deck.Discard.Add(card.PhysicalId);
+                    enemy.Shield += v;
+                    pending.RequiredValue -= v;
+                    var extra = new List<GameEvent> { new ShieldGained { Amount = v, Total = enemy.Shield } };
+                    if (pending.RequiredValue <= 0)
+                    {
+                        State.PendingChoices.RemoveAt(0);
+                        extra.Add(new Defended { Paid = 0, Required = 0 });
+                        return Trigger("counterattack fully parried", extra.ToArray());
+                    }
+                    return Trigger($"parried {v} — {pending.RequiredValue} still owed", extra.ToArray());
+                }
+
+                case "steady_hand": // toggle: the next play skips the ♣ double
+                    enc.SteadyHandArmed = !enc.SteadyHandArmed;
+                    return Trigger(enc.SteadyHandArmed ? "armed — next play deals single damage" : "disarmed");
+
+                case "bloodletting": // discard a card, bank ⌊value/2⌋ onto the next attack
+                {
+                    var card = Target();
+                    if (card == null) return Result.Fail("Bloodletting needs a hand card target");
+                    State.Deck.Hand.Remove(card.PhysicalId);
+                    State.Deck.Discard.Add(card.PhysicalId);
+                    enc.AttackBank += card.EffectiveValue() / 2;
+                    return Trigger($"bled #{card.PhysicalId} — +{card.EffectiveValue() / 2} banked (total {enc.AttackBank})");
+                }
+
+                case "ace_in_the_hole": // toggle: next Ace pair plays the Ace at partner value
+                    enc.AceInHoleArmed = !enc.AceInHoleArmed;
+                    return Trigger(enc.AceInHoleArmed ? "armed for the next Ace pair" : "disarmed");
+
+                case "stockpile": // once/enemy: hand may exceed the cap by 1
+                    if (enc.UsedThisEnemy.Contains(staff)) return Result.Fail("Stockpile already used vs this enemy");
+                    enc.UsedThisEnemy.Add(staff);
+                    enc.StockpileArmed = true;
+                    return Trigger($"hand cap raised to {State.MaxHandSize} vs this enemy");
+
+                case "provisioner": // discard 1, then draw 1
+                {
+                    var card = Target();
+                    if (card == null) return Result.Fail("Provisioner needs a hand card target");
+                    State.Deck.Hand.Remove(card.PhysicalId);
+                    State.Deck.Discard.Add(card.PhysicalId);
+                    var drawn = new CardsDrawn();
+                    if (State.Deck.Tavern.Count > 0)
+                    {
+                        int id = State.Deck.Tavern[0];
+                        State.Deck.Tavern.RemoveAt(0);
+                        State.Deck.Hand.Add(id);
+                        drawn.PhysicalIds.Add(id);
+                    }
+                    return Trigger($"cycled #{card.PhysicalId}", drawn);
+                }
+
+                case "transfuse": // once/enemy: next ♥ play converts recovery to shield
+                    if (enc.UsedThisEnemy.Contains(staff)) return Result.Fail("Transfuse already used vs this enemy");
+                    enc.UsedThisEnemy.Add(staff);
+                    enc.TransfuseArmed = true;
+                    return Trigger("armed — the next ♥ play shields instead of recovering");
+
+                default:
+                    return Result.Fail($"{staff} is passive — it works on its own");
+            }
+        }
+
+        private Result HandleSwapStaff(SwapStaff a)
+        {
+            if (State.StaffOffer == null)
+                return Result.Fail("No Staff offer here — Fallen Heroes only");
+            if (a.StaffId != State.Hero.StaffId && !State.StaffOffer.Contains(a.StaffId))
+                return Result.Fail($"'{a.StaffId}' is not on offer");
+
+            // ── validated; mutate ──
+            string from = State.Hero.StaffId;
+            State.Hero.StaffId = a.StaffId;
+            return Result.Success(new List<GameEvent> { new StaffSwapped { From = from, To = a.StaffId } });
+        }
+
+        private Result HandleChooseRecover(ChooseRecover a)
+        {
+            var pending = State.PendingChoice;
+            if (pending == null ||
+                (pending.Kind != PendingChoiceKind.RecoverSelect && pending.Kind != PendingChoiceKind.RecoverToHand))
+                return Result.Fail("No recover choice pending");
+
+            var ids = a.PhysicalIds ?? new List<int>();
+            if (ids.Distinct().Count() != ids.Count) return Result.Fail("Duplicate card in pick");
+            foreach (int id in ids)
+                if (!pending.RecoverIds.Contains(id)) return Result.Fail($"Card #{id} is not on offer");
+
+            if (pending.Kind == PendingChoiceKind.RecoverSelect)
+            {
+                if (ids.Count > pending.RecoverMax)
+                    return Result.Fail($"Pick at most {pending.RecoverMax} card(s)");
+
+                // ── validated; mutate ── Triage: chosen discards go to the Tavern bottom.
+                foreach (int id in ids)
+                {
+                    State.Deck.Discard.Remove(id);
+                    State.Deck.Tavern.Add(id);
+                }
+                State.PendingChoices.RemoveAt(0);
+                return Result.Success(new List<GameEvent> { new CardsRecovered { Count = ids.Count } });
+            }
+
+            // RecoverToHand (Last Rites): at most one, from Tavern into hand.
+            if (ids.Count > 1) return Result.Fail("Pick at most one card");
+            if (ids.Count == 1 && State.Deck.Hand.Count >= State.MaxHandSize)
+                return Result.Fail("Hand is full");
+
+            // ── validated; mutate ──
+            State.PendingChoices.RemoveAt(0);
+            var events = new List<GameEvent>();
+            if (ids.Count == 1)
+            {
+                State.Deck.Tavern.Remove(ids[0]);
+                State.Deck.Hand.Add(ids[0]);
+                events.Add(new RecoveredToHand { PhysicalId = ids[0] });
+            }
             return Result.Success(events);
         }
     }

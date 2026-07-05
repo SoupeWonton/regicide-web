@@ -57,6 +57,23 @@ namespace Regicide.Headless
             Run("bastion rung: excess shield carries forward", TestBastionRung);
             Run("renewal rung: 3+ card pay recovers the best discard", TestRenewalRung);
             Run("full campaign: crowned at the King Gate, six royals kept", TestFullCampaign);
+            Run("staff: hold the line (once/enemy ♠ shield from discard)", TestHoldTheLine);
+            Run("staff: reinforce (same-rank set + one ♠ of any rank)", TestReinforce);
+            Run("staff: footwork (bury a ♠, draw 1)", TestFootwork);
+            Run("staff: parry (pay-step ♠ spend)", TestParry);
+            Run("staff: steady hand (skip the ♣ double)", TestSteadyHand);
+            Run("staff: whetstone (once/enemy overshoot shave)", TestWhetstone);
+            Run("staff: bloodletting (bank ⌊v/2⌋ onto the next attack)", TestBloodletting);
+            Run("staff: field promotion (recruits enter the hand)", TestFieldPromotion);
+            Run("staff: dovetail (same-rank set + one adjacent card)", TestDovetail);
+            Run("staff: ace in the hole (Ace at partner value)", TestAceInHole);
+            Run("staff: stockpile (hand cap +1 this enemy)", TestStockpile);
+            Run("staff: provisioner (discard 1, draw 1)", TestProvisioner);
+            Run("staff: triage (player-chosen recovery)", TestTriage);
+            Run("staff: last rites (one recovered card to hand, once/enemy)", TestLastRites);
+            Run("staff: transfuse (♥ play shields instead of recovering)", TestTransfuse);
+            Run("staff: field dressing (first recovery +1)", TestFieldDressing);
+            Run("fallen heroes: one staff per class, free repeatable swap", TestFallenHeroes);
 
             Console.WriteLine();
             if (_failures.Count == 0)
@@ -114,10 +131,12 @@ namespace Regicide.Headless
 
         // ── setup helpers (the harness may reach into public state to stage scenarios) ──
 
-        private static GameSession NewRun(string seed)
+        private static GameSession NewRun(string seed) => NewRunAs("sentinel", "hold_the_line", seed);
+
+        private static GameSession NewRunAs(string classId, string staffId, string seed)
         {
             var s = new GameSession(seed);
-            Must(s.Dispatch(new SelectClass("sentinel", "hold_the_line")));
+            Must(s.Dispatch(new SelectClass(classId, staffId)));
             return s;
         }
 
@@ -1003,6 +1022,357 @@ namespace Regicide.Headless
             Check(Royals(Rank.Jack) == 3, $"kept 3 jacks, got {Royals(Rank.Jack)}");
             Check(Royals(Rank.Queen) == 2, $"kept 2 queens, got {Royals(Rank.Queen)}");
             Check(Royals(Rank.King) == 1, $"kept 1 king (the crown), got {Royals(Rank.King)}");
+        }
+
+        // ── step-6 tests: the 16 Staffs + Fallen Heroes ─────────────────────────
+
+        /// <summary>Mint a card straight into the discard pile (staged, owned).</summary>
+        private static PhysicalCard GiveDiscard(GameSession s, Suit suit, Rank rank)
+        {
+            var c = s.State.Cards.Mint(suit, rank);
+            s.State.OwnedCards.Add(c.PhysicalId);
+            s.State.Deck.Discard.Add(c.PhysicalId);
+            return c;
+        }
+
+        private static void TestHoldTheLine()
+        {
+            var s = NewRunAs("sentinel", "hold_the_line", "htl");
+            MustFail(s.Dispatch(new ActivateStaff()), "staffs activate in combat only");
+            Fight(s, EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish));
+            MustFail(s.Dispatch(new ActivateStaff()), "no ♠ in discard yet");
+
+            GiveDiscard(s, Suit.Spades, Rank.Three);
+            var s5 = GiveDiscard(s, Suit.Spades, Rank.Five);
+            var r = Must(s.Dispatch(new ActivateStaff()));
+            Check(Get<ShieldGained>(r).Amount == 5, "highest ♠ (the 5) adds to shield");
+            Check(s.State.Deck.Discard.Contains(s5.PhysicalId), "the ♠ stays in the discard");
+            MustFail(s.Dispatch(new ActivateStaff()), "once per enemy");
+        }
+
+        private static void TestReinforce()
+        {
+            var s = NewRunAs("sentinel", "reinforce", "reinforce");
+            Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            ClearHand(s);
+            var d3 = Give(s, Suit.Diamonds, Rank.Three);
+            var h3 = Give(s, Suit.Hearts, Rank.Three);
+            var ks = Give(s, Suit.Spades, Rank.King);
+            var kh = Give(s, Suit.Hearts, Rank.King);
+
+            MustFail(s.Dispatch(new PlayCards(d3.PhysicalId, h3.PhysicalId, kh.PhysicalId)),
+                "the free rider must be a ♠");
+            var r = Must(s.Dispatch(new PlayCards(d3.PhysicalId, h3.PhysicalId, ks.PhysicalId)));
+            Check(Get<CardsPlayed>(r).BaseAttack == 26, "3+3+K♠ = 26 — the ♠ rides outside the cap");
+            Check(Get<ShieldGained>(r).Amount == 26, "the ♠ power fires");
+            Check(Has<CounterattackBlocked>(r), "shield 26 blanks the King's counter");
+        }
+
+        private static void TestFootwork()
+        {
+            var s = NewRunAs("sentinel", "footwork", "footwork");
+            Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            ClearHand(s);
+            var s3 = Give(s, Suit.Spades, Rank.Three);
+            var h4 = Give(s, Suit.Hearts, Rank.Four);
+
+            MustFail(s.Dispatch(new ActivateStaff(h4.PhysicalId)), "footwork buries a ♠ only");
+            var r = Must(s.Dispatch(new ActivateStaff(s3.PhysicalId)));
+            Check(s.State.Deck.Tavern.Last() == s3.PhysicalId, "the ♠ went to the Tavern bottom");
+            Check(Has<CardsDrawn>(r) && s.State.Deck.Hand.Count == 2, "drew a replacement");
+        }
+
+        private static void TestParry()
+        {
+            var s = NewRunAs("sentinel", "parry", "parry");
+            Fight(s, EnemyState.Number(Suit.Hearts, Rank.Ten, EnemyTier.Veteran)); // atk 6
+            ClearHand(s);
+            var s4 = Give(s, Suit.Spades, Rank.Four);
+            var c2 = Give(s, Suit.Clubs, Rank.Two);
+            var h3 = Give(s, Suit.Hearts, Rank.Three);
+
+            MustFail(s.Dispatch(new ActivateStaff(s4.PhysicalId)), "parry only during the pay step");
+            Must(s.Dispatch(new Yield()));
+            MustFail(s.Dispatch(new ActivateStaff(c2.PhysicalId)), "parry spends a ♠ only");
+
+            var r = Must(s.Dispatch(new ActivateStaff(s4.PhysicalId)));
+            Check(Get<ShieldGained>(r).Amount == 4, "the ♠ value shields");
+            Check(s.State.PendingChoice?.RequiredValue == 2, "payment owed cut 6 → 2");
+            MustFail(s.Dispatch(new DefendDiscard(c2.PhysicalId, c2.PhysicalId)), "duplicates rejected");
+            Must(s.Dispatch(new DefendDiscard(h3.PhysicalId)));
+
+            // A big enough parry resolves the whole counterattack for free.
+            ClearHand(s);
+            var s9 = Give(s, Suit.Spades, Rank.Nine);
+            Must(s.Dispatch(new Yield())); // net = max(0, 6 − 4 shield) = 2
+            var r2 = Must(s.Dispatch(new ActivateStaff(s9.PhysicalId)));
+            Check(Has<Defended>(r2) && s.State.PendingChoice == null, "counter fully parried, no pay left");
+        }
+
+        private static void TestSteadyHand()
+        {
+            var s = NewRunAs("executioner", "steady_hand", "steady");
+            Fight(s, EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish)); // 18 hp
+            ClearHand(s);
+            var c9 = Give(s, Suit.Clubs, Rank.Nine);
+            Give(s, Suit.Diamonds, Rank.Four);
+
+            Must(s.Dispatch(new ActivateStaff()));
+            Check(s.State.Encounter.SteadyHandArmed, "toggle armed");
+            Must(s.Dispatch(new ActivateStaff()));
+            Check(!s.State.Encounter.SteadyHandArmed, "toggle disarms");
+            Must(s.Dispatch(new ActivateStaff()));
+
+            var r = Must(s.Dispatch(new PlayCards(c9.PhysicalId)));
+            Check(Get<DamageDealt>(r).Amount == 9 && !Get<DamageDealt>(r).Doubled,
+                "9♣ deals 9 on purpose — double skipped");
+            Check(!s.State.Encounter.SteadyHandArmed, "consumed by the ♣ play");
+            Must(s.Dispatch(new DefendDiscard(s.State.Deck.Hand.ToList())));
+        }
+
+        private static void TestWhetstone()
+        {
+            var s = NewRunAs("executioner", "whetstone", "whet");
+            Fight(s,
+                EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish),   // 18 hp
+                EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish));  // 18 hp
+            ClearHand(s);
+            var c10a = Give(s, Suit.Clubs, Rank.Ten);
+            var r = Must(s.Dispatch(new PlayCards(c10a.PhysicalId))); // 20 vs 18 → shave 2
+            Check(Get<DamageDealt>(r).Amount == 18, "overshoot of 2 shaved to exact");
+            Check(Get<EnemyKilled>(r).Kind == KillKind.Exact && Has<Recruited>(r), "exact kill → recruit");
+
+            ClearHand(s);
+            var c10b = Give(s, Suit.Clubs, Rank.Ten);
+            var r2 = Must(s.Dispatch(new PlayCards(c10b.PhysicalId)));
+            Check(Get<EnemyKilled>(r2).Kind == KillKind.Exact,
+                "fresh enemy → whetstone refreshed (once/ENEMY)");
+        }
+
+        private static void TestBloodletting()
+        {
+            var s = NewRunAs("executioner", "bloodletting", "bleed");
+            Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss)); // 40 hp
+            ClearHand(s);
+            var h5 = Give(s, Suit.Hearts, Rank.Five);
+            var c9 = Give(s, Suit.Clubs, Rank.Nine);
+            Give(s, Suit.Diamonds, Rank.Ten); // survive the counter (net 20)
+            Give(s, Suit.Diamonds, Rank.Ten);
+
+            Must(s.Dispatch(new ActivateStaff(h5.PhysicalId)));
+            Check(s.State.Encounter.AttackBank == 2, "⌊5/2⌋ = 2 banked");
+            var r = Must(s.Dispatch(new PlayCards(c9.PhysicalId)));
+            Check(Get<DamageDealt>(r).Amount == 20, "9♣ doubled (18) + 2 banked = 20");
+            Check(s.State.Encounter.AttackBank == 0, "bank consumed");
+            Must(s.Dispatch(new DefendDiscard(s.State.Deck.Hand.ToList())));
+        }
+
+        private static void TestFieldPromotion()
+        {
+            var s = NewRunAs("executioner", "field_promotion", "fieldpromo");
+            Fight(s, EnemyState.Number(Suit.Spades, Rank.Six, EnemyTier.Skirmish));
+            ClearHand(s);
+            var c9 = Give(s, Suit.Clubs, Rank.Nine);
+            var r = Must(s.Dispatch(new PlayCards(c9.PhysicalId)));
+            var rec = Get<Recruited>(r);
+            Check(rec.ToHand && s.State.Deck.Hand.Contains(rec.PhysicalId),
+                "field promotion routes the recruit to hand");
+        }
+
+        private static void TestDovetail()
+        {
+            var s = NewRunAs("quartermaster", "dovetail", "dovetail");
+            Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            ClearHand(s);
+            var c3 = Give(s, Suit.Clubs, Rank.Three);
+            var h3 = Give(s, Suit.Hearts, Rank.Three);
+            var d4 = Give(s, Suit.Diamonds, Rank.Four);
+            var s6 = Give(s, Suit.Spades, Rank.Six);
+            var d5a = Give(s, Suit.Diamonds, Rank.Five);
+            Give(s, Suit.Diamonds, Rank.Ten); // pay fodder
+
+            MustFail(s.Dispatch(new PlayCards(c3.PhysicalId, h3.PhysicalId, s6.PhysicalId)),
+                "6 is not adjacent to 3");
+            MustFail(s.Dispatch(new PlayCards(d4.PhysicalId, d5a.PhysicalId, s6.PhysicalId)),
+                "two odd cards out");
+            var r = Must(s.Dispatch(new PlayCards(c3.PhysicalId, h3.PhysicalId, d4.PhysicalId)));
+            Check(Get<CardsPlayed>(r).BaseAttack == 10, "3+3+4 dovetails at exactly the cap");
+            Must(s.Dispatch(new DefendDiscard(s.State.Deck.Hand.ToList())));
+        }
+
+        private static void TestAceInHole()
+        {
+            var s = NewRunAs("quartermaster", "ace_in_the_hole", "aceinhole");
+            Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            ClearHand(s);
+            var ace = Give(s, Suit.Diamonds, Rank.Ace);
+            var s7 = Give(s, Suit.Spades, Rank.Seven);
+
+            Must(s.Dispatch(new ActivateStaff()));
+            var r = Must(s.Dispatch(new PlayCards(ace.PhysicalId, s7.PhysicalId)));
+            Check(Get<CardsPlayed>(r).BaseAttack == 14, "the Ace plays at the partner's 7 → base 14");
+            Check(Get<ShieldGained>(r).Amount == 14, "♠ power fires on the boosted base");
+            Check(!s.State.Encounter.AceInHoleArmed, "consumed by the pair");
+        }
+
+        private static void TestStockpile()
+        {
+            var s = NewRunAs("quartermaster", "stockpile", "stockpile");
+            Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            Check(s.State.Deck.Hand.Count == 5, "hand full at the base cap");
+            Must(s.Dispatch(new ActivateStaff()));
+            Check(s.State.MaxHandSize == Tuning.BaseMaxHandSize + 1, "cap raised by 1 vs this enemy");
+            MustFail(s.Dispatch(new ActivateStaff()), "once per enemy");
+
+            ClearHand(s);
+            var d5 = Give(s, Suit.Diamonds, Rank.Five);
+            for (int i = 0; i < 5; i++) Give(s, Suit.Clubs, Rank.Two); // hand of 6 incl. the ♦
+            var r = Must(s.Dispatch(new PlayCards(d5.PhysicalId)));    // hand 5 → draw up to 6
+            Check(s.State.Deck.Hand.Count == 6, "hand filled to the raised cap");
+        }
+
+        private static void TestProvisioner()
+        {
+            var s = NewRunAs("quartermaster", "provisioner", "provisioner");
+            Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            int handBefore = s.State.Deck.Hand.Count;
+            int target = s.State.Deck.Hand[0];
+            var r = Must(s.Dispatch(new ActivateStaff(target)));
+            Check(s.State.Deck.Discard.Contains(target), "target discarded");
+            Check(Has<CardsDrawn>(r) && s.State.Deck.Hand.Count == handBefore, "drew a replacement");
+        }
+
+        private static void TestTriage()
+        {
+            var s = NewRunAs("surgeon", "triage", "triage");
+            Fight(s, EnemyState.Number(Suit.Spades, Rank.Six, EnemyTier.Skirmish)); // atk 3
+            var staged = new List<PhysicalCard>();
+            for (int i = 0; i < 5; i++) staged.Add(GiveDiscard(s, Suit.Clubs, (Rank)(2 + i)));
+            ClearHand(s);
+            var h4 = Give(s, Suit.Hearts, Rank.Four);
+            var s3 = Give(s, Suit.Spades, Rank.Three);
+
+            var r = Must(s.Dispatch(new PlayCards(h4.PhysicalId)));
+            Check(!Has<CardsRecovered>(r), "recovery paused for the pick");
+            Check(s.State.PendingChoice?.Kind == PendingChoiceKind.RecoverSelect, "recover pick pending first");
+            Check(s.State.PendingChoice.RecoverMax == 4, "may pick up to min(4, discard)");
+            Check(!s.State.PendingChoice.RecoverIds.Contains(h4.PhysicalId),
+                "the just-played ♥ is not recoverable by its own play");
+
+            MustFail(s.Dispatch(new ChooseRecover(h4.PhysicalId)), "not on offer");
+            MustFail(s.Dispatch(new ChooseRecover(staged.Take(5).Select(c => c.PhysicalId).ToList())),
+                "over the pick cap");
+            var picks = staged.Take(2).Select(c => c.PhysicalId).ToList();
+            var r2 = Must(s.Dispatch(new ChooseRecover(picks)));
+            Check(Get<CardsRecovered>(r2).Count == 2, "picked 2 of a possible 4");
+            Check(picks.All(id => s.State.Deck.Tavern.Contains(id)), "picked cards in the Tavern");
+
+            Check(s.State.PendingChoice?.Kind == PendingChoiceKind.Defend, "the queued counterattack resolves next");
+            Must(s.Dispatch(new DefendDiscard(s3.PhysicalId)));
+        }
+
+        private static void TestLastRites()
+        {
+            var s = NewRunAs("surgeon", "last_rites", "lastrites");
+            Fight(s, EnemyState.Number(Suit.Spades, Rank.Six, EnemyTier.Skirmish));
+            for (int i = 0; i < 3; i++) GiveDiscard(s, Suit.Clubs, Rank.Two);
+            ClearHand(s);
+            var h4 = Give(s, Suit.Hearts, Rank.Four);
+            var s3 = Give(s, Suit.Spades, Rank.Three);
+
+            var r = Must(s.Dispatch(new PlayCards(h4.PhysicalId)));
+            Check(Get<CardsRecovered>(r).Count == 3, "normal random recovery happened");
+            Check(s.State.PendingChoice?.Kind == PendingChoiceKind.RecoverToHand, "last rites pick pending");
+
+            int pick = s.State.PendingChoice.RecoverIds[0];
+            var r2 = Must(s.Dispatch(new ChooseRecover(pick)));
+            Check(Has<RecoveredToHand>(r2) && s.State.Deck.Hand.Contains(pick), "one recovered card to hand");
+            Must(s.Dispatch(new DefendDiscard(s3.PhysicalId)));
+
+            // Second recovery vs the same enemy: once/enemy — no second offer.
+            GiveDiscard(s, Suit.Clubs, Rank.Two);
+            var h2 = Give(s, Suit.Hearts, Rank.Two);
+            Give(s, Suit.Spades, Rank.Five);
+            var r3 = Must(s.Dispatch(new PlayCards(h2.PhysicalId)));
+            Check(Has<CardsRecovered>(r3), "recovery still fires");
+            Check(s.State.PendingChoice?.Kind == PendingChoiceKind.Defend, "but no second pick this enemy");
+            Must(s.Dispatch(new DefendDiscard(s.State.Deck.Hand.ToList())));
+        }
+
+        private static void TestTransfuse()
+        {
+            var s = NewRunAs("surgeon", "transfuse", "transfuse");
+            Fight(s, EnemyState.Number(Suit.Spades, Rank.Six, EnemyTier.Skirmish)); // atk 3
+            for (int i = 0; i < 3; i++) GiveDiscard(s, Suit.Clubs, Rank.Two);
+            ClearHand(s);
+            var h4 = Give(s, Suit.Hearts, Rank.Four);
+
+            Must(s.Dispatch(new ActivateStaff()));
+            MustFail(s.Dispatch(new ActivateStaff()), "once per enemy");
+            int discardBefore = s.State.Deck.Discard.Count;
+            var r = Must(s.Dispatch(new PlayCards(h4.PhysicalId)));
+            Check(!Has<CardsRecovered>(r), "recovery skipped");
+            Check(Get<ShieldGained>(r).Amount == 4, "base value became shield");
+            Check(s.State.Deck.Discard.Count == discardBefore + 1, "discard only grew by the played card");
+            Check(Has<CounterattackBlocked>(r), "shield 4 blanks the atk-3 counter");
+        }
+
+        private static void TestFieldDressing()
+        {
+            var s = NewRunAs("surgeon", "field_dressing", "dressing");
+            Fight(s, EnemyState.Number(Suit.Spades, Rank.Six, EnemyTier.Skirmish));
+            for (int i = 0; i < 5; i++) GiveDiscard(s, Suit.Clubs, Rank.Two);
+            ClearHand(s);
+            var h2a = Give(s, Suit.Hearts, Rank.Two);
+            var s3 = Give(s, Suit.Spades, Rank.Three);
+
+            var r = Must(s.Dispatch(new PlayCards(h2a.PhysicalId)));
+            Check(Get<CardsRecovered>(r).Count == 3, "first recovery: 2 + 1 bonus");
+            Must(s.Dispatch(new DefendDiscard(s3.PhysicalId)));
+
+            var h2b = Give(s, Suit.Hearts, Rank.Two);
+            Give(s, Suit.Spades, Rank.Five);
+            var r2 = Must(s.Dispatch(new PlayCards(h2b.PhysicalId)));
+            Check(Get<CardsRecovered>(r2).Count == 2, "second recovery vs the same enemy: no bonus");
+            Must(s.Dispatch(new DefendDiscard(s.State.Deck.Hand.ToList())));
+        }
+
+        private static void TestFallenHeroes()
+        {
+            var s = NewRun("heroes");
+            s.State.Chapter = 4; // stage the seam into ch5 — the Heroes chapter (§10)
+            s.State.Phase = CampaignPhase.ChapterComplete;
+            Must(s.Dispatch(new ContinueRun()));
+            Check(s.State.Chapter == 5, "on chapter 5");
+            Check(s.State.Map.Nodes.Any(n => n.Kind == RoadNodeKind.Heroes), "ch5 road holds Fallen Heroes");
+
+            MustFail(s.Dispatch(new SwapStaff("footwork")), "no offer away from the shrine");
+
+            Must(s.Dispatch(new MoveToNode(s.State.Map.Current.Next[0])));
+            WinFight(s);
+            var camp = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
+                        .First(n => n.Kind == RoadNodeKind.Camp);
+            Must(s.Dispatch(new MoveToNode(camp.Id)));
+            var heroes = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
+                          .First(n => n.Kind == RoadNodeKind.Heroes);
+            var r = Must(s.Dispatch(new MoveToNode(heroes.Id)));
+            Check(Has<StaffSwapOffered>(r), "arriving offers the swap");
+
+            var offer = s.State.StaffOffer;
+            Check(offer != null && offer.Count == 4, "four staffs offered");
+            for (int i = 0; i < 4; i++)
+                Check(System.Array.IndexOf(
+                          ClassTables.Classes[ClassTables.ClassOrder[i]].StaffIds, offer[i]) >= 0,
+                    $"offer {i} comes from {ClassTables.ClassOrder[i]}");
+
+            MustFail(s.Dispatch(new SwapStaff("no_such_staff")), "unknown staff rejected");
+            Must(s.Dispatch(new SwapStaff(offer[1])));
+            Check(s.State.Hero.StaffId == offer[1], "staff swapped");
+            Must(s.Dispatch(new SwapStaff(offer[2])));
+            Check(s.State.Hero.StaffId == offer[2], "swap is free and repeatable at the stop");
+
+            Must(s.Dispatch(new MoveToNode(s.State.Map.Current.Next[0])));
+            Check(s.State.StaffOffer == null, "walking on closes the offer");
         }
 
         // ── demo: a full scripted fight, played back like the UI would ─────────

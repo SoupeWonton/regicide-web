@@ -211,6 +211,39 @@ namespace Regicide.Core
         public override string ToString() => $"{PhysicalCard.Pretty(Face)} is left behind";
     }
 
+    public sealed class StaffTriggered : GameEvent
+    {
+        public string StaffId; public string Note;
+        public override string ToString() => $"Staff [{StaffId}]: {Note}";
+    }
+
+    public sealed class StaffSwapOffered : GameEvent
+    {
+        public List<string> Offer = new List<string>();
+        public override string ToString() => $"Fallen Heroes: swap your Staff — {string.Join(" / ", Offer)}";
+    }
+
+    public sealed class StaffSwapped : GameEvent
+    {
+        public string From; public string To;
+        public override string ToString() => $"Staff swapped: {From} → {To}";
+    }
+
+    public sealed class RecoverChoiceOffered : GameEvent
+    {
+        public PendingChoiceKind Kind; public List<int> Options = new List<int>(); public int Max;
+        public override string ToString() =>
+            Kind == PendingChoiceKind.RecoverSelect
+                ? $"Triage: pick up to {Max} discard(s) to recover"
+                : "Last Rites: pick one recovered card into hand (or none)";
+    }
+
+    public sealed class RecoveredToHand : GameEvent
+    {
+        public int PhysicalId;
+        public override string ToString() => $"Recovered card #{PhysicalId} taken into hand";
+    }
+
     public sealed class CampaignWonEvent : GameEvent
     {
         public CardFace? Crown;

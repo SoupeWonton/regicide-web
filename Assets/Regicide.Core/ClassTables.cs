@@ -58,6 +58,9 @@ namespace Regicide.Core
                 },
             };
 
+        /// <summary>Fixed class iteration order — Fallen Heroes offers roll in this order (§11 determinism).</summary>
+        public static readonly string[] ClassOrder = { "sentinel", "executioner", "quartermaster", "surgeon" };
+
         public static bool IsValidPick(string classId, string staffId) =>
             classId != null && Classes.TryGetValue(classId, out var c) &&
             System.Array.IndexOf(c.StaffIds, staffId) >= 0;
