@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Headless compile check for the Unity presentation layer: compiles
+       Regicide.Core + Regicide.Unity against the installed Unity 6000.0.78f1
+       module DLLs, so UI code is verified without opening the editor.
+       Compile-only — never run this output. -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <OutputType>Library</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>Regicide.UnityCheck</AssemblyName>
+    <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
+    <UnityManaged>C:\Program Files\Unity\Hub\Editor\6000.0.78f1\Editor\Data\Managed\UnityEngine</UnityManaged>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\Assets\Regicide.Core\**\*.cs" LinkBase="Core" />
+    <Compile Include="..\..\Assets\Regicide.Unity\**\*.cs" LinkBase="Unity" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(UnityManaged)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UIElementsModule">
+      <HintPath>$(UnityManaged)\UnityEngine.UIElementsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(UnityManaged)\UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextCoreTextEngineModule">
+      <HintPath>$(UnityManaged)\UnityEngine.TextCoreTextEngineModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextCoreFontEngineModule">
+      <HintPath>$(UnityManaged)\UnityEngine.TextCoreFontEngineModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(UnityManaged)\UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule">
+      <HintPath>$(UnityManaged)\UnityEngine.UIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(UnityManaged)\UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>
