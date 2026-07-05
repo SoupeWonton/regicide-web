@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Regicide.Core
 {
@@ -130,5 +131,59 @@ namespace Regicide.Core
     {
         public int Total;
         public override string ToString() => $"Spell fragment dropped (pool: {Total})";
+    }
+
+    public sealed class MapGenerated : GameEvent
+    {
+        public int Chapter; public int NodeCount;
+        public override string ToString() => $"Chapter {Chapter} road revealed ({NodeCount} nodes)";
+    }
+
+    public sealed class MovedToNode : GameEvent
+    {
+        public int NodeId; public RoadNodeKind Kind;
+        public override string ToString() => $"Travelled to {Kind} (node {NodeId})";
+    }
+
+    public sealed class LandmarkVisited : GameEvent
+    {
+        public RoadNodeKind Kind; public string Note;
+        public override string ToString() => $"{Kind}: {Note}";
+    }
+
+    public sealed class CampRested : GameEvent
+    {
+        public override string ToString() =>
+            "Camped: deck reshuffled, hand refilled; next fight opens doubled with 10 shield";
+    }
+
+    public sealed class HuntOffered : GameEvent
+    {
+        public List<CardFace> Options = new List<CardFace>();
+        public override string ToString() =>
+            $"Hunt: choose quarry ({string.Join(" ", Options.Select(PhysicalCard.Pretty))})";
+    }
+
+    public sealed class SeamRestApplied : GameEvent
+    {
+        public override string ToString() => "Seam rest: discard reshuffled into the Tavern, hand drawn to full";
+    }
+
+    public sealed class ChapterCompleted : GameEvent
+    {
+        public int Chapter;
+        public override string ToString() => $"Chapter {Chapter} complete";
+    }
+
+    public sealed class RunAdvanced : GameEvent
+    {
+        public int Chapter; public int Continent; public int Province;
+        public override string ToString() => $"Onward: chapter {Chapter} (continent {Continent}, province {Province})";
+    }
+
+    public sealed class ContinentEntered : GameEvent
+    {
+        public int Continent; public string LitRungId;
+        public override string ToString() => $"Continent {Continent} — path rung '{LitRungId}' lights up";
     }
 }

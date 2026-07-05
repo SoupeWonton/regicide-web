@@ -40,6 +40,13 @@ namespace Regicide.Headless
             Run("invalid action mutates nothing", TestValidateThenMutate);
             Run("same seed → identical run state", TestSessionDeterminism);
             Run("fragment drop ≈ 50% over 60 wins", TestFragmentDropRate);
+            Run("class/staff validation + map shape & visibility", TestMapShape);
+            Run("road navigation: one-way, band-correct lineups", TestRoadNavigation);
+            Run("camp: 4-part bundle armed and consumed", TestCamp);
+            Run("hunt: chase a missing recruit", TestHunt);
+            Run("boss → seam rest → next chapter", TestChapterFlow);
+            Run("full C1 clear → Continent 2, rung lit, gate stubbed", TestFullC1ToC2);
+            Run("road walk determinism across sessions", TestRoadDeterminism);
 
             Console.WriteLine();
             if (_failures.Count == 0)
@@ -492,6 +499,226 @@ namespace Regicide.Headless
             Check(drops > 15 && drops < 45, $"expected ≈30/60 fragment drops, got {drops}");
         }
 
+        // ── step-4 tests: roads, camps, hunts, chapters ─────────────────────────
+
+        /// <summary>Win the current fight by staging exact kills (fight math is tested elsewhere).</summary>
+        private static void WinFight(GameSession s)
+        {
+            int guard = 0;
+            while (s.State.Phase == CampaignPhase.Encounter && guard++ < 20)
+            {
+                if (s.State.PendingChoice != null) throw new Exception($"unexpected pending {s.State.PendingChoice.Kind}");
+                var enemy = s.State.Encounter.Current;
+                bool clubOk = enemy.Suit != Suit.Clubs;
+                int dmg = 9 * (clubOk ? 2 : 1) * (s.State.Encounter.FirstAttackDouble ? 2 : 1);
+                enemy.Hp = dmg; // stage an exact kill
+                ClearHand(s);
+                var c = Give(s, Suit.Clubs, Rank.Nine);
+                Must(s.Dispatch(new PlayCards(c.PhysicalId)));
+            }
+            if (s.State.Phase == CampaignPhase.Encounter) throw new Exception("fight did not resolve");
+        }
+
+        /// <summary>Walk the current chapter road to its boss, winning every fight.</summary>
+        private static void WalkChapter(GameSession s)
+        {
+            var priority = new[]
+            {
+                RoadNodeKind.Boss, RoadNodeKind.Skirmish, RoadNodeKind.Veteran, RoadNodeKind.Elite,
+                RoadNodeKind.Recruit, RoadNodeKind.Camp, RoadNodeKind.Lair, RoadNodeKind.Event,
+                RoadNodeKind.Heroes, RoadNodeKind.Forge, RoadNodeKind.Sanctum, RoadNodeKind.Caravan,
+                RoadNodeKind.Shrine,
+            };
+            int guard = 0;
+            while (s.State.Phase == CampaignPhase.Road && guard++ < 30)
+            {
+                var next = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id)).ToList();
+                if (next.Count == 0) throw new Exception("road dead-ended");
+                var target = priority.Select(k => next.FirstOrDefault(n => n.Kind == k)).FirstOrDefault(n => n != null);
+                if (target == null) return; // only Hunt/Gate ahead — caller's business
+                Must(s.Dispatch(new MoveToNode(target.Id)));
+                if (s.State.Phase == CampaignPhase.Encounter) WinFight(s);
+            }
+        }
+
+        private static void TestMapShape()
+        {
+            MustFail(new GameSession("x").Dispatch(new SelectClass("warlock", "hold_the_line")), "unknown class");
+            MustFail(new GameSession("x").Dispatch(new SelectClass("sentinel", "dovetail")), "staff from wrong class");
+
+            var s = NewRun("mapshape");
+            var map = s.State.Map;
+            Check(map != null && map.Chapter == 1, "chapter-1 map generated at run start");
+            Check(map.Nodes.Count == 10, $"C1 template should have 10 nodes, got {map.Nodes.Count}");
+            Check(map.Current.Kind == RoadNodeKind.Start && map.Current.Visited, "run starts at the start node");
+            Check(map.Nodes.Count(n => n.Kind == RoadNodeKind.Boss) == 1, "exactly one boss");
+            Check(map.Nodes.Any(n => n.Kind == RoadNodeKind.Hunt), "C1 province guarantees a Hunt");
+            Check(map.Nodes.Count(n => n.Kind == RoadNodeKind.Camp) == 2, "two camps (bonus fork + safe fork)");
+            Check(map.Nodes.Any(n => n.Kind == RoadNodeKind.Lair), "lair-vs-safe fork present");
+
+            foreach (int id in map.Current.Next)
+                Check(map.Get(id).Known, "neighbors of the start are known");
+            var boss = map.Nodes.First(n => n.Kind == RoadNodeKind.Boss);
+            Check(!boss.Known, "the boss is a '?' until approached");
+            Check(map.Nodes.Where(n => n.Kind != RoadNodeKind.Boss && n.Layer < 6).All(n => n.Next.Count > 0),
+                "no dead ends before the boss");
+        }
+
+        private static void TestRoadNavigation()
+        {
+            var s = NewRun("roadnav");
+            var map = s.State.Map;
+            var boss = map.Nodes.First(n => n.Kind == RoadNodeKind.Boss);
+            MustFail(s.Dispatch(new MoveToNode(boss.Id)), "cannot jump to a non-adjacent node");
+            MustFail(s.Dispatch(new MoveToNode(map.CurrentNodeId)), "cannot re-enter the current node");
+
+            int skirmishId = map.Current.Next[0];
+            Check(map.Get(skirmishId).Kind == RoadNodeKind.Skirmish, "layer 1 is the guaranteed fight");
+            var r = Must(s.Dispatch(new MoveToNode(skirmishId)));
+            Check(Has<EncounterStarted>(r), "fight node starts an encounter");
+            Check(s.State.Encounter.Current.Rank == Rank.Six, "ch1 skirmish fields a 6");
+
+            MustFail(s.Dispatch(new MoveToNode(boss.Id)), "cannot travel mid-fight");
+            WinFight(s);
+            Check(s.State.Phase == CampaignPhase.Road, "back on the road after the win");
+            Check(s.State.Map.CurrentNodeId == skirmishId, "standing on the cleared node");
+            Check(s.State.OwnsFace(new CardFace(Suit.Clubs, Rank.Six)) ||
+                  s.State.OwnedCards.Count > 21, "the exact kill recruited (or grafted)");
+        }
+
+        private static void TestCamp()
+        {
+            var s = NewRun("camptest");
+            Must(s.Dispatch(new MoveToNode(s.State.Map.Current.Next[0])));
+            WinFight(s); // leaves staged cards in the discard
+            Check(s.State.Deck.Discard.Count > 0, "discard non-empty before camping");
+
+            var camp = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
+                        .First(n => n.Kind == RoadNodeKind.Camp);
+            var r = Must(s.Dispatch(new MoveToNode(camp.Id)));
+            Check(Has<CampRested>(r), "camp fires");
+            Check(s.State.Deck.Discard.Count == 0, "camp reshuffles discard into the Tavern");
+            Check(s.State.Deck.Hand.Count == 5, "camp draws the hand to full");
+            Check(s.State.NextFightFirstAttackDouble && s.State.NextFightStartShield == 10,
+                "double-first-attack and 10 block armed");
+
+            var fight = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
+                         .First(n => n.Kind == RoadNodeKind.Veteran);
+            Must(s.Dispatch(new MoveToNode(fight.Id)));
+            Check(s.State.Encounter.Current.Shield == 10, "first enemy starts with 10 shield");
+            Check(!s.State.NextFightFirstAttackDouble && s.State.NextFightStartShield == 0,
+                "camp bonuses consumed at fight start");
+
+            s.State.Encounter.Current.Hp = 8; // 4♥ doubled by the camp bonus = 8 → exact
+            ClearHand(s);
+            var h4 = Give(s, Suit.Hearts, Rank.Four);
+            var r2 = Must(s.Dispatch(new PlayCards(h4.PhysicalId)));
+            Check(Get<DamageDealt>(r2).Amount == 8, "camp doubles the fight's first attack (4 → 8)");
+            Check(!Get<DamageDealt>(r2).Doubled, "not the ♣ double — the camp one");
+        }
+
+        private static void TestHunt()
+        {
+            var s = NewRun("hunttest");
+            Must(s.Dispatch(new MoveToNode(s.State.Map.Current.Next[0])));
+            WinFight(s);
+            var safe = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
+                        .First(n => n.Kind == RoadNodeKind.Camp);
+            Must(s.Dispatch(new MoveToNode(safe.Id)));
+
+            var hunt = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
+                        .First(n => n.Kind == RoadNodeKind.Hunt);
+            var r = Must(s.Dispatch(new MoveToNode(hunt.Id)));
+            Check(Has<HuntOffered>(r), "hunt offers quarry");
+            Check(s.State.PendingChoice?.Kind == PendingChoiceKind.HuntSelect, "hunt choice pending");
+            var options = s.State.PendingChoice.HuntOptions;
+            Check(options.All(f => (int)f.Rank >= 6 && (int)f.Rank <= 7), "ch1 quarry stays in the 6–7 band");
+            Check(options.All(f => !s.State.OwnsFace(f)), "quarry must be faces the player is missing");
+
+            MustFail(s.Dispatch(new MoveToNode(s.State.Map.Current.Next[0])), "cannot walk away from a pending hunt");
+            MustFail(s.Dispatch(new ChooseHunt(Suit.Clubs, Rank.Five)), "owned/low rank is not quarry");
+            MustFail(s.Dispatch(new ChooseHunt(Suit.Clubs, Rank.Eight)), "rank 8 is beyond the ch1 band");
+
+            var quarry = options[0];
+            var r2 = Must(s.Dispatch(new ChooseHunt(quarry.Suit, quarry.Rank)));
+            Check(Has<EncounterStarted>(r2), "the chase is a fight");
+            Check(s.State.Encounter.Current.Suit == quarry.Suit && s.State.Encounter.Current.Rank == quarry.Rank,
+                "fighting exactly the chosen quarry");
+            WinFight(s);
+            Check(s.State.OwnsFace(quarry), "exact kill recruited the hunted card");
+        }
+
+        private static void TestChapterFlow()
+        {
+            var s = NewRun("chapterflow");
+            WalkChapter(s);
+            Check(s.State.Phase == CampaignPhase.ChapterComplete, "boss kill completes the chapter");
+            Check(s.State.Deck.Discard.Count == 0, "seam rest reshuffled the discard");
+            Check(s.State.Deck.Hand.Count == 5, "seam rest drew the hand to full");
+
+            MustFail(s.Dispatch(new MoveToNode(0)), "cannot walk during the recap");
+            var r = Must(s.Dispatch(new ContinueRun()));
+            Check(Has<MapGenerated>(r), "next chapter road generated");
+            Check(s.State.Chapter == 2 && s.State.Continent == 1 && s.State.Province == 2,
+                "advanced to chapter 2 / province 2");
+            Check(s.State.Phase == CampaignPhase.Road, "back on the road");
+
+            Must(s.Dispatch(new MoveToNode(s.State.Map.Current.Next[0])));
+            Check(s.State.Encounter.Current.Rank == Rank.Eight, "ch2 skirmish fields an 8");
+        }
+
+        private static void TestFullC1ToC2()
+        {
+            var s = NewRun("fullc1");
+            for (int ch = 1; ch <= 3; ch++)
+            {
+                Check(s.State.Chapter == ch, $"on chapter {ch}");
+                WalkChapter(s);
+                Check(s.State.Phase == CampaignPhase.ChapterComplete, $"chapter {ch} completed");
+                Must(s.Dispatch(new ContinueRun()));
+            }
+
+            Check(s.State.Chapter == 4 && s.State.Continent == 2 && s.State.Province == 1,
+                "Continent 2 begins at chapter 4");
+            Check(s.State.Hero.PathC2 == "bastion", "Sentinel's home rung lights on entering C2");
+            Check(s.State.Map.Nodes.Any(n => n.Kind == RoadNodeKind.Gate), "C2 road ends in a royal gate");
+
+            // Walk ch4 to the royal duel and confirm it fields a Jack.
+            Must(s.Dispatch(new MoveToNode(s.State.Map.Current.Next[0])));
+            WinFight(s);
+            var l2 = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id)).ToList();
+            Must(s.Dispatch(new MoveToNode(l2.First(n => n.Kind == RoadNodeKind.Camp).Id)));
+            var duel = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
+                        .First(n => n.Kind == RoadNodeKind.Elite);
+            Must(s.Dispatch(new MoveToNode(duel.Id)));
+            Check(s.State.Encounter.Current.Rank == Rank.Jack, "ch4 road duel is a Jack");
+            Check(s.State.Encounter.Current.MaxHp == 20 && s.State.Encounter.Current.Attack == 10,
+                "royal stats 20/10");
+            WinFight(s);
+
+            // The gate itself is build step 5.
+            WalkChapter(s);
+            var gate = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
+                        .FirstOrDefault(n => n.Kind == RoadNodeKind.Gate);
+            Check(gate != null, "gate reachable at the end of the ch4 road");
+            MustFail(s.Dispatch(new MoveToNode(gate.Id)), "gate is stubbed until step 5");
+        }
+
+        private static void TestRoadDeterminism()
+        {
+            var a = NewRun("roadseed");
+            var b = NewRun("roadseed");
+            Check(a.State.Map.Nodes.Select(n => n.Kind).SequenceEqual(b.State.Map.Nodes.Select(n => n.Kind)),
+                "same seed → same map layout");
+
+            foreach (var s in new[] { a, b }) { WalkChapter(s); Must(s.Dispatch(new ContinueRun())); }
+            Check(a.State.Map.Nodes.Select(n => n.Kind).SequenceEqual(b.State.Map.Nodes.Select(n => n.Kind)),
+                "chapter-2 maps identical");
+            Check(a.State.RngState == b.State.RngState, "rng cursors in lockstep after a chapter walk");
+            Check(a.State.OwnedCards.Count == b.State.OwnedCards.Count, "identical conquest");
+            Check(a.State.Deck.Tavern.SequenceEqual(b.State.Deck.Tavern), "identical tavern order");
+        }
+
         // ── demo: a full scripted fight, played back like the UI would ─────────
 
         private static void DemoFight()
@@ -501,6 +728,9 @@ namespace Regicide.Headless
             Play(s, new SelectClass("sentinel", "hold_the_line"));
 
             Console.WriteLine($"  Hand: {string.Join("  ", s.State.Deck.Hand.Select(id => s.State.Cards.Get(id)))}");
+            Console.WriteLine("  Road (? = not yet scouted):");
+            foreach (var layer in s.State.Map.Nodes.GroupBy(n => n.Layer).OrderBy(g => g.Key))
+                Console.WriteLine($"    L{layer.Key}: {string.Join(" | ", layer.Select(n => n.Known ? n.Kind.ToString() : "?"))}");
             Play(s, new StartEncounter(EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish)));
 
             // Simple bot: play the highest card; cover counterattacks cheapest-first.

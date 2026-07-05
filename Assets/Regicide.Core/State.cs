@@ -86,6 +86,8 @@ namespace Regicide.Core
     {
         public List<EnemyState> Enemies = new List<EnemyState>();
         public int CurrentIndex;
+        /// <summary>Camp bonus: the first attack of this fight deals double (§9). Consumed on first play.</summary>
+        public bool FirstAttackDouble;
 
         public EnemyState Current =>
             CurrentIndex < Enemies.Count ? Enemies[CurrentIndex] : null;
@@ -99,6 +101,8 @@ namespace Regicide.Core
         Defend,
         /// <summary>Redundant exact kill: pick one hand card + a graft branch (§6).</summary>
         GraftSelect,
+        /// <summary>Hunt landmark: pick a missing recruit to chase (§4, C1 only).</summary>
+        HuntSelect,
     }
 
     /// <summary>A decision blocking the game until the player answers (§4).</summary>
@@ -109,6 +113,8 @@ namespace Regicide.Core
         public int RequiredValue;
         /// <summary>GraftSelect: the slain enemy's face (rank/suit source of the graft).</summary>
         public CardFace SlainFace;
+        /// <summary>HuntSelect: the faces the player may legally chase.</summary>
+        public List<CardFace> HuntOptions;
     }
 
     /// <summary>The root state. Core owns it; the UI is a pure view of it (§4).</summary>
@@ -125,8 +131,15 @@ namespace Regicide.Core
         public int Chapter = 1;
 
         public Hero Hero = new Hero();
+        public RoadMapState Map;
         public EncounterState Encounter;
+        /// <summary>Road node the live fight was entered from; null for ad-hoc fights.</summary>
+        public int? EncounterNodeId;
         public DeckState Deck = new DeckState();
+
+        /// <summary>Camp bonuses armed for the next fight (§9). Consumed at fight start.</summary>
+        public bool NextFightFirstAttackDouble;
+        public int NextFightStartShield;
 
         /// <summary>Every card the player owns (physicalIds). Cards live in Tavern/Discard/Hand.</summary>
         public List<int> OwnedCards = new List<int>();

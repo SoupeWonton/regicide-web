@@ -24,5 +24,14 @@ namespace Regicide.Core
 
         /// <summary>Forge conversion rate: fragments per Half (§7).</summary>
         public const int FragmentsPerHalf = 2;
+
+        /// <summary>Camp bonus: shield already on the first enemy of the next fight (§9).</summary>
+        public const int CampStartShield = 10;
+
+        /// <summary>Chapters per continent — provinces are chapters within a continent (§4).</summary>
+        public const int ChaptersPerContinent = 3;
+
+        /// <summary>Final chapter of this alpha build (ch6 = the King Gate, §4).</summary>
+        public const int FinalChapter = 6;
     }
 }

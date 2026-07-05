@@ -59,4 +59,22 @@ namespace Regicide.Core
             TargetPhysicalId = targetPhysicalId; Branch = branch;
         }
     }
+
+    /// <summary>Travel to an adjacent road node; entering resolves what lives there (§12).</summary>
+    public sealed class MoveToNode : IAction
+    {
+        public int NodeId;
+        public MoveToNode(int nodeId) { NodeId = nodeId; }
+    }
+
+    /// <summary>Answer a HuntSelect pending choice: chase this missing recruit (§4).</summary>
+    public sealed class ChooseHunt : IAction
+    {
+        public Suit Suit;
+        public Rank Rank;
+        public ChooseHunt(Suit suit, Rank rank) { Suit = suit; Rank = rank; }
+    }
+
+    /// <summary>Leave the chapter-complete recap and start the next chapter's road (§4).</summary>
+    public sealed class ContinueRun : IAction { }
 }

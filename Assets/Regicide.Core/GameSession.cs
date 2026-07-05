@@ -45,6 +45,9 @@ namespace Regicide.Core
                 Yield _ => HandleYield(),
                 DefendDiscard a => HandleDefendDiscard(a),
                 ChooseGraft a => HandleChooseGraft(a),
+                MoveToNode a => HandleMoveToNode(a),
+                ChooseHunt a => HandleChooseHunt(a),
+                ContinueRun _ => HandleContinueRun(),
                 _ => Result.Fail($"Unknown action {action?.GetType().Name ?? "null"}"),
             };
             State.RngState = _rng.State;
@@ -59,8 +62,8 @@ namespace Regicide.Core
         {
             if (State.Phase != CampaignPhase.ClassSelect)
                 return Result.Fail("Not in class select");
-            if (string.IsNullOrEmpty(a.ClassId) || string.IsNullOrEmpty(a.StaffId))
-                return Result.Fail("Class and Staff are required");
+            if (!ClassTables.IsValidPick(a.ClassId, a.StaffId))
+                return Result.Fail($"Unknown class/Staff pick '{a.ClassId}' / '{a.StaffId}'");
 
             var events = new List<GameEvent>();
             State.Hero.ClassId = a.ClassId;
@@ -78,6 +81,8 @@ namespace Regicide.Core
             _rng.Shuffle(State.Deck.Tavern);
 
             DealHand(events);
+            State.Map = RoadGen.Generate(State.Chapter, _rng);
+            events.Add(new MapGenerated { Chapter = State.Chapter, NodeCount = State.Map.Nodes.Count });
             State.Phase = CampaignPhase.Road;
             return Result.Success(events);
         }
@@ -122,16 +127,36 @@ namespace Regicide.Core
         {
             if (State.Phase != CampaignPhase.Road)
                 return Result.Fail("Can only start an encounter from the road");
+            if (State.PendingChoice != null)
+                return Result.Fail($"Resolve the pending {State.PendingChoice.Kind} first");
             if (a.Enemies == null || a.Enemies.Count == 0)
                 return Result.Fail("Encounter needs at least one enemy");
 
-            State.Encounter = new EncounterState { Enemies = new List<EnemyState>(a.Enemies) };
-            State.Phase = CampaignPhase.Encounter;
-            return Result.Success(new List<GameEvent>
+            var events = new List<GameEvent>();
+            BeginEncounter(a.Enemies, null, events);
+            return Result.Success(events);
+        }
+
+        /// <summary>Enter a fight, consuming any armed Camp bonuses (§9).</summary>
+        private void BeginEncounter(List<EnemyState> enemies, int? nodeId, List<GameEvent> events)
+        {
+            State.Encounter = new EncounterState
             {
-                new EncounterStarted { EnemyCount = a.Enemies.Count },
-                new NextEnemy { Face = State.Encounter.Current.Face },
-            });
+                Enemies = new List<EnemyState>(enemies),
+                FirstAttackDouble = State.NextFightFirstAttackDouble,
+            };
+            State.EncounterNodeId = nodeId;
+            State.NextFightFirstAttackDouble = false;
+
+            if (State.NextFightStartShield > 0)
+            {
+                State.Encounter.Current.Shield += State.NextFightStartShield;
+                State.NextFightStartShield = 0;
+            }
+
+            State.Phase = CampaignPhase.Encounter;
+            events.Add(new EncounterStarted { EnemyCount = enemies.Count });
+            events.Add(new NextEnemy { Face = State.Encounter.Current.Face });
         }
 
         // ── combat: play / yield ────────────────────────────────────────────────
@@ -206,6 +231,11 @@ namespace Regicide.Core
 
             bool doubled = SuitActive(Suit.Clubs);
             int damage = doubled ? baseAttack * 2 : baseAttack;
+            if (State.Encounter.FirstAttackDouble)
+            {
+                damage *= 2; // Camp bonus: the fight's first attack deals double (§9)
+                State.Encounter.FirstAttackDouble = false;
+            }
             enemy.Hp -= damage;
             events.Add(new DamageDealt { Amount = damage, Doubled = doubled });
 
@@ -338,7 +368,6 @@ namespace Regicide.Core
             {
                 events.Add(new EncounterWon());
                 State.Encounter = null;
-                State.Phase = CampaignPhase.Road;
 
                 // Agnostic fragment economy: 50% drop after each won encounter (§7).
                 if (_rng.NextDouble() < Tuning.FragmentDropChance)
@@ -346,11 +375,150 @@ namespace Regicide.Core
                     State.TokenFragments++;
                     events.Add(new FragmentDropped { Total = State.TokenFragments });
                 }
+
+                int? nodeId = State.EncounterNodeId;
+                State.EncounterNodeId = null;
+                var node = nodeId != null && State.Map != null ? State.Map.Get(nodeId.Value) : null;
+                if (node != null && node.Kind == RoadNodeKind.Boss)
+                {
+                    // Province cleared → recap with the automatic seam reset (§9).
+                    State.Phase = CampaignPhase.ChapterComplete;
+                    SeamRest(events);
+                    events.Add(new ChapterCompleted { Chapter = State.Chapter });
+                }
+                else
+                {
+                    State.Phase = CampaignPhase.Road;
+                }
             }
             else
             {
                 events.Add(new NextEnemy { Face = enc.Current.Face });
             }
+        }
+
+        /// <summary>Seam reset (§9): reshuffle discard into the Tavern, draw up to full.</summary>
+        private void SeamRest(List<GameEvent> events)
+        {
+            State.Deck.Tavern.AddRange(State.Deck.Discard);
+            State.Deck.Discard.Clear();
+            _rng.Shuffle(State.Deck.Tavern);
+            events.Add(new SeamRestApplied());
+            DealHand(events);
+        }
+
+        // ── road navigation & run flow (§4, §12) ────────────────────────────────
+
+        private Result HandleMoveToNode(MoveToNode a)
+        {
+            if (State.Phase != CampaignPhase.Road) return Result.Fail("Not on the road");
+            if (State.PendingChoice != null)
+                return Result.Fail($"Resolve the pending {State.PendingChoice.Kind} first");
+            if (State.Map == null) return Result.Fail("No road map");
+            if (!State.Map.Current.Next.Contains(a.NodeId))
+                return Result.Fail($"Node {a.NodeId} is not reachable from here (one-way road)");
+
+            var node = State.Map.Get(a.NodeId);
+            if (node.Kind == RoadNodeKind.Gate)
+                return Result.Fail("Royal gates arrive in build step 5");
+
+            // ── validated; mutate ──
+            var events = new List<GameEvent>();
+            State.Map.CurrentNodeId = node.Id;
+            node.Known = node.Visited = true;
+            foreach (int next in node.Next) State.Map.Get(next).Known = true;
+            events.Add(new MovedToNode { NodeId = node.Id, Kind = node.Kind });
+
+            switch (node.Kind)
+            {
+                case RoadNodeKind.Skirmish:
+                case RoadNodeKind.Veteran:
+                case RoadNodeKind.Elite:
+                case RoadNodeKind.Recruit:
+                case RoadNodeKind.Boss:
+                    BeginEncounter(Lineups.For(node.Kind, State.Chapter, State, _rng), node.Id, events);
+                    break;
+
+                case RoadNodeKind.Camp:
+                    ResolveCamp(events);
+                    break;
+
+                case RoadNodeKind.Hunt:
+                    var options = Lineups.MissingFaces(State.Chapter, State);
+                    if (options.Count == 0)
+                    {
+                        events.Add(new LandmarkVisited { Kind = node.Kind, Note = "no recruits missing — nothing to hunt" });
+                        break;
+                    }
+                    State.PendingChoice = new PendingChoice
+                    {
+                        Kind = PendingChoiceKind.HuntSelect,
+                        HuntOptions = options,
+                    };
+                    events.Add(new HuntOffered { Options = options });
+                    break;
+
+                default:
+                    // Forge/Lair/Caravan/Sanctum/Shrine/Event/Heroes land in steps 6–9.
+                    events.Add(new LandmarkVisited { Kind = node.Kind, Note = "nothing here yet (later build step)" });
+                    break;
+            }
+
+            return Result.Success(events);
+        }
+
+        /// <summary>Camp (§9): a 4-part bundle — reshuffle, refill, and two armed fight bonuses.</summary>
+        private void ResolveCamp(List<GameEvent> events)
+        {
+            State.Deck.Tavern.AddRange(State.Deck.Discard);
+            State.Deck.Discard.Clear();
+            _rng.Shuffle(State.Deck.Tavern);
+            DealHand(events);
+            State.NextFightFirstAttackDouble = true;
+            State.NextFightStartShield = Tuning.CampStartShield;
+            events.Add(new CampRested());
+        }
+
+        private Result HandleChooseHunt(ChooseHunt a)
+        {
+            var pending = State.PendingChoice;
+            if (pending == null || pending.Kind != PendingChoiceKind.HuntSelect)
+                return Result.Fail("No hunt pending");
+            if (!pending.HuntOptions.Any(f => f.Suit == a.Suit && f.Rank == a.Rank))
+                return Result.Fail($"{PhysicalCard.Pretty(new CardFace(a.Suit, a.Rank))} is not a legal quarry");
+
+            // ── validated; mutate ──
+            State.PendingChoice = null;
+            var events = new List<GameEvent>();
+            BeginEncounter(Lineups.Hunted(a.Suit, a.Rank), State.Map.CurrentNodeId, events);
+            return Result.Success(events);
+        }
+
+        private Result HandleContinueRun()
+        {
+            if (State.Phase != CampaignPhase.ChapterComplete)
+                return Result.Fail("Nothing to continue from");
+            if (State.Chapter >= Tuning.FinalChapter)
+                return Result.Fail("The King Gate finale lands in build step 5");
+
+            // ── validated; mutate ──
+            var events = new List<GameEvent>();
+            State.Chapter++;
+            State.Continent = State.Chapter <= Tuning.ChaptersPerContinent ? 1 : 2;
+            State.Province = (State.Chapter - 1) % Tuning.ChaptersPerContinent + 1;
+            events.Add(new RunAdvanced { Chapter = State.Chapter, Continent = State.Continent, Province = State.Province });
+
+            if (State.Chapter == Tuning.ChaptersPerContinent + 1)
+            {
+                // Entering C2 lights the class's home-suit path rung (§4, §10).
+                State.Hero.PathC2 = ClassTables.HomeRungId(State.Hero.ClassId);
+                events.Add(new ContinentEntered { Continent = 2, LitRungId = State.Hero.PathC2 });
+            }
+
+            State.Map = RoadGen.Generate(State.Chapter, _rng);
+            events.Add(new MapGenerated { Chapter = State.Chapter, NodeCount = State.Map.Nodes.Count });
+            State.Phase = CampaignPhase.Road;
+            return Result.Success(events);
         }
 
         // ── pending choices ─────────────────────────────────────────────────────
