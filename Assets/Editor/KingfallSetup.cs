@@ -1,0 +1,84 @@
+using System.IO;
+using UnityEditor;
+using UnityEditor.SceneManagement;
+using UnityEngine;
+using UnityEngine.UIElements;
+using Regicide.Unity;
+
+namespace Kingfall.EditorTools
+{
+    /// <summary>
+    /// One-shot project setup (BUILD-SPEC.md §16): creates the themed PanelSettings
+    /// and the single Run scene (an empty GameObject carrying <see cref="RunApp"/>).
+    /// Runs from the menu (Kingfall ▸ ...) or headlessly via
+    /// <c>Unity.exe -batchmode -quit -executeMethod Kingfall.EditorTools.KingfallSetup.CreateRunScene</c>.
+    /// </summary>
+    public static class KingfallSetup
+    {
+        private const string ThemePath = "Assets/UI/UnityDefaultRuntimeTheme.tss";
+        private const string PanelPath = "Assets/UI/KingfallPanelSettings.asset";
+        private const string ScenePath = "Assets/Scenes/Run.unity";
+
+        [MenuItem("Kingfall/Create Run Scene")]
+        public static void CreateRunScene()
+        {
+            // 1. The default runtime theme — the same file the UI Toolkit
+            //    "Default Runtime Theme File" menu item writes.
+            Directory.CreateDirectory("Assets/UI");
+            if (!File.Exists(ThemePath))
+            {
+                File.WriteAllText(ThemePath, "@import url(\"unity-theme://default\");");
+                AssetDatabase.ImportAsset(ThemePath);
+            }
+            var theme = AssetDatabase.LoadAssetAtPath<ThemeStyleSheet>(ThemePath);
+
+            // 2. PanelSettings carrying that theme.
+            var ps = AssetDatabase.LoadAssetAtPath<PanelSettings>(PanelPath);
+            if (ps == null)
+            {
+                ps = ScriptableObject.CreateInstance<PanelSettings>();
+                ps.themeStyleSheet = theme;
+                AssetDatabase.CreateAsset(ps, PanelPath);
+            }
+            else if (ps.themeStyleSheet == null)
+            {
+                ps.themeStyleSheet = theme;
+                EditorUtility.SetDirty(ps);
+            }
+
+            // 3. The one Run scene: a camera (keeps the player renderer happy) and
+            //    an empty GameObject carrying RunApp — the whole game drives itself.
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+            var camGo = new GameObject("Main Camera");
+            var cam = camGo.AddComponent<Camera>();
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.09f, 0.09f, 0.11f);
+            camGo.tag = "MainCamera";
+
+            var runGo = new GameObject("Run");
+            var app = runGo.AddComponent<RunApp>();
+            app.panelSettings = ps;
+
+            Directory.CreateDirectory("Assets/Scenes");
+            EditorSceneManager.SaveScene(scene, ScenePath);
+            EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
+            AssetDatabase.SaveAssets();
+            Debug.Log("[Kingfall] Run scene + PanelSettings created.");
+        }
+
+        [MenuItem("Kingfall/Build Windows Player")]
+        public static void BuildWindows()
+        {
+            CreateRunScene();
+            var report = BuildPipeline.BuildPlayer(
+                new[] { ScenePath },
+                "Builds/Windows/Kingfall.exe",
+                BuildTarget.StandaloneWindows64,
+                BuildOptions.None);
+            if (report.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded)
+                throw new System.Exception($"[Kingfall] Build failed: {report.summary.result}");
+            Debug.Log($"[Kingfall] Build OK → {report.summary.outputPath}");
+        }
+    }
+}
