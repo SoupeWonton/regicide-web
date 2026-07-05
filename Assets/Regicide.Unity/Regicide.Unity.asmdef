@@ -1,0 +1,16 @@
+{
+    "name": "Regicide.Unity",
+    "rootNamespace": "Regicide.Unity",
+    "references": [
+        "Regicide.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
