@@ -94,6 +94,7 @@ namespace Regicide.Headless
             Run("relics: scalpel, unbinding, second wind, aegis", TestAmuletsOne);
             Run("relics: bloodlust, echo, lodestone", TestAmuletsTwo);
             Run("sanctum: move a graft once per visit; shrine blessing", TestSanctumShrine);
+            Run("meta/lineage: outcomes banked, JSON round-trip, corrupt-safe", TestMeta);
 
             Console.WriteLine();
             if (_failures.Count == 0)
@@ -2012,6 +2013,45 @@ namespace Regicide.Headless
                 "the receiver now fires ♦ and ♠");
             MustFail(s.Dispatch(new RearrangeGraft(receiver.PhysicalId, receiver.Grafts[0].Seq, grafted.PhysicalId)),
                 "once per visit");
+        }
+
+        // ── step-10 tests: meta/lineage ─────────────────────────────────────────
+
+        private static void TestMeta()
+        {
+            var meta = new MetaState();
+            meta.RecordRunStart();
+            var lost = NewRun("meta-lost");
+            lost.State.Phase = CampaignPhase.CampaignLost; // staged outcome
+            meta.RecordOutcome(lost.State);
+            Check(meta.Runs == 1 && meta.Wins == 0 && !meta.C2Cleared, "a loss banks nothing but the run");
+
+            meta.RecordRunStart();
+            var won = NewRun("meta-won");
+            won.State.Phase = CampaignPhase.CampaignWon;
+            meta.RecordOutcome(won.State);
+            Check(meta.Runs == 2 && meta.Wins == 1 && meta.C2Cleared, "the crown banks the milestone");
+
+            var back = MetaState.FromJson(meta.ToJson());
+            Check(back.Runs == 2 && back.Wins == 1 && back.C2Cleared && back.Version == MetaState.CurrentVersion,
+                "JSON round-trip preserves the lineage");
+
+            string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "kingfall-meta-test.json");
+            try
+            {
+                meta.SaveTo(path);
+                var loaded = MetaState.LoadFrom(path);
+                Check(loaded.Wins == 1 && loaded.C2Cleared, "disk round-trip");
+
+                System.IO.File.WriteAllText(path, "{corrupt###");
+                var fresh = MetaState.LoadFrom(path);
+                Check(fresh.Runs == 0 && !fresh.C2Cleared, "a corrupt save yields a fresh lineage, never a crash");
+            }
+            finally
+            {
+                if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+            }
+            Check(MetaState.LoadFrom("Z:\\no\\such\\dir\\meta.json").Runs == 0, "a missing file yields a fresh lineage");
         }
 
         // ── demo: a full scripted fight, played back like the UI would ─────────
