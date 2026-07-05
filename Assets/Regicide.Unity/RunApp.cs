@@ -305,11 +305,14 @@ namespace Regicide.Unity
             var scroll = new ScrollView();
             scroll.style.maxHeight = 420;
             var row = Row();
+            // Ids render as actual cards ONLY when the label really is CardLabel —
+            // pickers over non-card ids (e.g. the Sanctum's graft seqs) could
+            // otherwise collide with physicalIds and paint the wrong card.
+            bool cardPicker = _pickerLabel != null && _pickerLabel.Method.Name == nameof(CardLabel);
             foreach (int id in _pickerIds)
             {
                 int captured = id;
-                // Card ids render as actual cards; anything else falls back to a button.
-                if (S != null && S.Cards.TryGet(captured, out var card))
+                if (cardPicker && S != null && S.Cards.TryGet(captured, out var card))
                 {
                     row.Add(CardView.Card(card, CardView.Size.Small,
                         onClick: _pickerViewOnly ? (Action)null : () =>

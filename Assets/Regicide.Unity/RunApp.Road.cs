@@ -8,87 +8,181 @@ namespace Regicide.Unity
 {
     public partial class RunApp
     {
-        // ── road screen (§16): node graph, hand, bracelet, landmark panels ──────
+        // ── road screen (§16): the StS-style map, side panels, hand fan ─────────
 
         private VisualElement BuildRoad()
         {
-            var v = new ScrollView();
-            v.Add(Head($"Chapter {S.Chapter} — Continent {S.Continent}, Province {S.Province}" +
-                       $"   ·   {ContentText.ClassName(S.Hero.ClassId)} / {ContentText.StaffName(S.Hero.StaffId)}" +
-                       (S.Hero.PathC2 != null ? $"   ·   rung: {S.Hero.PathC2}" : "")));
+            var v = new VisualElement();
+            v.style.flexGrow = 1;
+            Theme.SetPadding(v, 8, 12);
 
-            v.Add(MapPanel());
+            v.Add(RoadTopBar());
 
-            var here = S.Map.Current;
-            if (here.Kind == RoadNodeKind.Forge) v.Add(ForgePanel());
-            if (S.CaravanOffer != null) v.Add(CaravanPanel());
-            if (S.StaffOffer != null) v.Add(HeroesPanel());
-            if (S.SanctumCharge) v.Add(SanctumPanel());
+            var mid = new VisualElement();
+            mid.style.flexDirection = FlexDirection.Row;
+            mid.style.flexGrow = 1;
+            mid.Add(MapPanel());
+            mid.Add(RoadSidePanels());
+            v.Add(mid);
 
-            var handPanel = Panel("Hand");
-            handPanel.Add(HandStrip(true));
-            handPanel.Add(DeckCounts());
-            v.Add(handPanel);
-
-            v.Add(BraceletPanel());
-            v.Add(RelicPanel());
-            v.Add(EventLog());
+            // The hand rides along the bottom; selectable only while a payment
+            // flow (the caravan) reads the selection.
+            bool paying = S.CaravanOffer != null;
+            var handWrap = new VisualElement();
+            handWrap.style.alignItems = Align.Center;
+            if (paying)
+            {
+                var hint = new Label("Select cards to pay the caravan");
+                hint.style.color = Theme.GoldBright;
+                hint.style.fontSize = 12;
+                handWrap.Add(hint);
+            }
+            handWrap.Add(HandStrip(paying));
+            v.Add(handWrap);
             return v;
         }
 
+        private VisualElement RoadTopBar()
+        {
+            var bar = Row();
+            bar.style.marginBottom = 6;
+            bar.Add(Theme.Chip($"Continent {S.Continent}", Theme.Gold));
+            bar.Add(Theme.Chip($"Chapter {S.Chapter}", Theme.Gold));
+            bar.Add(Theme.Chip($"Province {S.Province}", Theme.Gold));
+            bar.Add(Theme.Chip(ContentText.ClassName(S.Hero.ClassId)));
+            bar.Add(Theme.Chip($"Staff: {ContentText.StaffName(S.Hero.StaffId)}"));
+            if (S.Hero.PathC2 != null) bar.Add(Theme.Chip($"Rung: {S.Hero.PathC2}", Theme.GoldBright));
+            var spacer = new VisualElement();
+            spacer.style.flexGrow = 1;
+            bar.Add(spacer);
+            bar.Add(DeckCounts());
+            return bar;
+        }
+
+        // ── the map: layer columns, node discs, drawn edges ─────────────────────
+
         private VisualElement MapPanel()
         {
-            var panel = Panel("The road (one-way — ? until scouted)");
+            var frame = Theme.Frame("The Road");
+            frame.style.flexGrow = 1;
+            frame.style.marginRight = 8;
+
+            var hint = new Label("one-way — ? until scouted");
+            hint.style.fontSize = 10;
+            hint.style.color = Theme.Grey;
+            hint.style.marginBottom = 6;
+            frame.Add(hint);
+
+            var scroll = new ScrollView(ScrollViewMode.Horizontal);
+            scroll.style.flexGrow = 1;
+
+            // The body holds the layer columns AND the edge canvas drawn over them.
+            var body = new VisualElement();
+            body.style.flexDirection = FlexDirection.Row;
+            body.style.alignItems = Align.Center;
+            body.style.flexGrow = 1;
+            Theme.SetPadding(body, 14, 14);
+
             var current = S.Map.Current;
+            var discs = new Dictionary<int, VisualElement>();
+
             foreach (var layer in S.Map.Nodes.GroupBy(n => n.Layer).OrderBy(g => g.Key))
             {
-                var row = Row();
+                var column = new VisualElement();
+                column.style.justifyContent = Justify.Center;
+                column.style.marginRight = 42;
                 foreach (var node in layer)
                 {
                     int captured = node.Id;
+                    bool isCurrent = node.Id == current.Id;
                     bool reachable = current.Next.Contains(node.Id);
-                    string label = node.Known ? ContentText.NodeLabel(node.Kind) : "?";
-                    if (node.Id == current.Id) label = "▶ " + label;
-                    var b = Btn(label, () => Dispatch(new MoveToNode(captured)), reachable);
-                    if (node.Visited)
-                        b.style.backgroundColor = new StyleColor(new Color(0.2f, 0.2f, 0.24f));
-                    if (reachable)
-                        b.style.backgroundColor = new StyleColor(new Color(0.24f, 0.34f, 0.44f));
-                    row.Add(b);
+                    var disc = Widgets.NodeDisc(node, isCurrent, reachable,
+                        () => Dispatch(new MoveToNode(captured)));
+                    discs[node.Id] = disc;
+                    column.Add(disc);
                 }
-                panel.Add(row);
+                body.Add(column);
             }
-            return panel;
+
+            var edges = new List<(VisualElement from, VisualElement to, bool lit)>();
+            foreach (var node in S.Map.Nodes)
+                foreach (int next in node.Next)
+                    if (discs.TryGetValue(node.Id, out var from) && discs.TryGetValue(next, out var to))
+                        edges.Add((from, to, node.Id == current.Id && current.Next.Contains(next)));
+            body.Add(Widgets.EdgeCanvas(edges));
+
+            scroll.Add(body);
+            frame.Add(scroll);
+            return frame;
+        }
+
+        // ── the right rail: whatever this stand offers ──────────────────────────
+
+        private VisualElement RoadSidePanels()
+        {
+            var rail = new ScrollView();
+            rail.style.width = 340;
+            rail.style.flexShrink = 0;
+
+            var here = S.Map.Current;
+            if (here.Kind == RoadNodeKind.Forge) rail.Add(ForgePanel());
+            if (S.CaravanOffer != null) rail.Add(CaravanPanel());
+            if (S.StaffOffer != null) rail.Add(HeroesPanel());
+            if (S.SanctumCharge) rail.Add(SanctumPanel());
+
+            rail.Add(BraceletPanel());
+            rail.Add(RelicPanel());
+            rail.Add(EventLog());
+            return rail;
         }
 
         // ── the bracelet (§7): arm pool tokens into empty suit slots ────────────
 
         private VisualElement BraceletPanel()
         {
-            var panel = Panel($"Bracelet — gauntlet crystals   (pool: {S.TokenFragments} fragment(s), {S.TokenHalves} half(s))");
+            var panel = Theme.Frame("Bracelet — Gauntlet");
+            var pool = Row();
+            pool.Add(Theme.Chip($"{S.TokenFragments} fragment(s)", Theme.Gold));
+            pool.Add(Theme.Chip($"{S.TokenHalves} half(s)", Theme.GoldBright));
+            panel.Add(pool);
+
+            var sockets = Row();
+            sockets.style.marginTop = 6;
+            sockets.style.alignItems = Align.FlexStart;
             foreach (Suit suit in new[] { Suit.Clubs, Suit.Diamonds, Suit.Hearts, Suit.Spades })
             {
                 Suit captured = suit;
                 int tier = S.GauntletTiers[(int)suit];
-                var row = Row();
-                string slotText = tier == SpellTables.TierEmpty
-                    ? "empty"
-                    : $"{SpellTables.Name(suit, tier)} ({(tier == SpellTables.TierHalf ? "Half" : "Fragment")})";
-                row.Add(Text($"{PhysicalCard.SuitGlyph(suit)}  {slotText}   "));
+                var col = new VisualElement();
+                col.style.alignItems = Align.Center;
+                col.style.marginRight = 10;
+                col.Add(Widgets.Crystal(suit, tier, false, false, null));
                 if (tier == SpellTables.TierEmpty)
                 {
-                    row.Add(Btn("Arm Fragment",
+                    var frag = Theme.Button("Frag",
                         () => Dispatch(new ArmCrystal(captured, SpellTables.TierFragment)),
-                        S.TokenFragments > 0));
-                    row.Add(Btn("Arm Half",
+                        Theme.ButtonKind.Ghost, S.TokenFragments > 0);
+                    frag.style.fontSize = 10;
+                    col.Add(frag);
+                    var half = Theme.Button("Half",
                         () => Dispatch(new ArmCrystal(captured, SpellTables.TierHalf)),
-                        S.TokenHalves > 0));
+                        Theme.ButtonKind.Ghost, S.TokenHalves > 0);
+                    half.style.fontSize = 10;
+                    col.Add(half);
                 }
-                else
-                {
-                    row.Add(Text("· " + ContentText.SpellRules(suit, tier)));
-                }
-                panel.Add(row);
+                sockets.Add(col);
+            }
+            panel.Add(sockets);
+
+            // Rules of whatever is armed, so the next fight can be planned here.
+            foreach (Suit suit in new[] { Suit.Clubs, Suit.Diamonds, Suit.Hearts, Suit.Spades })
+            {
+                int tier = S.GauntletTiers[(int)suit];
+                if (tier == SpellTables.TierEmpty) continue;
+                var t = Text($"{PhysicalCard.SuitGlyph(suit)} {SpellTables.Name(suit, tier)} — {ContentText.SpellRules(suit, tier)}");
+                t.style.fontSize = 11;
+                t.style.color = Theme.ParchmentDim;
+                panel.Add(t);
             }
             return panel;
         }
@@ -97,26 +191,57 @@ namespace Regicide.Unity
 
         private VisualElement RelicPanel()
         {
-            var panel = Panel("Relics — Staff + four slots (swaps free outside combat)");
+            var panel = Theme.Frame("Relics — four slots + Staff");
             foreach (RelicSlot slot in new[] { RelicSlot.Hat, RelicSlot.Amulet, RelicSlot.Ring, RelicSlot.Cloak })
             {
                 string id = S.EquippedRelics[(int)slot];
-                panel.Add(Text($"{slot}: " + (id != null
-                    ? $"{RelicTables.Get(id).Name} — {ContentText.RelicRules[id]}"
-                    : "(empty)")));
+                var entry = new VisualElement();
+                entry.style.backgroundColor = Theme.NightDeep;
+                Theme.SetBorder(entry, id != null ? Theme.GoldDim : new Color(0.3f, 0.28f, 0.36f), 1);
+                Theme.SetRadius(entry, 6);
+                Theme.SetPadding(entry, 4, 8);
+                entry.style.marginBottom = 4;
+
+                var head = Row();
+                var slotLabel = new Label(slot.ToString().ToUpperInvariant());
+                slotLabel.style.fontSize = 9;
+                slotLabel.style.letterSpacing = 2;
+                slotLabel.style.color = Theme.Gold;
+                slotLabel.style.marginRight = 6;
+                head.Add(slotLabel);
+                var name = new Label(id != null ? RelicTables.Get(id).Name : "(empty)");
+                name.style.unityFontStyleAndWeight = FontStyle.Bold;
+                name.style.color = id != null ? Theme.Parchment : Theme.Grey;
+                head.Add(name);
+                entry.Add(head);
+
+                if (id != null)
+                {
+                    var rules = Text(ContentText.RelicRules[id]);
+                    rules.style.fontSize = 10;
+                    rules.style.color = Theme.ParchmentDim;
+                    entry.Add(rules);
+                }
+                panel.Add(entry);
             }
+
             if (S.RelicBag.Count > 0)
             {
-                panel.Add(Text("Bag:"));
-                var row = Row();
+                panel.Add(Theme.FrameTitle("Bag"));
                 foreach (string id in S.RelicBag.ToList())
                 {
                     string captured = id;
-                    row.Add(Btn($"Equip {RelicTables.Get(id).Name} ({RelicTables.Get(id).Slot})",
+                    var row = Row();
+                    row.Add(Btn($"Equip {RelicTables.Get(id).Name}",
                         () => Dispatch(new EquipRelic(captured)),
                         S.Phase != CampaignPhase.Encounter));
+                    row.Add(Theme.Chip(RelicTables.Get(id).Slot.ToString()));
+                    panel.Add(row);
+                    var rules = Text(ContentText.RelicRules[id]);
+                    rules.style.fontSize = 10;
+                    rules.style.color = Theme.Grey;
+                    panel.Add(rules);
                 }
-                panel.Add(row);
             }
             return panel;
         }
@@ -125,9 +250,10 @@ namespace Regicide.Unity
 
         private VisualElement ForgePanel()
         {
-            var panel = Panel("🔥 The Forge");
+            var panel = Theme.Frame("The Forge");
+            Theme.SetBorder(panel, Theme.Gold, 2);
             panel.Add(Text($"Convert {Tuning.FragmentsPerHalf} fragments → 1 Half. Repeatable while standing here."));
-            panel.Add(Btn("Forge a Half", () => Dispatch(new ForgeConvert()),
+            panel.Add(BtnPrimary("Forge a Half", () => Dispatch(new ForgeConvert()),
                 S.TokenFragments >= Tuning.FragmentsPerHalf));
             return panel;
         }
@@ -137,40 +263,72 @@ namespace Regicide.Unity
             string id = S.CaravanOffer;
             int cost = Tuning.CaravanCost -
                        (S.HasRelic("caravan_coin") ? Tuning.CaravanCoinDiscount : 0);
-            var panel = Panel("🛒 The Caravan");
-            panel.Add(Text($"{RelicTables.Get(id).Name} — {ContentText.RelicRules[id]}"));
+            var panel = Theme.Frame("The Caravan");
+            Theme.SetBorder(panel, Theme.Gold, 2);
+
+            var head = Row();
+            var name = new Label(RelicTables.Get(id).Name);
+            name.style.color = Theme.GoldBright;
+            name.style.unityFontStyleAndWeight = FontStyle.Bold;
+            head.Add(name);
+            head.Add(Theme.Chip(RelicTables.Get(id).Slot.ToString(), Theme.Gold));
+            panel.Add(head);
+            panel.Add(Text(ContentText.RelicRules[id]));
+
             int paying = _sel.Sum(cid => S.Cards.Get(cid).EffectiveValue());
-            panel.Add(Text($"Price: {cost} card-value from hand. Selected: {paying}."));
-            panel.Add(Btn($"Pay {paying} and buy", () => Dispatch(new BuyRelic(_sel.ToList())), paying >= cost));
+            panel.Add(Theme.Bar(cost == 0 ? 1f : Mathf.Clamp01(paying / (float)cost),
+                $"{paying} / {cost} card-value", paying >= cost ? Theme.Green : Theme.RedDeep, 280));
+            panel.Add(BtnPrimary($"Pay {paying} and buy",
+                () => Dispatch(new BuyRelic(_sel.ToList())), paying >= cost));
             return panel;
         }
 
         private VisualElement HeroesPanel()
         {
-            var panel = Panel("🕯 Fallen Heroes — swap your Staff (free, repeatable here)");
-            panel.Add(Text($"Current: {ContentText.StaffName(S.Hero.StaffId)}"));
+            var panel = Theme.Frame("Fallen Heroes — swap your Staff");
+            panel.Add(Text($"Current: {ContentText.StaffName(S.Hero.StaffId)}  (free, repeatable here)"));
             foreach (string staffId in S.StaffOffer)
             {
                 string captured = staffId;
+                var entry = new VisualElement();
+                entry.style.backgroundColor = Theme.NightDeep;
+                Theme.SetBorder(entry, Theme.GoldDim, 1);
+                Theme.SetRadius(entry, 6);
+                Theme.SetPadding(entry, 4, 8);
+                entry.style.marginBottom = 4;
+
                 var row = Row();
-                row.Add(Btn($"Take {ContentText.StaffName(staffId)}",
-                    () => Dispatch(new SwapStaff(captured)), staffId != S.Hero.StaffId));
-                row.Add(Text(ContentText.Staffs.TryGetValue(staffId, out var e) ? e.Rules : ""));
-                panel.Add(row);
+                var name = new Label(ContentText.StaffName(staffId));
+                name.style.unityFontStyleAndWeight = FontStyle.Bold;
+                name.style.color = Theme.GoldPale;
+                name.style.marginRight = 6;
+                row.Add(name);
+                row.Add(Btn("Take", () => Dispatch(new SwapStaff(captured)), staffId != S.Hero.StaffId));
+                entry.Add(row);
+
+                var rules = Text(ContentText.Staffs.TryGetValue(staffId, out var e) ? e.Rules : "");
+                rules.style.fontSize = 10;
+                rules.style.color = Theme.ParchmentDim;
+                entry.Add(rules);
+                panel.Add(entry);
             }
             return panel;
         }
 
         private VisualElement SanctumPanel()
         {
-            var panel = Panel("✦ The Sanctum — move one graft between cards (once per visit)");
+            var panel = Theme.Frame("The Sanctum");
+            Theme.SetBorder(panel, Theme.Gold, 2);
+            panel.Add(Text("Move one graft between cards (once per visit)."));
             var grafted = S.OwnedCards.Where(id => S.Cards.Get(id).Grafts.Count > 0).ToList();
             if (grafted.Count == 0)
             {
-                panel.Add(Text("No grafted cards yet — nothing to rearrange."));
+                var none = Text("No grafted cards yet — nothing to rearrange.");
+                none.style.color = Theme.Grey;
+                panel.Add(none);
                 return panel;
             }
-            panel.Add(Btn("Rearrange a graft…", () =>
+            panel.Add(BtnPrimary("Rearrange a graft…", () =>
                 OpenPicker("Move a graft FROM which card?", grafted, CardLabel, fromId =>
                 {
                     var from = S.Cards.Get(fromId);

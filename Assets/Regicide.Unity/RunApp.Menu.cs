@@ -12,25 +12,76 @@ namespace Regicide.Unity
         private VisualElement BuildMainMenu()
         {
             var v = new VisualElement();
+            v.style.flexGrow = 1;
             v.style.alignItems = Align.Center;
             v.style.justifyContent = Justify.Center;
 
-            var box = Panel();
-            box.style.minWidth = 420;
-            box.Add(Head("KINGFALL — Regicide"));
-            box.Add(Text("You don't build a deck — you conquer one."));
-            box.Add(Text(""));
+            v.Add(Theme.Title("KINGFALL", 56));
+
+            var sub = new Label("you don't build a deck — you conquer one");
+            sub.style.color = Theme.ParchmentDim;
+            sub.style.fontSize = 16;
+            sub.style.unityFontStyleAndWeight = FontStyle.Italic;
+            sub.style.marginBottom = 14;
+            v.Add(sub);
+
+            // The four suits, a heraldic strip.
+            var suitsRow = new VisualElement();
+            suitsRow.style.flexDirection = FlexDirection.Row;
+            suitsRow.style.marginBottom = 22;
+            foreach (Suit s in new[] { Suit.Spades, Suit.Hearts, Suit.Clubs, Suit.Diamonds })
+            {
+                var g = new Label(PhysicalCard.SuitGlyph(s));
+                g.style.fontSize = 40;
+                g.style.marginLeft = 10; g.style.marginRight = 10;
+                var c = CardView.SuitColor(s);
+                g.style.color = s == Suit.Hearts || s == Suit.Diamonds
+                    ? c : Theme.Lighten(c, 0.55f); // dark suits need lift on the night bg
+                suitsRow.Add(g);
+            }
+            v.Add(suitsRow);
+
+            var box = Theme.Frame();
+            Theme.SetBorder(box, Theme.Gold, 2);
+            Theme.SetPadding(box, 18, 26);
+            box.style.minWidth = 440;
+            box.style.alignItems = Align.Center;
 
             var seed = new TextField("Seed (blank = random)") { value = _menuSeed };
             seed.RegisterValueChangedCallback(e => _menuSeed = e.newValue);
+            seed.style.minWidth = 380;
+            seed.style.marginBottom = 10;
+            seed.labelElement.style.color = Theme.ParchmentDim;
+            var input = seed.Q("unity-text-input");
+            if (input != null)
+            {
+                input.style.backgroundColor = Theme.NightDeep;
+                input.style.color = Theme.Parchment;
+                Theme.SetBorder(input, Theme.GoldDim, 1);
+                Theme.SetRadius(input, 4);
+            }
             box.Add(seed);
 
-            box.Add(Btn("New Run", () => NewRun(_menuSeed)));
-            box.Add(Text(""));
-            box.Add(Text($"Lineage: {_meta.Runs} run(s), {_meta.Wins} crown(s)" +
-                         (_meta.C2Cleared ? " — Continent 2 cleared" : "")));
-            box.Add(Text("(No mid-run save — a run is a single sitting.)"));
-            box.Add(Btn("Quit", Application.Quit));
+            var newRun = BtnPrimary("N E W   R U N", () => NewRun(_menuSeed));
+            newRun.style.fontSize = 18;
+            Theme.SetPadding(newRun, 10, 34);
+            box.Add(newRun);
+
+            var lineage = Row();
+            lineage.style.justifyContent = Justify.Center;
+            lineage.style.marginTop = 12;
+            lineage.Add(Theme.Chip($"{_meta.Runs} run(s)"));
+            lineage.Add(Theme.Chip($"{_meta.Wins} crown(s)", Theme.Gold));
+            if (_meta.C2Cleared) lineage.Add(Theme.Chip("Continent 2 cleared", Theme.Green));
+            box.Add(lineage);
+
+            var note = new Label("no mid-run save — a run is a single sitting");
+            note.style.color = Theme.Grey;
+            note.style.fontSize = 11;
+            note.style.marginTop = 6;
+            box.Add(note);
+
+            box.Add(Theme.Button("Quit", Application.Quit, Theme.ButtonKind.Ghost));
             v.Add(box);
             return v;
         }
@@ -40,46 +91,92 @@ namespace Regicide.Unity
         private VisualElement BuildClassSelect()
         {
             var v = new ScrollView();
-            v.Add(Head("Choose your class and Staff"));
+            Theme.SetPadding(v, 10, 20);
+            v.Add(Theme.Title("CHOOSE YOUR CLASS", 30));
 
-            var classRow = Row();
+            var hint = new Label("all four classes start from the identical 20-card A–5 deck — identity comes from Staff and path");
+            hint.style.color = Theme.Grey;
+            hint.style.fontSize = 12;
+            hint.style.unityTextAlign = TextAnchor.MiddleCenter;
+            hint.style.marginBottom = 12;
+            v.Add(hint);
+
+            var classRow = new VisualElement();
+            classRow.style.flexDirection = FlexDirection.Row;
+            classRow.style.justifyContent = Justify.Center;
+            classRow.style.flexWrap = Wrap.Wrap;
+
             foreach (string classId in ClassTables.ClassOrder)
             {
                 string captured = classId;
-                var b = Btn(ContentText.ClassName(classId), () => { _classPick = captured; Render(); });
-                if (_classPick == classId)
-                    b.style.backgroundColor = new StyleColor(new Color(0.35f, 0.5f, 0.28f));
-                classRow.Add(b);
+                var info = ClassTables.Classes[classId];
+                bool picked = _classPick == classId;
+
+                var panel = Theme.Frame();
+                panel.style.width = 250;
+                panel.style.marginRight = 10;
+                Theme.SetBorder(panel, picked ? Theme.GoldBright : Theme.GoldDim, picked ? 2.5f : 1);
+                panel.RegisterCallback<ClickEvent>(_ => { _classPick = captured; Render(); });
+
+                var header = Row();
+                header.Add(CardView.Face(new CardFace(info.HomeSuit, Rank.Ace), CardView.Size.Small));
+                var names = new VisualElement();
+                names.style.marginLeft = 8;
+                var name = new Label(ContentText.ClassName(classId).ToUpperInvariant());
+                name.style.color = picked ? Theme.GoldBright : Theme.Gold;
+                name.style.fontSize = 16;
+                name.style.unityFontStyleAndWeight = FontStyle.Bold;
+                names.Add(name);
+                names.Add(Theme.Chip($"home {PhysicalCard.SuitGlyph(info.HomeSuit)}",
+                    CardView.SuitColor(info.HomeSuit) == Theme.RedSuit ? Theme.RedSuit : Theme.Blue));
+                header.Add(names);
+                panel.Add(header);
+
+                var rules = new Label(ContentText.Classes[classId].Rules);
+                rules.style.whiteSpace = WhiteSpace.Normal;
+                rules.style.fontSize = 11;
+                rules.style.color = Theme.ParchmentDim;
+                rules.style.marginTop = 6;
+                panel.Add(rules);
+
+                classRow.Add(panel);
             }
             v.Add(classRow);
+            if (_classPick == null) return v;
 
-            if (_classPick == null)
-            {
-                v.Add(Text("All four classes start from the identical 20-card A–5 deck — identity comes from Staff and path."));
-                return v;
-            }
-
-            var info = ClassTables.Classes[_classPick];
-            var panel = Panel(ContentText.ClassName(_classPick));
-            panel.Add(Text(ContentText.Classes[_classPick].Rules));
-            panel.Add(Text(""));
-            panel.Add(Text("Pick a Staff:"));
-            foreach (string staffId in info.StaffIds)
+            // Staff choice for the picked class.
+            var pickInfo = ClassTables.Classes[_classPick];
+            var staffPanel = Theme.Frame($"{ContentText.ClassName(_classPick)} — pick a Staff");
+            staffPanel.style.maxWidth = 1040;
+            staffPanel.style.alignSelf = Align.Center;
+            staffPanel.style.marginTop = 12;
+            foreach (string staffId in pickInfo.StaffIds)
             {
                 string captured = staffId;
                 var row = Row();
-                row.Add(Btn($"⚚ {ContentText.StaffName(staffId)}",
-                    () => Dispatch(new SelectClass(_classPick, captured))));
-                row.Add(Text(ContentText.Staffs[staffId].Rules));
-                panel.Add(row);
+                row.style.marginBottom = 4;
+                var take = BtnPrimary($"⚚ {ContentText.StaffName(staffId)}",
+                    () => Dispatch(new SelectClass(_classPick, captured)));
+                take.style.minWidth = 170;
+                row.Add(take);
+                var rules = new Label(ContentText.Staffs[staffId].Rules);
+                rules.style.whiteSpace = WhiteSpace.Normal;
+                rules.style.fontSize = 11;
+                rules.style.color = Theme.ParchmentDim;
+                rules.style.flexShrink = 1;
+                row.Add(rules);
+                staffPanel.Add(row);
             }
-            v.Add(panel);
+            v.Add(staffPanel);
 
-            var teaser = Panel("Path tree (future continents — locked)");
+            var teaser = Theme.Frame("path tree — future continents");
+            teaser.style.maxWidth = 1040;
+            teaser.style.alignSelf = Align.Center;
             foreach (string ladder in ContentText.LockedLadders[_classPick])
             {
-                var l = Text($"🔒 {ladder}");
-                l.style.color = new StyleColor(new Color(0.5f, 0.5f, 0.55f));
+                var l = new Label($"🔒 {ladder}");
+                l.style.color = Theme.Grey;
+                l.style.fontSize = 11;
                 teaser.Add(l);
             }
             v.Add(teaser);
@@ -91,13 +188,32 @@ namespace Regicide.Unity
         private VisualElement BuildRecap()
         {
             var v = new ScrollView();
-            v.Add(Head($"Province cleared — Chapter {S.Chapter} (Continent {S.Continent})"));
-            v.Add(Text("The seam rest already reshuffled your discard and drew your hand to full."));
-            v.Add(DeckCounts());
+            Theme.SetPadding(v, 10, 20);
+            v.Add(Theme.Title("PROVINCE CLEARED", 26));
+
+            var chips = Row();
+            chips.style.justifyContent = Justify.Center;
+            chips.Add(Theme.Chip($"Chapter {S.Chapter}", Theme.Gold));
+            chips.Add(Theme.Chip($"Continent {S.Continent}"));
+            chips.Add(Theme.Chip("seam rest applied — hand redrawn", Theme.Green));
+            v.Add(chips);
+
+            var center = Theme.Frame();
+            center.style.maxWidth = 900;
+            center.style.alignSelf = Align.Center;
+            center.style.marginTop = 8;
+            center.Add(DeckCounts());
+            v.Add(center);
+
             v.Add(BraceletPanel());
             v.Add(RelicPanel());
-            v.Add(Btn(S.Chapter >= Tuning.FinalChapter ? "…" : "Continue the conquest →",
-                () => Dispatch(new ContinueRun())));
+
+            var go = BtnPrimary(S.Chapter >= Tuning.FinalChapter ? "…" : "CONTINUE THE CONQUEST  →",
+                () => Dispatch(new ContinueRun()));
+            go.style.alignSelf = Align.Center;
+            go.style.fontSize = 16;
+            Theme.SetPadding(go, 10, 26);
+            v.Add(go);
             v.Add(EventLog());
             return v;
         }
@@ -105,27 +221,75 @@ namespace Regicide.Unity
         private VisualElement BuildEnd(bool won)
         {
             var v = new VisualElement();
+            v.style.flexGrow = 1;
             v.style.alignItems = Align.Center;
             v.style.justifyContent = Justify.Center;
-            var box = Panel();
-            box.style.minWidth = 480;
+
+            var box = Theme.Frame();
+            Theme.SetPadding(box, 20, 30);
+            box.style.alignItems = Align.Center;
+            box.style.maxWidth = 900;
+            Theme.SetBorder(box, won ? Theme.GoldBright : Theme.RedDeep, 2.5f);
+
             if (won)
             {
-                box.Add(Head("👑 CROWNED"));
-                var crown = S.OwnedCards.Select(id => S.Cards.Get(id))
-                    .FirstOrDefault(c => c.Printed.Rank == Rank.King);
-                box.Add(Text(crown != null
-                    ? $"The {PhysicalCard.Pretty(crown.Printed)} is your crown. The realm is yours."
-                    : "The realm is yours."));
-                box.Add(Text($"Conquest: {S.OwnedCards.Count} cards · seed \"{S.Seed}\""));
+                box.Add(Theme.Title("👑  LONG LIVE THE CROWN", 34));
+
+                // The court you kept: every royal in the conquest, crown first.
+                var royals = S.OwnedCards.Select(id => S.Cards.Get(id))
+                    .Where(c => CardRules.IsRoyal(c.Printed.Rank))
+                    .OrderByDescending(c => (int)c.Printed.Rank)
+                    .ToList();
+                var court = new VisualElement();
+                court.style.flexDirection = FlexDirection.Row;
+                court.style.justifyContent = Justify.Center;
+                court.style.marginBottom = 10;
+                foreach (var royal in royals)
+                {
+                    var slot = new VisualElement();
+                    slot.style.alignItems = Align.Center;
+                    slot.style.marginRight = 6;
+                    slot.Add(CardView.Card(royal,
+                        royal.Printed.Rank == Rank.King ? CardView.Size.Large : CardView.Size.Hand));
+                    if (royal.Printed.Rank == Rank.King)
+                    {
+                        var crownTag = new Label("THE CROWN");
+                        crownTag.style.color = Theme.GoldBright;
+                        crownTag.style.fontSize = 12;
+                        crownTag.style.unityFontStyleAndWeight = FontStyle.Bold;
+                        crownTag.style.letterSpacing = 2;
+                        slot.Add(crownTag);
+                    }
+                    court.Add(slot);
+                }
+                if (royals.Count > 0) box.Add(court);
+
+                var line = new Label("The realm is yours.");
+                line.style.color = Theme.Parchment;
+                line.style.marginBottom = 8;
+                box.Add(line);
             }
             else
             {
-                box.Add(Head("☠ The run is over"));
-                box.Add(Text($"Fallen in chapter {S.Chapter} (Continent {S.Continent}). No revive, no save — the lineage remembers."));
+                box.Add(Theme.Title("☠  THE RUN ENDS", 34));
+                var line = new Label($"Fallen in chapter {S.Chapter}, Continent {S.Continent}. " +
+                                     "No revive, no save — the lineage remembers.");
+                line.style.color = Theme.ParchmentDim;
+                line.style.whiteSpace = WhiteSpace.Normal;
+                line.style.marginBottom = 8;
+                box.Add(line);
             }
-            box.Add(Text($"Lineage: {_meta.Runs} run(s), {_meta.Wins} crown(s)."));
-            box.Add(Btn("Back to the menu", BackToMenu));
+
+            var stats = Row();
+            stats.style.justifyContent = Justify.Center;
+            stats.Add(Theme.Chip($"conquest {S.OwnedCards.Count} cards", won ? Theme.Gold : Theme.Grey));
+            stats.Add(Theme.Chip($"seed \"{S.Seed}\""));
+            stats.Add(Theme.Chip($"lineage {_meta.Runs} run(s) · {_meta.Wins} crown(s)", Theme.Gold));
+            box.Add(stats);
+
+            var back = BtnPrimary("BACK TO THE MENU", BackToMenu);
+            back.style.marginTop = 12;
+            box.Add(back);
             v.Add(box);
             return v;
         }
