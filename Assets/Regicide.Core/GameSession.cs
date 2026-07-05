@@ -54,6 +54,7 @@ namespace Regicide.Core
                 ArmCrystal a => HandleArmCrystal(a),
                 ForgeConvert _ => HandleForgeConvert(),
                 CastSpell a => HandleCastSpell(a),
+                RearrangeGraft a => HandleRearrangeGraft(a),
                 ChooseRelic a => HandleChooseRelic(a),
                 EquipRelic a => HandleEquipRelic(a),
                 BuyRelic a => HandleBuyRelic(a),
@@ -1011,6 +1012,7 @@ namespace Regicide.Core
             var events = new List<GameEvent>();
             State.StaffOffer = null;   // walking away from a Fallen Heroes stop closes its offer (§10)
             State.CaravanOffer = null; // likewise the caravan's stall (§8)
+            State.SanctumCharge = false; // and the sanctum's single rearrange (§9)
             State.Map.CurrentNodeId = node.Id;
             node.Known = node.Visited = true;
             foreach (int next in node.Next) State.Map.Get(next).Known = true;
@@ -1083,6 +1085,19 @@ namespace Regicide.Core
                         Kind = node.Kind,
                         Note = $"the forge is lit — {State.TokenFragments} fragment(s), {State.TokenHalves} half(s) banked",
                     });
+                    break;
+
+                case RoadNodeKind.Sanctum:
+                    // The Sanctum (§9): one graft-rearrange while standing here.
+                    State.SanctumCharge = true;
+                    events.Add(new LandmarkVisited { Kind = node.Kind, Note = "the sanctum hums — one graft may be moved" });
+                    break;
+
+                case RoadNodeKind.Shrine:
+                    // PLACEHOLDER (§12 names the Shrine but the spec never defines it):
+                    // a small offering — +1 fragment. Replace when the design lands.
+                    State.TokenFragments++;
+                    events.Add(new ShrineBlessing { Fragments = State.TokenFragments });
                     break;
 
                 case RoadNodeKind.Heroes:
@@ -1458,6 +1473,40 @@ namespace Regicide.Core
                 events.Add(new RecoveredToHand { PhysicalId = ids[0] });
             }
             return Result.Success(events);
+        }
+
+        // ── sanctum (§9) ────────────────────────────────────────────────────────
+
+        private Result HandleRearrangeGraft(RearrangeGraft a)
+        {
+            if (!State.SanctumCharge)
+                return Result.Fail("Graft-rearrange works at a Sanctum (once per visit)");
+            if (State.PendingChoice != null)
+                return Result.Fail($"Resolve the pending {State.PendingChoice.Kind} first");
+            if (!State.OwnedCards.Contains(a.FromPhysicalId) || !State.OwnedCards.Contains(a.ToPhysicalId))
+                return Result.Fail("Both cards must be owned");
+            if (a.FromPhysicalId == a.ToPhysicalId)
+                return Result.Fail("Pick two different cards");
+
+            var from = State.Cards.Get(a.FromPhysicalId);
+            var to = State.Cards.Get(a.ToPhysicalId);
+            var graft = from.Grafts.FirstOrDefault(g => g.Seq == a.GraftSeq);
+            if (graft == null)
+                return Result.Fail($"Card #{a.FromPhysicalId} has no graft with seq {a.GraftSeq}");
+            if (graft.Kind == GraftKind.SuitAdd && to.FiresSuit(graft.ToSuit))
+                return Result.Fail($"#{to.PhysicalId} already fires {PhysicalCard.SuitGlyph(graft.ToSuit)} — a no-op move");
+
+            // ── validated; mutate ── The graft re-applies LAST on its new card
+            // (fresh seq), so it wins over the target's older rewrites.
+            State.SanctumCharge = false;
+            from.Grafts.Remove(graft);
+            to.Grafts.Add(new GraftRecord(State.Cards.NextGraftSeq(), graft.Kind, graft.ToRank, graft.ToSuit,
+                graft.Source + " (sanctum-moved)"));
+
+            return Result.Success(new List<GameEvent>
+            {
+                new GraftMoved { FromPhysicalId = from.PhysicalId, ToPhysicalId = to.PhysicalId, Kind = graft.Kind },
+            });
         }
 
         // ── relics (§8) ─────────────────────────────────────────────────────────

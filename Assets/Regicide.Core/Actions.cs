@@ -131,6 +131,21 @@ namespace Regicide.Core
         public CastSpell(Suit suit) { Suit = suit; }
     }
 
+    /// <summary>
+    /// Sanctum (§9, §12): move one graft from one owned card to another — the
+    /// graft-rearrange verb. Once per visit, while standing at the Sanctum.
+    /// </summary>
+    public sealed class RearrangeGraft : IAction
+    {
+        public int FromPhysicalId;
+        public int GraftSeq;
+        public int ToPhysicalId;
+        public RearrangeGraft(int fromPhysicalId, int graftSeq, int toPhysicalId)
+        {
+            FromPhysicalId = fromPhysicalId; GraftSeq = graftSeq; ToPhysicalId = toPhysicalId;
+        }
+    }
+
     /// <summary>Answer a RelicSelect pending choice (§8 Lair): claim one offered relic into the bag.</summary>
     public sealed class ChooseRelic : IAction
     {

@@ -233,6 +233,8 @@ namespace Regicide.Core
         public string[] EquippedRelics = new string[4];
         /// <summary>Caravan offer (§8): the relic buyable while standing there. Null elsewhere.</summary>
         public string CaravanOffer;
+        /// <summary>Sanctum charge (§9): one graft-rearrange while standing there. False elsewhere.</summary>
+        public bool SanctumCharge;
 
         /// <summary>Once-per-province ability ids used (Forced March, Bedroll, Requisition Writ §8).</summary>
         public HashSet<string> UsedThisProvince = new HashSet<string>();

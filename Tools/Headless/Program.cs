@@ -93,6 +93,7 @@ namespace Regicide.Headless
             Run("relics: conscription, plunder, muster", TestHatEdgeCases);
             Run("relics: scalpel, unbinding, second wind, aegis", TestAmuletsOne);
             Run("relics: bloodlust, echo, lodestone", TestAmuletsTwo);
+            Run("sanctum: move a graft once per visit; shrine blessing", TestSanctumShrine);
 
             Console.WriteLine();
             if (_failures.Count == 0)
@@ -1972,6 +1973,45 @@ namespace Regicide.Headless
             Must(s3.Dispatch(new UseRelic("lodestone", wanted)));
             Check(s3.State.Deck.Hand.Contains(wanted), "the named card is pulled into hand");
             MustFail(s3.Dispatch(new UseRelic("lodestone", s3.State.Deck.Tavern[0])), "once per fight");
+        }
+
+        // ── step-9 tests: sanctum & shrine ──────────────────────────────────────
+
+        private static void TestSanctumShrine()
+        {
+            var s = NewRun("sanctum");
+            EnterC2(s); // ch4 road holds the Shrine and the Forge|Sanctum fork
+
+            // Stage a grafted card to rearrange later.
+            var grafted = OwnInTavern(s, Suit.Hearts, Rank.Five);
+            grafted.Grafts.Add(new GraftRecord(s.State.Cards.NextGraftSeq(), GraftKind.SuitAdd, default,
+                Suit.Spades, "staged"));
+            var receiver = OwnInTavern(s, Suit.Diamonds, Rank.Three);
+            var spadey = OwnInTavern(s, Suit.Spades, Rank.Two);
+            int seq = grafted.Grafts[0].Seq;
+
+            MustFail(s.Dispatch(new RearrangeGraft(grafted.PhysicalId, seq, receiver.PhysicalId)),
+                "no rearranging away from a sanctum");
+
+            WalkTo(s, RoadNodeKind.Skirmish, RoadNodeKind.Camp);
+            int fragsBefore = s.State.TokenFragments; // after the fight's own 50/50 drop
+            WalkTo(s, RoadNodeKind.Shrine);
+            Check(s.State.TokenFragments == fragsBefore + 1, "the shrine's blessing: +1 fragment");
+
+            WalkTo(s, RoadNodeKind.Sanctum);
+            Check(s.State.SanctumCharge, "the sanctum holds one rearrange");
+            MustFail(s.Dispatch(new RearrangeGraft(grafted.PhysicalId, 999, receiver.PhysicalId)),
+                "unknown graft seq");
+            MustFail(s.Dispatch(new RearrangeGraft(grafted.PhysicalId, seq, spadey.PhysicalId)),
+                "a suit-add onto a card already firing it is a no-op");
+
+            var r = Must(s.Dispatch(new RearrangeGraft(grafted.PhysicalId, seq, receiver.PhysicalId)));
+            Check(Has<GraftMoved>(r), "graft moved");
+            Check(!grafted.FiresSuit(Suit.Spades), "the donor is plain 5♥ again");
+            Check(receiver.FiresSuit(Suit.Spades) && receiver.FiresSuit(Suit.Diamonds),
+                "the receiver now fires ♦ and ♠");
+            MustFail(s.Dispatch(new RearrangeGraft(receiver.PhysicalId, receiver.Grafts[0].Seq, grafted.PhysicalId)),
+                "once per visit");
         }
 
         // ── demo: a full scripted fight, played back like the UI would ─────────

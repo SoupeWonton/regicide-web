@@ -304,6 +304,19 @@ namespace Regicide.Core
         public override string ToString() => "Debt comes due: discard 1 card";
     }
 
+    public sealed class GraftMoved : GameEvent
+    {
+        public int FromPhysicalId; public int ToPhysicalId; public GraftKind Kind;
+        public override string ToString() =>
+            $"Sanctum: {Kind} graft moved from #{FromPhysicalId} to #{ToPhysicalId}";
+    }
+
+    public sealed class ShrineBlessing : GameEvent
+    {
+        public int Fragments;
+        public override string ToString() => $"Shrine blessing: +1 fragment (pool {Fragments})";
+    }
+
     public sealed class CampaignWonEvent : GameEvent
     {
         public CardFace? Crown;
