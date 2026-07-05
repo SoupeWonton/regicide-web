@@ -116,8 +116,7 @@ namespace Regicide.Unity
             if (_root == null) return;
             _root.Clear();
             _root.style.flexGrow = 1;
-            _root.style.backgroundColor = new StyleColor(new Color(0.09f, 0.09f, 0.11f));
-            _root.style.color = new StyleColor(new Color(0.92f, 0.90f, 0.85f));
+            Theme.Background(_root);
 
             VisualElement screen;
             if (_session == null) screen = BuildMainMenu();
@@ -138,21 +137,19 @@ namespace Regicide.Unity
             if (_pickerIds != null) _root.Add(BuildPickerOverlay());
         }
 
-        // ── small UI kit ────────────────────────────────────────────────────────
+        // ── small UI kit (Theme-backed; signatures stable across the partials) ──
 
-        private static Button Btn(string text, Action onClick, bool enabled = true)
-        {
-            var b = new Button(onClick) { text = text };
-            b.SetEnabled(enabled);
-            b.style.marginRight = 4;
-            b.style.marginBottom = 4;
-            return b;
-        }
+        private static Button Btn(string text, Action onClick, bool enabled = true) =>
+            Theme.Button(text, onClick, Theme.ButtonKind.Normal, enabled);
+
+        private static Button BtnPrimary(string text, Action onClick, bool enabled = true) =>
+            Theme.Button(text, onClick, Theme.ButtonKind.Primary, enabled);
 
         private static Label Head(string text)
         {
             var l = new Label(text);
             l.style.fontSize = 20;
+            l.style.color = Theme.GoldBright;
             l.style.unityFontStyleAndWeight = FontStyle.Bold;
             l.style.marginBottom = 8;
             return l;
@@ -175,31 +172,14 @@ namespace Regicide.Unity
             return v;
         }
 
-        private static VisualElement Panel(string title = null)
-        {
-            var v = new VisualElement();
-            v.style.backgroundColor = new StyleColor(new Color(0.13f, 0.13f, 0.17f));
-            v.style.marginBottom = 8;
-            v.style.paddingLeft = 10;
-            v.style.paddingRight = 10;
-            v.style.paddingTop = 8;
-            v.style.paddingBottom = 8;
-            if (title != null)
-            {
-                var t = new Label(title);
-                t.style.unityFontStyleAndWeight = FontStyle.Bold;
-                t.style.marginBottom = 4;
-                v.Add(t);
-            }
-            return v;
-        }
+        private static VisualElement Panel(string title = null) => Theme.Frame(title);
 
         private static VisualElement Overlay()
         {
             var v = new VisualElement();
             v.style.position = Position.Absolute;
             v.style.left = 0; v.style.right = 0; v.style.top = 0; v.style.bottom = 0;
-            v.style.backgroundColor = new StyleColor(new Color(0f, 0f, 0f, 0.72f));
+            v.style.backgroundColor = new StyleColor(new Color(0.02f, 0.01f, 0.05f, 0.82f));
             v.style.alignItems = Align.Center;
             v.style.justifyContent = Justify.Center;
             return v;
@@ -207,48 +187,61 @@ namespace Regicide.Unity
 
         private static VisualElement Dialog(string title)
         {
-            var d = new VisualElement();
-            d.style.backgroundColor = new StyleColor(new Color(0.16f, 0.16f, 0.21f));
-            d.style.paddingLeft = 16; d.style.paddingRight = 16;
-            d.style.paddingTop = 12; d.style.paddingBottom = 12;
-            d.style.maxWidth = 640;
+            var d = Theme.Frame();
+            Theme.SetBorder(d, Theme.Gold, 2);
+            Theme.SetPadding(d, 14, 18);
+            d.style.maxWidth = 760;
             d.Add(Head(title));
             return d;
         }
 
         private string CardLabel(int physicalId) => S.Cards.Get(physicalId).ToString();
 
-        /// <summary>Hand as toggleable card buttons feeding the shared selection set.</summary>
+        /// <summary>The hand as a Slay-the-Spire card fan feeding the shared selection set.</summary>
         private VisualElement HandStrip(bool selectable)
         {
-            var row = Row();
-            foreach (int id in S.Deck.Hand.ToList())
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.FlexEnd;
+            row.style.justifyContent = Justify.Center;
+            row.style.paddingTop = 22; // headroom for the selected-card lift
+
+            var hand = S.Deck.Hand.ToList();
+            for (int i = 0; i < hand.Count; i++)
             {
-                int captured = id;
-                var b = Btn(CardLabel(id), () =>
-                {
-                    if (!selectable) return;
-                    if (!_sel.Remove(captured)) _sel.Add(captured);
-                    Render();
-                });
-                if (_sel.Contains(id))
-                    b.style.backgroundColor = new StyleColor(new Color(0.35f, 0.5f, 0.28f));
-                row.Add(b);
+                int captured = hand[i];
+                var card = CardView.Card(S.Cards.Get(captured), CardView.Size.Hand,
+                    onClick: !selectable ? (Action)null : () =>
+                    {
+                        if (!_sel.Remove(captured)) _sel.Add(captured);
+                        Render();
+                    },
+                    selected: _sel.Contains(captured));
+                CardView.Fan(card, i, hand.Count);
+                row.Add(card);
             }
-            if (S.Deck.Hand.Count == 0) row.Add(Text("(empty hand)"));
+            if (hand.Count == 0)
+            {
+                var empty = Text("(empty hand)");
+                empty.style.color = Theme.Grey;
+                row.Add(empty);
+            }
             return row;
         }
 
         private VisualElement DeckCounts()
         {
             var row = Row();
-            row.Add(Text($"Tavern {S.Deck.Tavern.Count} · Discard {S.Deck.Discard.Count} · " +
-                         $"Hand {S.Deck.Hand.Count}/{S.MaxHandSize} · Owned {S.OwnedCards.Count} · " +
-                         $"Fragments {S.TokenFragments} · Halves {S.TokenHalves}"));
-            row.Add(Btn("View deck", () => OpenViewer("Owned cards (sorted by suit — draw order hidden)",
+            row.Add(Theme.Chip($"Tavern {S.Deck.Tavern.Count}", Theme.Blue));
+            row.Add(Theme.Chip($"Discard {S.Deck.Discard.Count}", Theme.RedDeep));
+            row.Add(Theme.Chip($"Hand {S.Deck.Hand.Count}/{S.MaxHandSize}"));
+            row.Add(Theme.Chip($"Deck {S.OwnedCards.Count}", Theme.Green));
+            row.Add(Theme.Chip($"Fragments {S.TokenFragments}", Theme.Gold));
+            if (S.TokenHalves > 0) row.Add(Theme.Chip($"Halves {S.TokenHalves}", Theme.GoldBright));
+            row.Add(Btn("Deck", () => OpenViewer("Owned cards (sorted by suit — draw order hidden)",
                 S.OwnedCards.OrderBy(id => S.Cards.Get(id).EffectiveFace().Suit)
                             .ThenBy(id => S.Cards.Get(id).EffectiveFace().Rank).ToList())));
-            row.Add(Btn("View discard", () => OpenViewer("Discard pile",
+            row.Add(Btn("Discard", () => OpenViewer("Discard pile",
                 S.Deck.Discard.OrderBy(id => S.Cards.Get(id).EffectiveFace().Suit)
                               .ThenBy(id => S.Cards.Get(id).EffectiveFace().Rank).ToList())));
             return row;
@@ -256,11 +249,19 @@ namespace Regicide.Unity
 
         private VisualElement EventLog()
         {
-            var panel = Panel("Log");
+            var panel = Panel("Chronicle");
             var scroll = new ScrollView();
-            scroll.style.maxHeight = 180;
-            foreach (var line in _log.Skip(Math.Max(0, _log.Count - 60)))
-                scroll.Add(Text(line));
+            scroll.style.maxHeight = 150;
+            var lines = _log.Skip(Math.Max(0, _log.Count - 60)).ToList();
+            for (int i = 0; i < lines.Count; i++)
+            {
+                var t = Text(lines[i]);
+                t.style.fontSize = 11;
+                bool latest = i >= lines.Count - 3;
+                t.style.color = lines[i].StartsWith("✗") ? Theme.RedBright
+                    : latest ? Theme.Parchment : Theme.Grey;
+                scroll.Add(t);
+            }
             panel.Add(scroll);
             scroll.schedule.Execute(() => scroll.scrollOffset = new Vector2(0, float.MaxValue));
             return panel;
@@ -302,20 +303,35 @@ namespace Regicide.Unity
             var o = Overlay();
             var d = Dialog(_pickerTitle);
             var scroll = new ScrollView();
-            scroll.style.maxHeight = 360;
+            scroll.style.maxHeight = 420;
             var row = Row();
             foreach (int id in _pickerIds)
             {
                 int captured = id;
-                if (_pickerViewOnly)
+                // Card ids render as actual cards; anything else falls back to a button.
+                if (S != null && S.Cards.TryGet(captured, out var card))
+                {
+                    row.Add(CardView.Card(card, CardView.Size.Small,
+                        onClick: _pickerViewOnly ? (Action)null : () =>
+                        {
+                            var done = _pickerDone;
+                            ClosePicker();
+                            done(captured);
+                        }));
+                }
+                else if (_pickerViewOnly)
+                {
                     row.Add(Text(_pickerLabel(id)));
+                }
                 else
+                {
                     row.Add(Btn(_pickerLabel(id), () =>
                     {
                         var done = _pickerDone;
                         ClosePicker();
                         done(captured);
                     }));
+                }
             }
             scroll.Add(row);
             d.Add(scroll);
