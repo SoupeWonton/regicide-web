@@ -114,6 +114,15 @@ namespace Regicide.Core
         /// <summary>Banked bonus damage for the next play (Bloodletting ⌊v/2⌋ etc.). Consumed on play.</summary>
         public int AttackBank;
 
+        /// <summary>Suits already cast this combat — at most one spell per suit per fight (§7).</summary>
+        public HashSet<Suit> CastSuits = new HashSet<Suit>();
+        /// <summary>Keen Edge (♣ Fragment): the next attack deals ×2 (§7).</summary>
+        public bool KeenEdgeArmed;
+        /// <summary>Commit (♣ Half): the next play may include ONE extra card of any rank (§7).</summary>
+        public bool CommitArmed;
+        /// <summary>Rally (♦ Half): at the next counterattack, draw min(net, 5) before paying (§7).</summary>
+        public bool RallyArmed;
+
         public EnemyState Current =>
             CurrentIndex < Enemies.Count ? Enemies[CurrentIndex] : null;
 
@@ -191,6 +200,12 @@ namespace Regicide.Core
         /// <summary>Generic (suit-agnostic) spell-economy pools (§7).</summary>
         public int TokenFragments;
         public int TokenHalves;
+
+        /// <summary>
+        /// The gauntlet (§7): one crystal slot per suit, indexed by (int)Suit.
+        /// Tier 0 = empty · 1 = Fragment · 2 = Half. (Full is post-alpha — never 3.)
+        /// </summary>
+        public int[] GauntletTiers = new int[4];
 
         /// <summary>
         /// Queue of decisions awaiting input, resolved head-first (a gate keep can

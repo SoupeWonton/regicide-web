@@ -25,6 +25,19 @@ namespace Regicide.Core
         /// <summary>Forge conversion rate: fragments per Half (§7).</summary>
         public const int FragmentsPerHalf = 2;
 
+        // Spell effect numbers (§7 — placeholders, centralized for tuning).
+        /// <summary>Quick Muster (♦ Fragment): cards drawn.</summary>
+        public const int QuickMusterDraw = 2;
+        /// <summary>Rally (♦ Half): draw min(net, this) before paying a counterattack.</summary>
+        public const int RallyDrawCap = 5;
+        /// <summary>Guard Up (♠ Fragment): flat shield added.</summary>
+        public const int GuardUpShield = 3;
+        /// <summary>Refit (♥ Fragment): discards returned to the Tavern / cards drawn.</summary>
+        public const int RefitReturn = 3;
+        public const int RefitDraw = 1;
+        /// <summary>Full Recycle (♥ Half): cards drawn after recycling the whole discard.</summary>
+        public const int RecycleDraw = 2;
+
         /// <summary>Camp bonus: shield already on the first enemy of the next fight (§9).</summary>
         public const int CampStartShield = 10;
 

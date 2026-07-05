@@ -51,6 +51,9 @@ namespace Regicide.Core
                 ActivateStaff a => HandleActivateStaff(a),
                 SwapStaff a => HandleSwapStaff(a),
                 ChooseRecover a => HandleChooseRecover(a),
+                ArmCrystal a => HandleArmCrystal(a),
+                ForgeConvert _ => HandleForgeConvert(),
+                CastSpell a => HandleCastSpell(a),
                 ContinueRun _ => HandleContinueRun(),
                 _ => Result.Fail($"Unknown action {action?.GetType().Name ?? "null"}"),
             };
@@ -125,6 +128,22 @@ namespace Regicide.Core
             events.Add(dealt);
         }
 
+        /// <summary>Draw up to <paramref name="count"/> cards, capped by hand size and the Tavern.</summary>
+        private CardsDrawn Draw(int count)
+        {
+            var drawn = new CardsDrawn();
+            for (int i = 0; i < count &&
+                 State.Deck.Hand.Count < State.MaxHandSize &&
+                 State.Deck.Tavern.Count > 0; i++)
+            {
+                int id = State.Deck.Tavern[0];
+                State.Deck.Tavern.RemoveAt(0);
+                State.Deck.Hand.Add(id);
+                drawn.PhysicalIds.Add(id);
+            }
+            return drawn;
+        }
+
         // ── encounter entry ─────────────────────────────────────────────────────
 
         private Result HandleStartEncounter(StartEncounter a)
@@ -179,12 +198,14 @@ namespace Regicide.Core
                 if (!State.Deck.Hand.Contains(id)) return Result.Fail($"Card #{id} is not in hand");
 
             var cards = ids.Select(id => State.Cards.Get(id)).ToList();
-            string comboError = ValidateCombo(cards);
+            string comboError = ValidateCombo(cards, out bool usedCommit);
             if (comboError != null) return Result.Fail(comboError);
 
             // ── validated; mutate from here ──
             var events = new List<GameEvent>();
             var enemy = State.Encounter.Current;
+
+            if (usedCommit) State.Encounter.CommitArmed = false; // the extra card spent it (§7)
 
             int baseAttack = cards.Sum(c => c.EffectiveValue());
 
@@ -322,6 +343,11 @@ namespace Regicide.Core
                 damage *= 2; // Camp bonus: the fight's first attack deals double (§9)
                 State.Encounter.FirstAttackDouble = false;
             }
+            if (State.Encounter.KeenEdgeArmed)
+            {
+                damage *= 2; // Keen Edge (♣ Fragment, §7): the next attack deals ×2
+                State.Encounter.KeenEdgeArmed = false;
+            }
             if (State.Encounter.AttackBank > 0)
             {
                 damage += State.Encounter.AttackBank; // Bloodletting bank (§10)
@@ -371,8 +397,9 @@ namespace Regicide.Core
         /// dead text otherwise); Dovetail lets it include ONE adjacent-rank card (the
         /// cap covers the whole play — adjacency, not rank freedom, is its point).
         /// </summary>
-        private string ValidateCombo(List<PhysicalCard> cards)
+        private string ValidateCombo(List<PhysicalCard> cards, out bool usedCommit)
         {
+            usedCommit = false;
             if (cards.Count == 1) return null;
 
             var faces = cards.Select(c => c.EffectiveFace()).ToList();
@@ -406,6 +433,23 @@ namespace Regicide.Core
                     if (System.Math.Abs(restRank - oddRank) == 1 &&
                         cards.Sum(c => c.EffectiveValue()) <= Tuning.ComboValueCap)
                         return null;
+                }
+            }
+
+            // Commit spell (♣ Half, §7): the next play may include ONE extra card of
+            // any rank — the value cap still applies, and never with an Ace pair
+            // (the pair shape validates above without touching the spell).
+            if (State.Encounter != null && State.Encounter.CommitArmed)
+            {
+                for (int i = 0; i < cards.Count; i++)
+                {
+                    var rest = cards.Where((_, j) => j != i).ToList();
+                    if (SameRankTotal(rest, out _) &&
+                        cards.Sum(c => c.EffectiveValue()) <= Tuning.ComboValueCap)
+                    {
+                        usedCommit = true;
+                        return null;
+                    }
                 }
             }
 
@@ -493,6 +537,15 @@ namespace Regicide.Core
             {
                 events.Add(new CounterattackBlocked());
                 return; // turn ends; play again next turn
+            }
+
+            if (State.Encounter.RallyArmed)
+            {
+                // Rally (♦ Half, §7): draw min(net, 5) BEFORE paying — checked before
+                // the death test on purpose; a Rally can be the thing that saves you.
+                State.Encounter.RallyArmed = false;
+                var drawn = Draw(System.Math.Min(net, Tuning.RallyDrawCap));
+                if (drawn.PhysicalIds.Count > 0) events.Add(drawn);
             }
 
             if (State.HandTotalValue() < net)
@@ -779,6 +832,15 @@ namespace Regicide.Core
                         HuntOptions = options,
                     });
                     events.Add(new HuntOffered { Options = options });
+                    break;
+
+                case RoadNodeKind.Forge:
+                    // The forge menu always opens (§7); ForgeConvert works while standing here.
+                    events.Add(new LandmarkVisited
+                    {
+                        Kind = node.Kind,
+                        Note = $"the forge is lit — {State.TokenFragments} fragment(s), {State.TokenHalves} half(s) banked",
+                    });
                     break;
 
                 case RoadNodeKind.Heroes:
@@ -1133,6 +1195,163 @@ namespace Regicide.Core
                 State.Deck.Hand.Add(ids[0]);
                 events.Add(new RecoveredToHand { PhysicalId = ids[0] });
             }
+            return Result.Success(events);
+        }
+
+        // ── spells: gauntlet, bracelet, forge, casting (§7) ─────────────────────
+
+        private Result HandleArmCrystal(ArmCrystal a)
+        {
+            if (State.Phase != CampaignPhase.Road && State.Phase != CampaignPhase.ChapterComplete)
+                return Result.Fail("The bracelet opens between encounters");
+            if (State.PendingChoice != null)
+                return Result.Fail($"Resolve the pending {State.PendingChoice.Kind} first");
+            if (a.Tier != SpellTables.TierFragment && a.Tier != SpellTables.TierHalf)
+                return Result.Fail("Arm a Fragment (1) or a Half (2)");
+            if (State.GauntletTiers[(int)a.Suit] != SpellTables.TierEmpty)
+                return Result.Fail($"The {PhysicalCard.SuitGlyph(a.Suit)} slot is occupied — cast it first");
+            if (a.Tier == SpellTables.TierFragment && State.TokenFragments < 1)
+                return Result.Fail("No fragments in the pool");
+            if (a.Tier == SpellTables.TierHalf && State.TokenHalves < 1)
+                return Result.Fail("No Halves in the pool");
+
+            // ── validated; mutate ──
+            if (a.Tier == SpellTables.TierFragment) State.TokenFragments--;
+            else State.TokenHalves--;
+            State.GauntletTiers[(int)a.Suit] = a.Tier;
+            return Result.Success(new List<GameEvent> { new CrystalArmed { Suit = a.Suit, Tier = a.Tier } });
+        }
+
+        private Result HandleForgeConvert()
+        {
+            if (State.Phase != CampaignPhase.Road || State.Map?.Current.Kind != RoadNodeKind.Forge)
+                return Result.Fail("The Forge works only while standing at one");
+            if (State.PendingChoice != null)
+                return Result.Fail($"Resolve the pending {State.PendingChoice.Kind} first");
+            if (State.TokenFragments < Tuning.FragmentsPerHalf)
+                return Result.Fail($"Forging a Half takes {Tuning.FragmentsPerHalf} fragments");
+
+            // ── validated; mutate ──
+            State.TokenFragments -= Tuning.FragmentsPerHalf;
+            State.TokenHalves++;
+            return Result.Success(new List<GameEvent>
+            {
+                new HalfForged { Fragments = State.TokenFragments, Halves = State.TokenHalves },
+            });
+        }
+
+        private Result HandleCastSpell(CastSpell a)
+        {
+            if (State.Phase != CampaignPhase.Encounter || State.Encounter?.Current == null)
+                return Result.Fail("Spells cast in combat");
+
+            var enc = State.Encounter;
+            var enemy = enc.Current;
+            int tier = State.GauntletTiers[(int)a.Suit];
+            bool isBrace = a.Suit == Suit.Spades && tier == SpellTables.TierHalf;
+            var pending = State.PendingChoice;
+
+            if (tier == SpellTables.TierEmpty)
+                return Result.Fail($"The {PhysicalCard.SuitGlyph(a.Suit)} slot is empty");
+            if (enc.CastSuits.Contains(a.Suit))
+                return Result.Fail($"Already cast {PhysicalCard.SuitGlyph(a.Suit)} this combat");
+            if (pending != null && !(pending.Kind == PendingChoiceKind.Defend && isBrace))
+                return Result.Fail($"Resolve the pending {pending.Kind} first");
+            if (isBrace && pending == null)
+                return Result.Fail("Brace casts during the pay step");
+            if (isBrace && State.Deck.Hand.Count == 0)
+                return Result.Fail("Brace spends a hand card — hand is empty");
+
+            // ── validated; mutate ── Casting consumes the whole slot (§7); spells
+            // sit above suit immunity, so the enemy's suit is never consulted.
+            State.GauntletTiers[(int)a.Suit] = SpellTables.TierEmpty;
+            enc.CastSuits.Add(a.Suit);
+
+            var events = new List<GameEvent>();
+            void Cast(string note) => events.Add(new SpellCast { Suit = a.Suit, Tier = tier, Note = note });
+
+            switch ((a.Suit, tier))
+            {
+                case (Suit.Clubs, SpellTables.TierFragment): // Keen Edge
+                    enc.KeenEdgeArmed = true;
+                    Cast("the next attack deals ×2");
+                    break;
+
+                case (Suit.Clubs, SpellTables.TierHalf): // Commit
+                    enc.CommitArmed = true;
+                    Cast("the next play may include one extra card of any rank");
+                    break;
+
+                case (Suit.Diamonds, SpellTables.TierFragment): // Quick Muster
+                {
+                    var drawn = Draw(Tuning.QuickMusterDraw);
+                    Cast($"drew {drawn.PhysicalIds.Count}");
+                    if (drawn.PhysicalIds.Count > 0) events.Add(drawn);
+                    break;
+                }
+
+                case (Suit.Diamonds, SpellTables.TierHalf): // Rally
+                    enc.RallyArmed = true;
+                    Cast($"next counterattack: draw min(net, {Tuning.RallyDrawCap}) before paying");
+                    break;
+
+                case (Suit.Spades, SpellTables.TierFragment): // Guard Up
+                    enemy.Shield += Tuning.GuardUpShield;
+                    Cast($"shield +{Tuning.GuardUpShield}");
+                    events.Add(new ShieldGained { Amount = Tuning.GuardUpShield, Total = enemy.Shield });
+                    break;
+
+                case (Suit.Spades, SpellTables.TierHalf): // Brace — the pay step spell
+                {
+                    int best = State.Deck.Hand
+                        .OrderByDescending(id => State.Cards.Get(id).EffectiveValue())
+                        .First();
+                    int v = State.Cards.Get(best).EffectiveValue();
+                    State.Deck.Hand.Remove(best);
+                    State.Deck.Discard.Add(best);
+                    enemy.Shield += v;
+                    pending.RequiredValue -= v;
+                    Cast($"spent #{best} — shield +{v}, payment cut to {System.Math.Max(0, pending.RequiredValue)}");
+                    events.Add(new ShieldGained { Amount = v, Total = enemy.Shield });
+                    if (pending.RequiredValue <= 0)
+                    {
+                        State.PendingChoices.RemoveAt(0);
+                        events.Add(new Defended { Paid = 0, Required = 0 });
+                    }
+                    break;
+                }
+
+                case (Suit.Hearts, SpellTables.TierFragment): // Refit
+                {
+                    int n = System.Math.Min(Tuning.RefitReturn, State.Deck.Discard.Count);
+                    if (n > 0)
+                    {
+                        _rng.Shuffle(State.Deck.Discard);
+                        var back = State.Deck.Discard.Take(n).ToList();
+                        State.Deck.Discard.RemoveRange(0, n);
+                        State.Deck.Tavern.AddRange(back);
+                    }
+                    var drawn = Draw(Tuning.RefitDraw);
+                    Cast($"returned {n} discard(s), drew {drawn.PhysicalIds.Count}");
+                    if (n > 0) events.Add(new CardsRecovered { Count = n });
+                    if (drawn.PhysicalIds.Count > 0) events.Add(drawn);
+                    break;
+                }
+
+                case (Suit.Hearts, SpellTables.TierHalf): // Full Recycle
+                {
+                    int n = State.Deck.Discard.Count;
+                    State.Deck.Tavern.AddRange(State.Deck.Discard);
+                    State.Deck.Discard.Clear();
+                    _rng.Shuffle(State.Deck.Tavern);
+                    var drawn = Draw(Tuning.RecycleDraw);
+                    Cast($"recycled the whole discard ({n}), drew {drawn.PhysicalIds.Count}");
+                    if (n > 0) events.Add(new CardsRecovered { Count = n });
+                    if (drawn.PhysicalIds.Count > 0) events.Add(drawn);
+                    break;
+                }
+            }
+
             return Result.Success(events);
         }
     }

@@ -244,6 +244,27 @@ namespace Regicide.Core
         public override string ToString() => $"Recovered card #{PhysicalId} taken into hand";
     }
 
+    public sealed class CrystalArmed : GameEvent
+    {
+        public Suit Suit; public int Tier;
+        public override string ToString() =>
+            $"{PhysicalCard.SuitGlyph(Suit)} crystal armed: {SpellTables.Name(Suit, Tier)} " +
+            $"({(Tier == SpellTables.TierHalf ? "Half" : "Fragment")})";
+    }
+
+    public sealed class HalfForged : GameEvent
+    {
+        public int Fragments; public int Halves;
+        public override string ToString() => $"Forged a Half (pool: {Fragments} fragments, {Halves} halves)";
+    }
+
+    public sealed class SpellCast : GameEvent
+    {
+        public Suit Suit; public int Tier; public string Note;
+        public override string ToString() =>
+            $"CAST {SpellTables.Name(Suit, Tier)} ({PhysicalCard.SuitGlyph(Suit)}): {Note}";
+    }
+
     public sealed class CampaignWonEvent : GameEvent
     {
         public CardFace? Crown;

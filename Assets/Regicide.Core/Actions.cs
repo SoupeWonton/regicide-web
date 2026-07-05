@@ -108,6 +108,30 @@ namespace Regicide.Core
     }
 
     /// <summary>
+    /// Bracelet (§7): arm a pool token into an EMPTY gauntlet slot between encounters.
+    /// Tier 1 spends a fragment, tier 2 a Half. Occupied slots are refused.
+    /// </summary>
+    public sealed class ArmCrystal : IAction
+    {
+        public Suit Suit;
+        public int Tier;
+        public ArmCrystal(Suit suit, int tier) { Suit = suit; Tier = tier; }
+    }
+
+    /// <summary>Forge (§7): convert 2 fragments → 1 Half. Repeatable while standing at a Forge.</summary>
+    public sealed class ForgeConvert : IAction { }
+
+    /// <summary>
+    /// Cast the crystal armed in a suit's slot (§7). One cast per suit per combat;
+    /// the slot empties to tier 0. Brace (♠ Half) is castable during the pay step.
+    /// </summary>
+    public sealed class CastSpell : IAction
+    {
+        public Suit Suit;
+        public CastSpell(Suit suit) { Suit = suit; }
+    }
+
+    /// <summary>
     /// Answer a RecoverSelect (Triage: pick up to Max discards to recover) or
     /// RecoverToHand (Last Rites: pick ≤1 recovered card into hand) pending choice.
     /// An empty list is a legal "none" answer for both (§10).

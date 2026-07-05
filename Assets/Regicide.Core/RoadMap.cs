@@ -53,9 +53,10 @@ namespace Regicide.Core
                 {
                     new[] { RoadNodeKind.Start },
                     new[] { RoadNodeKind.Skirmish },
-                    new[] { RoadNodeKind.Recruit, RoadNodeKind.Camp },   // bonus fork
+                    new[] { RoadNodeKind.Recruit, RoadNodeKind.Camp },     // bonus fork
                     new[] { RoadNodeKind.Veteran, RoadNodeKind.Hunt },
-                    new[] { RoadNodeKind.Lair, RoadNodeKind.Camp },      // lair vs safe
+                    new[] { RoadNodeKind.Forge, RoadNodeKind.Caravan },    // economy fork (§7, §8)
+                    new[] { RoadNodeKind.Lair, RoadNodeKind.Camp },        // lair vs safe
                     new[] { RoadNodeKind.Elite },
                     new[] { RoadNodeKind.Boss },
                 }
@@ -65,7 +66,8 @@ namespace Regicide.Core
                     new[] { RoadNodeKind.Skirmish },
                     new[] { RoadNodeKind.Veteran, RoadNodeKind.Camp },
                     // Elite on a C2 road is a royal duel; ch5 P2 opens with Fallen Heroes (§10).
-                    new[] { RoadNodeKind.Elite, chapter == 5 ? RoadNodeKind.Heroes : RoadNodeKind.Event },
+                    new[] { RoadNodeKind.Elite, chapter == 5 ? RoadNodeKind.Heroes : RoadNodeKind.Shrine },
+                    new[] { RoadNodeKind.Forge, RoadNodeKind.Sanctum },    // utility fork (§7, §9)
                     new[] { RoadNodeKind.Lair, RoadNodeKind.Camp },
                     new[] { RoadNodeKind.Veteran },
                     new[] { RoadNodeKind.Gate },

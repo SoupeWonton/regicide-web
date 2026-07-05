@@ -74,6 +74,14 @@ namespace Regicide.Headless
             Run("staff: transfuse (♥ play shields instead of recovering)", TestTransfuse);
             Run("staff: field dressing (first recovery +1)", TestFieldDressing);
             Run("fallen heroes: one staff per class, free repeatable swap", TestFallenHeroes);
+            Run("spells: forge 2→1 and bracelet arming rules", TestForgeAndBracelet);
+            Run("spells: cast-to-empty, one per suit per combat", TestCastRules);
+            Run("spells: keen edge doubles the next attack", TestKeenEdge);
+            Run("spells: commit allows one extra card under the cap", TestCommit);
+            Run("spells: quick muster and the life-saving rally", TestQuickMusterAndRally);
+            Run("spells: guard up ignores suit immunity", TestGuardUpImmunity);
+            Run("spells: brace during the pay step", TestBrace);
+            Run("spells: refit and full recycle", TestRefitRecycle);
 
             Console.WriteLine();
             if (_failures.Count == 0)
@@ -586,7 +594,9 @@ namespace Regicide.Headless
             var s = NewRun("mapshape");
             var map = s.State.Map;
             Check(map != null && map.Chapter == 1, "chapter-1 map generated at run start");
-            Check(map.Nodes.Count == 10, $"C1 template should have 10 nodes, got {map.Nodes.Count}");
+            Check(map.Nodes.Count == 12, $"C1 template should have 12 nodes, got {map.Nodes.Count}");
+            Check(map.Nodes.Any(n => n.Kind == RoadNodeKind.Forge) &&
+                  map.Nodes.Any(n => n.Kind == RoadNodeKind.Caravan), "economy fork present");
             Check(map.Current.Kind == RoadNodeKind.Start && map.Current.Visited, "run starts at the start node");
             Check(map.Nodes.Count(n => n.Kind == RoadNodeKind.Boss) == 1, "exactly one boss");
             Check(map.Nodes.Any(n => n.Kind == RoadNodeKind.Hunt), "C1 province guarantees a Hunt");
@@ -597,7 +607,8 @@ namespace Regicide.Headless
                 Check(map.Get(id).Known, "neighbors of the start are known");
             var boss = map.Nodes.First(n => n.Kind == RoadNodeKind.Boss);
             Check(!boss.Known, "the boss is a '?' until approached");
-            Check(map.Nodes.Where(n => n.Kind != RoadNodeKind.Boss && n.Layer < 6).All(n => n.Next.Count > 0),
+            int lastLayer = map.Nodes.Max(n => n.Layer);
+            Check(map.Nodes.Where(n => n.Layer < lastLayer).All(n => n.Next.Count > 0),
                 "no dead ends before the boss");
         }
 
@@ -1373,6 +1384,173 @@ namespace Regicide.Headless
 
             Must(s.Dispatch(new MoveToNode(s.State.Map.Current.Next[0])));
             Check(s.State.StaffOffer == null, "walking on closes the offer");
+        }
+
+        // ── step-7 tests: spells ────────────────────────────────────────────────
+
+        /// <summary>Move along the road picking nodes of the wanted kind (fighting through).</summary>
+        private static void WalkTo(GameSession s, params RoadNodeKind[] preferences)
+        {
+            foreach (var want in preferences)
+            {
+                var node = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
+                            .First(n => n.Kind == want);
+                Must(s.Dispatch(new MoveToNode(node.Id)));
+                if (s.State.Phase == CampaignPhase.Encounter) WinFight(s);
+            }
+        }
+
+        private static void TestForgeAndBracelet()
+        {
+            var s = NewRun("forge");
+            MustFail(s.Dispatch(new ForgeConvert()), "no forge here");
+
+            WalkTo(s, RoadNodeKind.Skirmish, RoadNodeKind.Camp, RoadNodeKind.Veteran, RoadNodeKind.Forge);
+            s.State.TokenFragments = 3; // staged pool (fight drops along the walk vary by seed)
+            s.State.TokenHalves = 0;
+            var r = Must(s.Dispatch(new ForgeConvert()));
+            Check(s.State.TokenFragments == 1 && s.State.TokenHalves == 1, "2 fragments became 1 Half");
+            MustFail(s.Dispatch(new ForgeConvert()), "one fragment is not enough");
+
+            Must(s.Dispatch(new ArmCrystal(Suit.Diamonds, SpellTables.TierFragment)));
+            Check(s.State.GauntletTiers[(int)Suit.Diamonds] == 1 && s.State.TokenFragments == 0,
+                "fragment armed into the ♦ slot");
+            MustFail(s.Dispatch(new ArmCrystal(Suit.Diamonds, SpellTables.TierHalf)), "occupied slot refused");
+            MustFail(s.Dispatch(new ArmCrystal(Suit.Hearts, SpellTables.TierFragment)), "pool empty");
+            Must(s.Dispatch(new ArmCrystal(Suit.Spades, SpellTables.TierHalf)));
+            Check(s.State.GauntletTiers[(int)Suit.Spades] == 2 && s.State.TokenHalves == 0,
+                "half armed into the ♠ slot");
+
+            Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            s.State.TokenFragments = 1;
+            MustFail(s.Dispatch(new ArmCrystal(Suit.Hearts, SpellTables.TierFragment)),
+                "no arming mid-combat — the bracelet is a between-fights screen");
+        }
+
+        private static void TestCastRules()
+        {
+            var s = NewRun("castrules");
+            MustFail(s.Dispatch(new CastSpell(Suit.Diamonds)), "spells cast in combat");
+            s.State.GauntletTiers[(int)Suit.Diamonds] = SpellTables.TierFragment;
+
+            Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            ClearHand(s);
+            var r = Must(s.Dispatch(new CastSpell(Suit.Diamonds)));
+            Check(Has<CardsDrawn>(r) && s.State.Deck.Hand.Count == 2, "quick muster drew 2");
+            Check(s.State.GauntletTiers[(int)Suit.Diamonds] == 0, "casting empties the slot");
+            MustFail(s.Dispatch(new CastSpell(Suit.Diamonds)), "slot now empty");
+
+            s.State.GauntletTiers[(int)Suit.Diamonds] = SpellTables.TierFragment; // staged re-arm
+            MustFail(s.Dispatch(new CastSpell(Suit.Diamonds)), "one ♦ cast per combat");
+
+            // A fresh fight resets the per-combat suit locks.
+            WinFight(s);
+            Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            Must(s.Dispatch(new CastSpell(Suit.Diamonds)));
+        }
+
+        private static void TestKeenEdge()
+        {
+            var s = NewRun("keenedge");
+            s.State.GauntletTiers[(int)Suit.Clubs] = SpellTables.TierFragment;
+            Fight(s, EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish)); // 18 hp
+            ClearHand(s);
+            var h9 = Give(s, Suit.Hearts, Rank.Nine);
+
+            Must(s.Dispatch(new CastSpell(Suit.Clubs)));
+            var r = Must(s.Dispatch(new PlayCards(h9.PhysicalId)));
+            Check(Get<DamageDealt>(r).Amount == 18, "9 doubled by keen edge = 18");
+            Check(Get<EnemyKilled>(r).Kind == KillKind.Exact, "an exact kill via the spell");
+        }
+
+        private static void TestCommit()
+        {
+            var s = NewRun("commit");
+            s.State.GauntletTiers[(int)Suit.Clubs] = SpellTables.TierHalf;
+            Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            ClearHand(s);
+            var c3 = Give(s, Suit.Clubs, Rank.Three);
+            var h3 = Give(s, Suit.Hearts, Rank.Three);
+            var d4 = Give(s, Suit.Diamonds, Rank.Four);
+            var d5 = Give(s, Suit.Diamonds, Rank.Five);
+            Give(s, Suit.Diamonds, Rank.Ten); // pay fodder
+
+            MustFail(s.Dispatch(new PlayCards(c3.PhysicalId, h3.PhysicalId, d4.PhysicalId)),
+                "no commit armed yet");
+            Must(s.Dispatch(new CastSpell(Suit.Clubs)));
+            MustFail(s.Dispatch(new PlayCards(d5.PhysicalId, d4.PhysicalId, c3.PhysicalId)),
+                "commit still respects the value cap and the same-rank base");
+            var r = Must(s.Dispatch(new PlayCards(c3.PhysicalId, h3.PhysicalId, d4.PhysicalId)));
+            Check(Get<CardsPlayed>(r).BaseAttack == 10, "3+3 plus the committed 4");
+            Check(!s.State.Encounter.CommitArmed, "commit consumed by the extra card");
+            Must(s.Dispatch(new DefendDiscard(s.State.Deck.Hand.ToList())));
+        }
+
+        private static void TestQuickMusterAndRally()
+        {
+            var s = NewRun("rally");
+            s.State.GauntletTiers[(int)Suit.Diamonds] = SpellTables.TierHalf;
+            Fight(s, EnemyState.Number(Suit.Spades, Rank.Ten, EnemyTier.Veteran)); // atk 6
+            ClearHand(s); // empty-handed — a yield would be death without the Rally
+
+            Must(s.Dispatch(new CastSpell(Suit.Diamonds)));
+            Check(s.State.Encounter.RallyArmed, "rally armed");
+            var r = Must(s.Dispatch(new Yield()));
+            Check(Has<CardsDrawn>(r), "rally drew before the pay step");
+            Check(!Has<PlayerDied>(r), "the rally draw saved the run");
+            Check(s.State.PendingChoice?.Kind == PendingChoiceKind.Defend, "then the counter must be paid");
+            Must(s.Dispatch(new DefendDiscard(s.State.Deck.Hand.ToList())));
+        }
+
+        private static void TestGuardUpImmunity()
+        {
+            var s = NewRun("guardup");
+            s.State.GauntletTiers[(int)Suit.Spades] = SpellTables.TierFragment;
+            Fight(s, EnemyState.Number(Suit.Spades, Rank.Six, EnemyTier.Skirmish)); // ♠-immune enemy
+            var r = Must(s.Dispatch(new CastSpell(Suit.Spades)));
+            Check(Get<ShieldGained>(r).Total == 3,
+                "guard up shields even vs a ♠ enemy — spells sit above immunity");
+        }
+
+        private static void TestBrace()
+        {
+            var s = NewRun("brace");
+            s.State.GauntletTiers[(int)Suit.Spades] = SpellTables.TierHalf;
+            Fight(s, EnemyState.Number(Suit.Hearts, Rank.Ten, EnemyTier.Veteran)); // atk 6
+            ClearHand(s);
+            var c2 = Give(s, Suit.Clubs, Rank.Two);
+            var h3 = Give(s, Suit.Hearts, Rank.Three);
+            var d9 = Give(s, Suit.Diamonds, Rank.Nine);
+
+            MustFail(s.Dispatch(new CastSpell(Suit.Spades)), "brace casts during the pay step only");
+            Must(s.Dispatch(new Yield()));
+            var r = Must(s.Dispatch(new CastSpell(Suit.Spades)));
+            Check(s.State.Deck.Discard.Contains(d9.PhysicalId), "the highest card (9♦) was spent");
+            Check(Get<ShieldGained>(r).Amount == 9, "its value shields");
+            Check(Has<Defended>(r) && s.State.PendingChoice == null, "9 covers the 6 — pay resolved free");
+        }
+
+        private static void TestRefitRecycle()
+        {
+            var s = NewRun("refit");
+            s.State.GauntletTiers[(int)Suit.Hearts] = SpellTables.TierFragment;
+            Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            for (int i = 0; i < 5; i++) GiveDiscard(s, Suit.Clubs, Rank.Two);
+            ClearHand(s);
+            var r = Must(s.Dispatch(new CastSpell(Suit.Hearts)));
+            Check(Get<CardsRecovered>(r).Count == 3, "refit returned 3 discards");
+            Check(Get<CardsDrawn>(r).PhysicalIds.Count == 1, "and drew 1");
+            Check(s.State.Deck.Discard.Count == 2, "two discards remain");
+
+            var s2 = NewRun("recycle");
+            s2.State.GauntletTiers[(int)Suit.Hearts] = SpellTables.TierHalf;
+            Fight(s2, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            for (int i = 0; i < 4; i++) GiveDiscard(s2, Suit.Clubs, Rank.Two);
+            ClearHand(s2);
+            var r2 = Must(s2.Dispatch(new CastSpell(Suit.Hearts)));
+            Check(Get<CardsRecovered>(r2).Count == 4, "the whole discard recycled");
+            Check(s2.State.Deck.Discard.Count == 0, "discard empty");
+            Check(Get<CardsDrawn>(r2).PhysicalIds.Count == 2, "and drew 2");
         }
 
         // ── demo: a full scripted fight, played back like the UI would ─────────
