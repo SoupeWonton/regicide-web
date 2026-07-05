@@ -156,6 +156,13 @@ namespace Regicide.Core
                     for (int i = 0; i < n; i++) boss.Add(Number(hi, EnemyTier.Boss, rng));
                     return boss;
 
+                case RoadNodeKind.Gate:
+                    // The royal gate: all four royals of the province's rank, as
+                    // sequential duels in a seeded order (§4).
+                    var suits = new List<Suit>(AllSuits);
+                    rng.Shuffle(suits);
+                    return suits.Select(s => EnemyState.Royal(s, RoyalRank(chapter), EnemyTier.Gate)).ToList();
+
                 default:
                     throw new System.InvalidOperationException($"{kind} is not a fight node");
             }

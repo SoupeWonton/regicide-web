@@ -28,6 +28,12 @@ namespace Regicide.Core
         /// <summary>Camp bonus: shield already on the first enemy of the next fight (§9).</summary>
         public const int CampStartShield = 10;
 
+        /// <summary>Depot rung (Quartermaster ♦): max hand size bonus while lit (§10).</summary>
+        public const int DepotHandBonus = 2;
+
+        /// <summary>Renewal rung (Surgeon ♥): min cards paid to a counter to recover 1 (§10).</summary>
+        public const int RenewalMinPayCards = 3;
+
         /// <summary>Chapters per continent — provinces are chapters within a continent (§4).</summary>
         public const int ChaptersPerContinent = 3;
 

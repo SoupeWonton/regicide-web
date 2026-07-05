@@ -47,6 +47,7 @@ namespace Regicide.Core
                 ChooseGraft a => HandleChooseGraft(a),
                 MoveToNode a => HandleMoveToNode(a),
                 ChooseHunt a => HandleChooseHunt(a),
+                ChooseRoyal a => HandleChooseRoyal(a),
                 ContinueRun _ => HandleContinueRun(),
                 _ => Result.Fail($"Unknown action {action?.GetType().Name ?? "null"}"),
             };
@@ -138,12 +139,14 @@ namespace Regicide.Core
         }
 
         /// <summary>Enter a fight, consuming any armed Camp bonuses (§9).</summary>
-        private void BeginEncounter(List<EnemyState> enemies, int? nodeId, List<GameEvent> events)
+        private void BeginEncounter(List<EnemyState> enemies, int? nodeId, List<GameEvent> events, Rank? gateRank = null)
         {
             State.Encounter = new EncounterState
             {
                 Enemies = new List<EnemyState>(enemies),
                 FirstAttackDouble = State.NextFightFirstAttackDouble,
+                IsGate = gateRank != null,
+                GateRank = gateRank ?? default,
             };
             State.EncounterNodeId = nodeId;
             State.NextFightFirstAttackDouble = false;
@@ -194,6 +197,8 @@ namespace Regicide.Core
                 ActiveSuits = activeSuits,
                 BlockedSuit = blocked,
             });
+
+            enemy.SpadeCardsPlayed += cards.Count(c => c.FiresSuit(Suit.Spades));
 
             // Suit powers (§3). Immune suit still contributes value, never its power.
             if (SuitActive(Suit.Spades))
@@ -295,29 +300,39 @@ namespace Regicide.Core
             {
                 // Exact kill — THE reward trigger (§6). No counterattack; play again.
                 enemy.Alive = false;
+                enemy.KillOutcome = KillKind.Exact;
                 events.Add(new EnemyKilled { Face = enemy.Face, Kind = KillKind.Exact });
 
-                if (State.OwnsFace(enemy.Face))
+                if (State.OwnsFace(enemy.Face) || CardRules.IsRoyal(enemy.Rank))
                 {
                     // Redundant kill → graft, if there is a hand card to graft onto.
+                    // Royals (road duels AND gates) always take this path — recruiting
+                    // a royal happens only through the gate keep pyramid, which resolves
+                    // after the gate clears and can queue behind this graft (§6).
                     if (State.Deck.Hand.Count > 0)
                     {
-                        State.PendingChoice = new PendingChoice
+                        State.PendingChoices.Add(new PendingChoice
                         {
                             Kind = PendingChoiceKind.GraftSelect,
                             SlainFace = enemy.Face,
-                        };
+                        });
                         events.Add(new GraftOffered { SlainFace = enemy.Face });
                         return; // fight continues after the choice resolves
                     }
                 }
                 else
                 {
-                    // Recruit: mint a PhysicalCard, shuffle it into the Tavern (§6).
+                    // Recruit: mint a PhysicalCard, shuffle it into the Tavern (§6) —
+                    // or straight into the hand under the Conscript rung (§10).
                     var card = State.Cards.Mint(enemy.Suit, enemy.Rank);
                     State.OwnedCards.Add(card.PhysicalId);
-                    State.Deck.Tavern.Insert(_rng.Int(State.Deck.Tavern.Count + 1), card.PhysicalId);
-                    events.Add(new Recruited { PhysicalId = card.PhysicalId, Face = card.Printed });
+                    bool toHand = State.Hero.PathC2 == ClassTables.RungConscript &&
+                                  State.Deck.Hand.Count < State.MaxHandSize;
+                    if (toHand)
+                        State.Deck.Hand.Add(card.PhysicalId);
+                    else
+                        State.Deck.Tavern.Insert(_rng.Int(State.Deck.Tavern.Count + 1), card.PhysicalId);
+                    events.Add(new Recruited { PhysicalId = card.PhysicalId, Face = card.Printed, ToHand = toHand });
                 }
 
                 AdvancePastDead(events);
@@ -325,7 +340,9 @@ namespace Regicide.Core
             else if (enemy.Hp < 0)
             {
                 // Overkill — defeated, no reward, card lost (§3, §6). No counterattack.
+                // At a gate the royal is banished entirely — never eligible to keep.
                 enemy.Alive = false;
+                enemy.KillOutcome = KillKind.Overkill;
                 events.Add(new EnemyKilled { Face = enemy.Face, Kind = KillKind.Overkill });
                 AdvancePastDead(events);
             }
@@ -354,18 +371,38 @@ namespace Regicide.Core
                 return;
             }
 
-            State.PendingChoice = new PendingChoice { Kind = PendingChoiceKind.Defend, RequiredValue = net };
+            State.PendingChoices.Add(new PendingChoice { Kind = PendingChoiceKind.Defend, RequiredValue = net });
             events.Add(new CounterattackIncoming { NetAttack = net });
         }
 
         private void AdvancePastDead(List<GameEvent> events)
         {
             var enc = State.Encounter;
+            var slain = enc.Current; // the enemy whose death brought us here (null-safe below)
             while (enc.CurrentIndex < enc.Enemies.Count && !enc.Enemies[enc.CurrentIndex].Alive)
                 enc.CurrentIndex++;
 
+            // Bastion rung (§10): on enemy death, if shield outgrew its attack, the next
+            // enemy starts with shield = min(♠ cards played vs the slain one, the excess).
+            if (!enc.AllDead && slain != null && !slain.Alive &&
+                State.Hero.PathC2 == ClassTables.RungBastion && slain.Shield > slain.Attack)
+            {
+                int carry = System.Math.Min(slain.SpadeCardsPlayed, slain.Shield - slain.Attack);
+                if (carry > 0)
+                {
+                    enc.Current.Shield += carry;
+                    events.Add(new ShieldGained { Amount = carry, Total = enc.Current.Shield });
+                }
+            }
+
             if (enc.AllDead)
             {
+                if (enc.IsGate)
+                {
+                    ResolveGateClear(events);
+                    return;
+                }
+
                 events.Add(new EncounterWon());
                 State.Encounter = null;
 
@@ -407,6 +444,150 @@ namespace Regicide.Core
             DealHand(events);
         }
 
+        // ── royal gates: the 3/2/1 keep pyramid (§4, §6) ────────────────────────
+
+        /// <summary>How many royals a gate lets you keep (Jack 3 · Queen 2 · King 1).</summary>
+        private static int KeepTarget(Rank rank) => rank switch
+        {
+            Rank.Jack => 3,
+            Rank.Queen => 2,
+            _ => 1,
+        };
+
+        /// <summary>
+        /// The gate's last royal is down: award the win, then resolve the keep pyramid.
+        /// Only exact-killed royals are eligible — overkills were banished (§6). If no
+        /// picks are needed (eligible ≤ keep target), keeps auto-resolve; otherwise a
+        /// RoyalKeep choice blocks until answered.
+        /// </summary>
+        private void ResolveGateClear(List<GameEvent> events)
+        {
+            var enc = State.Encounter;
+            Rank rank = enc.GateRank;
+
+            events.Add(new EncounterWon());
+            State.Encounter = null;
+            State.EncounterNodeId = null;
+
+            if (_rng.NextDouble() < Tuning.FragmentDropChance)
+            {
+                State.TokenFragments++;
+                events.Add(new FragmentDropped { Total = State.TokenFragments });
+            }
+
+            var eligible = enc.Enemies
+                .Where(e => e.KillOutcome == KillKind.Exact)
+                .Select(e => e.Suit)
+                .ToList();
+            int target = KeepTarget(rank);
+
+            if (eligible.Count <= target)
+            {
+                // Nothing to choose — every eligible royal follows you.
+                CardFace? crown = null;
+                foreach (var suit in eligible)
+                {
+                    var kept = KeepRoyal(suit, rank, events);
+                    if (rank == Rank.King) crown = kept.Printed;
+                }
+                FinishGate(rank, crown, events);
+                return;
+            }
+
+            bool pickIsLeave = rank == Rank.Jack; // keep 3 of 4 = name the one left behind
+            State.PendingChoices.Add(new PendingChoice
+            {
+                Kind = PendingChoiceKind.RoyalKeep,
+                RoyalRank = rank,
+                Eligible = eligible,
+                PicksRemaining = pickIsLeave ? eligible.Count - target : target,
+                PickIsLeave = pickIsLeave,
+            });
+            State.Phase = CampaignPhase.Road;
+            events.Add(new RoyalKeepOffered
+            {
+                Rank = rank,
+                Eligible = new List<Suit>(eligible),
+                KeepCount = target,
+                PickIsLeave = pickIsLeave,
+            });
+        }
+
+        private Result HandleChooseRoyal(ChooseRoyal a)
+        {
+            var pending = State.PendingChoice;
+            if (pending == null || pending.Kind != PendingChoiceKind.RoyalKeep)
+                return Result.Fail("No royal keep pending");
+            if (!pending.Eligible.Contains(a.Suit))
+                return Result.Fail($"{PhysicalCard.Pretty(new CardFace(a.Suit, pending.RoyalRank))} is not on offer");
+
+            // ── validated; mutate ──
+            var events = new List<GameEvent>();
+            Rank rank = pending.RoyalRank;
+            CardFace? crown = null;
+
+            pending.Eligible.Remove(a.Suit);
+            pending.PicksRemaining--;
+
+            if (pending.PickIsLeave)
+            {
+                events.Add(new RoyalLeft { Face = new CardFace(a.Suit, rank) });
+            }
+            else
+            {
+                var kept = KeepRoyal(a.Suit, rank, events);
+                if (rank == Rank.King) crown = kept.Printed;
+            }
+
+            if (pending.PicksRemaining > 0)
+                return Result.Success(events); // sequential picks (the Queen Gate's two)
+
+            // Picks exhausted: what remains resolves the opposite way.
+            foreach (var suit in pending.Eligible)
+            {
+                if (pending.PickIsLeave)
+                {
+                    var kept = KeepRoyal(suit, rank, events);
+                    if (rank == Rank.King) crown = kept.Printed;
+                }
+                else
+                {
+                    events.Add(new RoyalLeft { Face = new CardFace(suit, rank) });
+                }
+            }
+            State.PendingChoices.RemoveAt(0);
+            FinishGate(rank, crown, events);
+            return Result.Success(events);
+        }
+
+        /// <summary>Mint a kept royal as a real PhysicalCard, shuffled into the Tavern (§6).</summary>
+        private PhysicalCard KeepRoyal(Suit suit, Rank rank, List<GameEvent> events)
+        {
+            var card = State.Cards.Mint(suit, rank);
+            State.OwnedCards.Add(card.PhysicalId);
+            State.Deck.Tavern.Insert(_rng.Int(State.Deck.Tavern.Count + 1), card.PhysicalId);
+            events.Add(new RoyalKept { PhysicalId = card.PhysicalId, Face = card.Printed });
+            return card;
+        }
+
+        /// <summary>
+        /// A gate's keeps are settled: the King Gate crowns the run (§4 victory);
+        /// the Jack/Queen Gates end their chapter like any province boss (§9 seam).
+        /// </summary>
+        private void FinishGate(Rank rank, CardFace? crown, List<GameEvent> events)
+        {
+            if (rank == Rank.King)
+            {
+                State.Phase = CampaignPhase.CampaignWon;
+                events.Add(new CampaignWonEvent { Crown = crown });
+                return;
+            }
+
+            State.Phase = CampaignPhase.ChapterComplete;
+            SeamRest(events);
+            events.Add(new ChapterCompleted { Chapter = State.Chapter });
+        }
+
         // ── road navigation & run flow (§4, §12) ────────────────────────────────
 
         private Result HandleMoveToNode(MoveToNode a)
@@ -419,8 +600,6 @@ namespace Regicide.Core
                 return Result.Fail($"Node {a.NodeId} is not reachable from here (one-way road)");
 
             var node = State.Map.Get(a.NodeId);
-            if (node.Kind == RoadNodeKind.Gate)
-                return Result.Fail("Royal gates arrive in build step 5");
 
             // ── validated; mutate ──
             var events = new List<GameEvent>();
@@ -439,6 +618,12 @@ namespace Regicide.Core
                     BeginEncounter(Lineups.For(node.Kind, State.Chapter, State, _rng), node.Id, events);
                     break;
 
+                case RoadNodeKind.Gate:
+                    // The province's royal gate: four sequential royal duels (§4, §6).
+                    BeginEncounter(Lineups.For(node.Kind, State.Chapter, State, _rng), node.Id, events,
+                                   Lineups.RoyalRank(State.Chapter));
+                    break;
+
                 case RoadNodeKind.Camp:
                     ResolveCamp(events);
                     break;
@@ -450,11 +635,11 @@ namespace Regicide.Core
                         events.Add(new LandmarkVisited { Kind = node.Kind, Note = "no recruits missing — nothing to hunt" });
                         break;
                     }
-                    State.PendingChoice = new PendingChoice
+                    State.PendingChoices.Add(new PendingChoice
                     {
                         Kind = PendingChoiceKind.HuntSelect,
                         HuntOptions = options,
-                    };
+                    });
                     events.Add(new HuntOffered { Options = options });
                     break;
 
@@ -488,7 +673,7 @@ namespace Regicide.Core
                 return Result.Fail($"{PhysicalCard.Pretty(new CardFace(a.Suit, a.Rank))} is not a legal quarry");
 
             // ── validated; mutate ──
-            State.PendingChoice = null;
+            State.PendingChoices.RemoveAt(0);
             var events = new List<GameEvent>();
             BeginEncounter(Lineups.Hunted(a.Suit, a.Rank), State.Map.CurrentNodeId, events);
             return Result.Success(events);
@@ -498,8 +683,10 @@ namespace Regicide.Core
         {
             if (State.Phase != CampaignPhase.ChapterComplete)
                 return Result.Fail("Nothing to continue from");
+            if (State.PendingChoice != null)
+                return Result.Fail($"Resolve the pending {State.PendingChoice.Kind} first");
             if (State.Chapter >= Tuning.FinalChapter)
-                return Result.Fail("The King Gate finale lands in build step 5");
+                return Result.Fail("The crown ends the run — nothing lies beyond the King Gate in this build");
 
             // ── validated; mutate ──
             var events = new List<GameEvent>();
@@ -512,6 +699,8 @@ namespace Regicide.Core
             {
                 // Entering C2 lights the class's home-suit path rung (§4, §10).
                 State.Hero.PathC2 = ClassTables.HomeRungId(State.Hero.ClassId);
+                if (State.Hero.PathC2 == ClassTables.RungDepot)
+                    State.MaxHandSize += Tuning.DepotHandBonus;
                 events.Add(new ContinentEntered { Continent = 2, LitRungId = State.Hero.PathC2 });
             }
 
@@ -541,12 +730,27 @@ namespace Regicide.Core
             // ── validated; mutate ──
             foreach (int id in ids) State.Deck.Hand.Remove(id);
             State.Deck.Discard.AddRange(ids);
-            State.PendingChoice = null;
+            State.PendingChoices.RemoveAt(0);
 
-            return Result.Success(new List<GameEvent>
+            var events = new List<GameEvent>
             {
                 new Defended { Paid = paid, Required = pending.RequiredValue },
-            });
+            };
+
+            // Renewal rung (§10): paying a counter with 3+ cards recovers 1 — the
+            // highest-value discard returns to the Tavern bottom.
+            if (State.Hero.PathC2 == ClassTables.RungRenewal &&
+                ids.Count >= Tuning.RenewalMinPayCards && State.Deck.Discard.Count > 0)
+            {
+                int best = State.Deck.Discard
+                    .OrderByDescending(id => State.Cards.Get(id).EffectiveValue())
+                    .First();
+                State.Deck.Discard.Remove(best);
+                State.Deck.Tavern.Add(best);
+                events.Add(new CardsRecovered { Count = 1 });
+            }
+
+            return Result.Success(events);
         }
 
         private Result HandleChooseGraft(ChooseGraft a)
@@ -577,7 +781,7 @@ namespace Regicide.Core
 
             // ── validated; mutate ──
             card.Grafts.Add(graft);
-            State.PendingChoice = null;
+            State.PendingChoices.RemoveAt(0);
 
             var events = new List<GameEvent>
             {

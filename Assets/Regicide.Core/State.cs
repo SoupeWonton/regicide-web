@@ -55,6 +55,10 @@ namespace Regicide.Core
         public bool ImmunityNullified;
         public EnemyTier Tier;
         public bool Alive = true;
+        /// <summary>How this enemy died (null while alive). Gates banish overkills (§6).</summary>
+        public KillKind? KillOutcome;
+        /// <summary>♠-firing cards played against this enemy — feeds the Bastion rung (§10).</summary>
+        public int SpadeCardsPlayed;
 
         public CardFace Face => new CardFace(Suit, Rank);
 
@@ -88,6 +92,10 @@ namespace Regicide.Core
         public int CurrentIndex;
         /// <summary>Camp bonus: the first attack of this fight deals double (§9). Consumed on first play.</summary>
         public bool FirstAttackDouble;
+        /// <summary>Royal gate fight: kills give no mid-fight reward; keeps resolve after (§6).</summary>
+        public bool IsGate;
+        /// <summary>The gate's royal rank (Jack/Queen/King) when <see cref="IsGate"/>.</summary>
+        public Rank GateRank;
 
         public EnemyState Current =>
             CurrentIndex < Enemies.Count ? Enemies[CurrentIndex] : null;
@@ -103,6 +111,8 @@ namespace Regicide.Core
         GraftSelect,
         /// <summary>Hunt landmark: pick a missing recruit to chase (§4, C1 only).</summary>
         HuntSelect,
+        /// <summary>Cleared royal gate: resolve the 3/2/1 keep pyramid (§6).</summary>
+        RoyalKeep,
     }
 
     /// <summary>A decision blocking the game until the player answers (§4).</summary>
@@ -115,6 +125,14 @@ namespace Regicide.Core
         public CardFace SlainFace;
         /// <summary>HuntSelect: the faces the player may legally chase.</summary>
         public List<CardFace> HuntOptions;
+        /// <summary>RoyalKeep: the gate's royal rank.</summary>
+        public Rank RoyalRank;
+        /// <summary>RoyalKeep: suits still on offer (overkilled royals are banished, never here).</summary>
+        public List<Suit> Eligible;
+        /// <summary>RoyalKeep: picks left to make.</summary>
+        public int PicksRemaining;
+        /// <summary>RoyalKeep: true at the Jack Gate — the pick is the royal to LEAVE (§6).</summary>
+        public bool PickIsLeave;
     }
 
     /// <summary>The root state. Core owns it; the UI is a pure view of it (§4).</summary>
@@ -149,7 +167,13 @@ namespace Regicide.Core
         public int TokenFragments;
         public int TokenHalves;
 
-        public PendingChoice PendingChoice;
+        /// <summary>
+        /// Queue of decisions awaiting input, resolved head-first (a gate keep can
+        /// stack behind a graft, etc.). <see cref="PendingChoice"/> reads the head.
+        /// </summary>
+        public List<PendingChoice> PendingChoices = new List<PendingChoice>();
+        public PendingChoice PendingChoice => PendingChoices.Count > 0 ? PendingChoices[0] : null;
+
         public List<string> Log = new List<string>();
 
         /// <summary>Current max hand size (base 5; relics/staffs adjust later).</summary>

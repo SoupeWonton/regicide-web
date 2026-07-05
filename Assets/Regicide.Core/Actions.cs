@@ -77,4 +77,14 @@ namespace Regicide.Core
 
     /// <summary>Leave the chapter-complete recap and start the next chapter's road (§4).</summary>
     public sealed class ContinueRun : IAction { }
+
+    /// <summary>
+    /// Answer a RoyalKeep pending choice (§6). At the Jack Gate the pick is the royal
+    /// to LEAVE; at the Queen/King Gates each pick is a royal that follows you.
+    /// </summary>
+    public sealed class ChooseRoyal : IAction
+    {
+        public Suit Suit;
+        public ChooseRoyal(Suit suit) { Suit = suit; }
+    }
 }

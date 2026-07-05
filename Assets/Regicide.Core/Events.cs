@@ -77,7 +77,10 @@ namespace Regicide.Core
     public sealed class Recruited : GameEvent
     {
         public int PhysicalId; public CardFace Face;
-        public override string ToString() => $"Recruited {PhysicalCard.Pretty(Face)} (#{PhysicalId}) into the Tavern";
+        /// <summary>Conscript rung (§10): the recruit entered the hand instead of the Tavern.</summary>
+        public bool ToHand;
+        public override string ToString() =>
+            $"Recruited {PhysicalCard.Pretty(Face)} (#{PhysicalId}) into the {(ToHand ? "hand" : "Tavern")}";
     }
 
     public sealed class GraftOffered : GameEvent
@@ -185,5 +188,33 @@ namespace Regicide.Core
     {
         public int Continent; public string LitRungId;
         public override string ToString() => $"Continent {Continent} — path rung '{LitRungId}' lights up";
+    }
+
+    public sealed class RoyalKeepOffered : GameEvent
+    {
+        public Rank Rank; public List<Suit> Eligible = new List<Suit>(); public int KeepCount; public bool PickIsLeave;
+        public override string ToString() =>
+            $"{PhysicalCard.RankGlyph(Rank)} Gate cleared — keep {KeepCount} of " +
+            $"[{string.Join(" ", Eligible.Select(s => PhysicalCard.SuitGlyph(s)))}]" +
+            (PickIsLeave ? " (choose the one to leave)" : "");
+    }
+
+    public sealed class RoyalKept : GameEvent
+    {
+        public int PhysicalId; public CardFace Face;
+        public override string ToString() => $"{PhysicalCard.Pretty(Face)} joins your deck (#{PhysicalId})";
+    }
+
+    public sealed class RoyalLeft : GameEvent
+    {
+        public CardFace Face;
+        public override string ToString() => $"{PhysicalCard.Pretty(Face)} is left behind";
+    }
+
+    public sealed class CampaignWonEvent : GameEvent
+    {
+        public CardFace? Crown;
+        public override string ToString() =>
+            Crown != null ? $"CROWNED — {PhysicalCard.Pretty(Crown.Value)} is your crown. Victory!" : "CROWNED — Victory!";
     }
 }

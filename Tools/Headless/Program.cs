@@ -45,8 +45,18 @@ namespace Regicide.Headless
             Run("camp: 4-part bundle armed and consumed", TestCamp);
             Run("hunt: chase a missing recruit", TestHunt);
             Run("boss → seam rest → next chapter", TestChapterFlow);
-            Run("full C1 clear → Continent 2, rung lit, gate stubbed", TestFullC1ToC2);
+            Run("full C1 clear → Continent 2, rung lit, gate fields four jacks", TestFullC1ToC2);
             Run("road walk determinism across sessions", TestRoadDeterminism);
+            Run("jack gate: keep 3 — name the one to leave", TestJackGate);
+            Run("queen gate: two sequential keeps", TestQueenGate);
+            Run("king gate: the crown finalizes victory", TestKingGateCrown);
+            Run("gate overkills banished; auto-keep when eligible ≤ target", TestGateOverkillBanish);
+            Run("gate graft resolves before the queued keep", TestGateGraftQueue);
+            Run("depot rung: +2 max hand on entering C2", TestDepotRung);
+            Run("conscript rung: recruits enter the hand", TestConscriptRung);
+            Run("bastion rung: excess shield carries forward", TestBastionRung);
+            Run("renewal rung: 3+ card pay recovers the best discard", TestRenewalRung);
+            Run("full campaign: crowned at the King Gate, six royals kept", TestFullCampaign);
 
             Console.WriteLine();
             if (_failures.Count == 0)
@@ -138,6 +148,14 @@ namespace Regicide.Headless
 
         private static void Fight(GameSession s, params EnemyState[] enemies) =>
             Must(s.Dispatch(new StartEncounter(enemies)));
+
+        /// <summary>Stage a royal-gate fight directly (StartEncounter can't flag gates).</summary>
+        private static void GateFight(GameSession s, Rank rank, params Suit[] suits)
+        {
+            Fight(s, suits.Select(suit => EnemyState.Royal(suit, rank, EnemyTier.Gate)).ToArray());
+            s.State.Encounter.IsGate = true;
+            s.State.Encounter.GateRank = rank;
+        }
 
         // ── tests ───────────────────────────────────────────────────────────────
 
@@ -696,12 +714,16 @@ namespace Regicide.Headless
                 "royal stats 20/10");
             WinFight(s);
 
-            // The gate itself is build step 5.
+            // The gate is live: entering fields all four Jacks as sequential duels.
             WalkChapter(s);
             var gate = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
                         .FirstOrDefault(n => n.Kind == RoadNodeKind.Gate);
             Check(gate != null, "gate reachable at the end of the ch4 road");
-            MustFail(s.Dispatch(new MoveToNode(gate.Id)), "gate is stubbed until step 5");
+            Must(s.Dispatch(new MoveToNode(gate.Id)));
+            Check(s.State.Encounter.IsGate && s.State.Encounter.GateRank == Rank.Jack, "gate fight flagged");
+            Check(s.State.Encounter.Enemies.Count == 4 && s.State.Encounter.Enemies.All(e => e.Rank == Rank.Jack),
+                "the Jack Gate fields all four Jacks");
+            Check(s.State.Encounter.Enemies.Select(e => e.Suit).Distinct().Count() == 4, "one Jack per suit");
         }
 
         private static void TestRoadDeterminism()
@@ -717,6 +739,270 @@ namespace Regicide.Headless
             Check(a.State.RngState == b.State.RngState, "rng cursors in lockstep after a chapter walk");
             Check(a.State.OwnedCards.Count == b.State.OwnedCards.Count, "identical conquest");
             Check(a.State.Deck.Tavern.SequenceEqual(b.State.Deck.Tavern), "identical tavern order");
+        }
+
+        // ── step-5 tests: royal gates, the keep pyramid, victory, home rungs ────
+
+        private static void TestJackGate()
+        {
+            var s = NewRun("jackgate");
+            GateFight(s, Rank.Jack, Suit.Clubs, Suit.Diamonds, Suit.Hearts, Suit.Spades);
+            WinFight(s); // exact-kills every jack (hand emptied per turn → no grafts)
+
+            var pending = s.State.PendingChoice;
+            Check(pending?.Kind == PendingChoiceKind.RoyalKeep, "keep pyramid pending after the gate clears");
+            Check(pending.PickIsLeave, "the jack pick names the royal to LEAVE");
+            Check(pending.PicksRemaining == 1 && pending.Eligible.Count == 4, "one leave pick over four jacks");
+            Check(s.State.Encounter == null, "the fight itself is over");
+
+            MustFail(s.Dispatch(new MoveToNode(s.State.Map.Current.Next[0])), "cannot walk during the keep");
+            MustFail(s.Dispatch(new ChooseGraft(1, GraftBranch.AddSuit)), "wrong answer kind for the pending keep");
+
+            var r = Must(s.Dispatch(new ChooseRoyal(Suit.Hearts)));
+            Check(Get<RoyalLeft>(r).Face.Suit == Suit.Hearts, "the named jack is left behind");
+            Check(r.Events.OfType<RoyalKept>().Count() == 3, "the other three jacks follow you");
+            Check(Has<ChapterCompleted>(r) && Has<SeamRestApplied>(r), "gate ends the chapter with a seam rest");
+            Check(s.State.Phase == CampaignPhase.ChapterComplete, "on the recap screen");
+
+            Check(!s.State.OwnsFace(new CardFace(Suit.Hearts, Rank.Jack)), "left jack never joins the deck");
+            foreach (var suit in new[] { Suit.Clubs, Suit.Diamonds, Suit.Spades })
+                Check(s.State.OwnsFace(new CardFace(suit, Rank.Jack)), $"kept J{PhysicalCard.SuitGlyph(suit)} owned");
+
+            MustFail(s.Dispatch(new ChooseRoyal(Suit.Clubs)), "keep already resolved");
+        }
+
+        private static void TestQueenGate()
+        {
+            var s = NewRun("queengate");
+            GateFight(s, Rank.Queen, Suit.Clubs, Suit.Diamonds, Suit.Hearts, Suit.Spades);
+            WinFight(s);
+
+            var pending = s.State.PendingChoice;
+            Check(pending?.Kind == PendingChoiceKind.RoyalKeep && !pending.PickIsLeave,
+                "queen picks are keeps, not leaves");
+            Check(pending.PicksRemaining == 2, "keep 2 of 4 = two sequential picks");
+
+            var r1 = Must(s.Dispatch(new ChooseRoyal(Suit.Spades)));
+            Check(Get<RoyalKept>(r1).Face.Suit == Suit.Spades, "first pick follows you immediately");
+            Check(!Has<ChapterCompleted>(r1), "chapter waits for the second pick");
+            Check(s.State.PendingChoice?.PicksRemaining == 1, "one pick left");
+
+            MustFail(s.Dispatch(new ChooseRoyal(Suit.Spades)), "a queen cannot be kept twice");
+
+            var r2 = Must(s.Dispatch(new ChooseRoyal(Suit.Hearts)));
+            Check(Get<RoyalKept>(r2).Face.Suit == Suit.Hearts, "second keep");
+            Check(r2.Events.OfType<RoyalLeft>().Count() == 2, "the two unpicked queens are left");
+            Check(Has<ChapterCompleted>(r2), "gate chapter completes");
+            Check(s.State.OwnsFace(new CardFace(Suit.Spades, Rank.Queen)) &&
+                  s.State.OwnsFace(new CardFace(Suit.Hearts, Rank.Queen)), "both kept queens owned");
+            Check(!s.State.OwnsFace(new CardFace(Suit.Clubs, Rank.Queen)) &&
+                  !s.State.OwnsFace(new CardFace(Suit.Diamonds, Rank.Queen)), "left queens not owned");
+        }
+
+        private static void TestKingGateCrown()
+        {
+            var s = NewRun("kinggate");
+            GateFight(s, Rank.King, Suit.Clubs, Suit.Diamonds, Suit.Hearts, Suit.Spades);
+            WinFight(s);
+
+            Check(s.State.PendingChoice?.PicksRemaining == 1 && !s.State.PendingChoice.PickIsLeave,
+                "one keep pick — the crown");
+
+            var r = Must(s.Dispatch(new ChooseRoyal(Suit.Diamonds)));
+            var won = Get<CampaignWonEvent>(r);
+            Check(won.Crown?.Suit == Suit.Diamonds && won.Crown?.Rank == Rank.King, "K♦ is the crown");
+            Check(r.Events.OfType<RoyalLeft>().Count() == 3, "the other kings are left");
+            Check(s.State.Phase == CampaignPhase.CampaignWon, "victory finalized");
+            Check(s.State.Hero.Alive, "crowned, not dead");
+            Check(s.State.OwnsFace(new CardFace(Suit.Diamonds, Rank.King)), "the crown is a real card");
+
+            MustFail(s.Dispatch(new ContinueRun()), "no continuing past the crown");
+            MustFail(s.Dispatch(new MoveToNode(0)), "the run is over");
+        }
+
+        private static void TestGateOverkillBanish()
+        {
+            var s = NewRun("banish");
+            GateFight(s, Rank.Queen, Suit.Clubs, Suit.Diamonds, Suit.Hearts, Suit.Spades);
+
+            // Overkill the first two queens, exact-kill the last two.
+            Result last = null;
+            int killed = 0;
+            while (s.State.Phase == CampaignPhase.Encounter && killed < 8)
+            {
+                var enemy = s.State.Encounter.Current;
+                int dmg = 9 * (enemy.Suit != Suit.Clubs ? 2 : 1);
+                enemy.Hp = killed < 2 ? dmg - 1 : dmg; // stage overkill / exact
+                ClearHand(s);
+                var c = Give(s, Suit.Clubs, Rank.Nine);
+                last = Must(s.Dispatch(new PlayCards(c.PhysicalId)));
+                killed++;
+            }
+
+            Check(s.State.PendingChoice == null, "eligible 2 ≤ keep 2 → no pick needed");
+            Check(last.Events.OfType<RoyalKept>().Count() == 2, "both exact-killed queens auto-kept");
+            Check(s.State.Phase == CampaignPhase.ChapterComplete, "gate chapter completes without a dialog");
+            Check(!s.State.OwnsFace(new CardFace(Suit.Clubs, Rank.Queen)) &&
+                  !s.State.OwnsFace(new CardFace(Suit.Diamonds, Rank.Queen)),
+                "overkilled queens are banished — never kept");
+            Check(s.State.OwnsFace(new CardFace(Suit.Hearts, Rank.Queen)) &&
+                  s.State.OwnsFace(new CardFace(Suit.Spades, Rank.Queen)), "exact-killed queens kept");
+        }
+
+        private static void TestGateGraftQueue()
+        {
+            var s = NewRun("gatequeue");
+            GateFight(s, Rank.Jack, Suit.Hearts, Suit.Spades); // 2 royals: eligible ≤ 3 → auto-keep after
+
+            // Kill the first jack exactly while holding a spare card → the royal grafts.
+            s.State.Encounter.Current.Hp = 18;
+            ClearHand(s);
+            var c9a = Give(s, Suit.Clubs, Rank.Nine);
+            var spare1 = Give(s, Suit.Diamonds, Rank.Five);
+            var r1 = Must(s.Dispatch(new PlayCards(c9a.PhysicalId)));
+            Check(Has<GraftOffered>(r1), "gate royal exact kill offers a graft (§6)");
+            Check(!Has<NextEnemy>(r1), "fight paused for the graft");
+
+            var r2 = Must(s.Dispatch(new ChooseGraft(spare1.PhysicalId, GraftBranch.ReplaceRank)));
+            Check(s.State.Cards.Get(spare1.PhysicalId).EffectiveFace().Rank == Rank.Ten,
+                "jack graft rank-capped at 10");
+            Check(Has<NextEnemy>(r2), "second jack steps up after the graft");
+
+            // Kill the last jack exactly, again holding a spare: the graft resolves
+            // FIRST, and only then does the keep pyramid fire — the queue in action.
+            s.State.Encounter.Current.Hp = 18;
+            ClearHand(s);
+            var c9b = Give(s, Suit.Clubs, Rank.Nine);
+            var spare2 = Give(s, Suit.Hearts, Rank.Four);
+            var r3 = Must(s.Dispatch(new PlayCards(c9b.PhysicalId)));
+            Check(Has<GraftOffered>(r3) && !Has<EncounterWon>(r3), "gate clear waits on the graft");
+
+            var r4 = Must(s.Dispatch(new ChooseGraft(spare2.PhysicalId, GraftBranch.AddSuit)));
+            Check(Has<GraftApplied>(r4), "graft resolved");
+            Check(Has<EncounterWon>(r4), "then the gate clears");
+            Check(r4.Events.OfType<RoyalKept>().Count() == 2, "then both jacks auto-keep");
+            Check(s.State.PendingChoice == null, "queue drained");
+            Check(s.State.OwnsFace(new CardFace(Suit.Hearts, Rank.Jack)) &&
+                  s.State.OwnsFace(new CardFace(Suit.Spades, Rank.Jack)), "both gate jacks owned");
+        }
+
+        /// <summary>Skip a staged run to the C1→C2 seam and cross it (rung-lighting path).</summary>
+        private static Result EnterC2(GameSession s)
+        {
+            s.State.Chapter = 3;
+            s.State.Phase = CampaignPhase.ChapterComplete;
+            return Must(s.Dispatch(new ContinueRun()));
+        }
+
+        private static void TestDepotRung()
+        {
+            var s = new GameSession("depot");
+            Must(s.Dispatch(new SelectClass("quartermaster", "provisioner")));
+            Check(s.State.MaxHandSize == Tuning.BaseMaxHandSize, "base hand size in C1");
+
+            var r = EnterC2(s);
+            Check(Has<ContinentEntered>(r), "continent 2 entered");
+            Check(s.State.Hero.PathC2 == ClassTables.RungDepot, "quartermaster lights Depot");
+            Check(s.State.MaxHandSize == Tuning.BaseMaxHandSize + Tuning.DepotHandBonus,
+                "depot raises max hand size by 2");
+        }
+
+        private static void TestConscriptRung()
+        {
+            var s = new GameSession("conscript");
+            Must(s.Dispatch(new SelectClass("executioner", "steady_hand")));
+            EnterC2(s);
+            Check(s.State.Hero.PathC2 == ClassTables.RungConscript, "executioner lights Conscript");
+
+            Fight(s, EnemyState.Number(Suit.Spades, Rank.Six, EnemyTier.Skirmish)); // unowned → recruit
+            ClearHand(s);
+            var c9 = Give(s, Suit.Clubs, Rank.Nine);
+            var r = Must(s.Dispatch(new PlayCards(c9.PhysicalId)));
+            var rec = Get<Recruited>(r);
+            Check(rec.ToHand, "conscript recruit enters the hand");
+            Check(s.State.Deck.Hand.Contains(rec.PhysicalId), "recruit in hand");
+            Check(!s.State.Deck.Tavern.Contains(rec.PhysicalId), "recruit not in the Tavern");
+        }
+
+        private static void TestBastionRung()
+        {
+            var s = NewRun("bastion"); // sentinel; stage the rung as already lit
+            s.State.Hero.PathC2 = ClassTables.RungBastion;
+            Fight(s,
+                EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish),
+                EnemyState.Number(Suit.Hearts, Rank.Seven, EnemyTier.Veteran));
+            ClearHand(s);
+            var s5a = Give(s, Suit.Spades, Rank.Five);
+            var s5b = Give(s, Suit.Spades, Rank.Five);
+
+            var r = Must(s.Dispatch(new PlayCards(s5a.PhysicalId, s5b.PhysicalId)));
+            Check(Has<CounterattackBlocked>(r), "shield 10 blanks the atk-3 counter");
+
+            s.State.Encounter.Current.Hp = 18; // stage the exact kill
+            ClearHand(s);
+            var c9 = Give(s, Suit.Clubs, Rank.Nine);
+            Must(s.Dispatch(new PlayCards(c9.PhysicalId)));
+            // Carry = min(♠ cards played = 2, shield 10 − attack 3 = 7) = 2.
+            Check(s.State.Encounter.Current.Shield == 2, "bastion carries min(♠ played, excess shield)");
+        }
+
+        private static void TestRenewalRung()
+        {
+            var s = NewRun("renewal"); // rung effect keys on PathC2, not class — stage it lit
+            s.State.Hero.PathC2 = ClassTables.RungRenewal;
+            Fight(s, EnemyState.Number(Suit.Spades, Rank.Ten, EnemyTier.Veteran)); // atk 6
+            ClearHand(s);
+            var c2 = Give(s, Suit.Clubs, Rank.Two);
+            var h3 = Give(s, Suit.Hearts, Rank.Three);
+            var d4 = Give(s, Suit.Diamonds, Rank.Four);
+
+            Must(s.Dispatch(new Yield()));
+            var r = Must(s.Dispatch(new DefendDiscard(c2.PhysicalId, h3.PhysicalId, d4.PhysicalId)));
+            Check(Has<CardsRecovered>(r), "3-card pay triggers the recovery");
+            Check(s.State.Deck.Discard.Count == 2, "one of the three paid cards came back");
+            Check(s.State.Deck.Tavern.Last() == d4.PhysicalId, "the highest-value card, to the Tavern bottom");
+        }
+
+        private static void TestFullCampaign()
+        {
+            var s = NewRun("coronation");
+            for (int ch = 1; ch <= Tuning.FinalChapter; ch++)
+            {
+                Check(s.State.Chapter == ch, $"on chapter {ch}");
+                WalkChapter(s);
+
+                if (ch <= Tuning.ChaptersPerContinent)
+                {
+                    Check(s.State.Phase == CampaignPhase.ChapterComplete, $"chapter {ch} boss cleared");
+                    Must(s.Dispatch(new ContinueRun()));
+                    continue;
+                }
+
+                // C2: the walk stops with only the gate ahead.
+                var gate = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
+                            .First(n => n.Kind == RoadNodeKind.Gate);
+                Must(s.Dispatch(new MoveToNode(gate.Id)));
+                Check(s.State.Encounter.IsGate &&
+                      s.State.Encounter.Enemies.All(e => e.Rank == Lineups.RoyalRank(ch)),
+                    $"chapter {ch} gate fields its royal rank");
+                WinFight(s);
+                while (s.State.PendingChoice?.Kind == PendingChoiceKind.RoyalKeep)
+                    Must(s.Dispatch(new ChooseRoyal(s.State.PendingChoice.Eligible[0])));
+
+                if (ch < Tuning.FinalChapter)
+                {
+                    Check(s.State.Phase == CampaignPhase.ChapterComplete, $"chapter {ch} gate cleared");
+                    Must(s.Dispatch(new ContinueRun()));
+                }
+            }
+
+            Check(s.State.Phase == CampaignPhase.CampaignWon, "the run ends crowned");
+            Check(s.State.Hero.Alive, "alive at the coronation");
+
+            int Royals(Rank r) => s.State.OwnedCards.Count(id => s.State.Cards.Get(id).Printed.Rank == r);
+            Check(Royals(Rank.Jack) == 3, $"kept 3 jacks, got {Royals(Rank.Jack)}");
+            Check(Royals(Rank.Queen) == 2, $"kept 2 queens, got {Royals(Rank.Queen)}");
+            Check(Royals(Rank.King) == 1, $"kept 1 king (the crown), got {Royals(Rank.King)}");
         }
 
         // ── demo: a full scripted fight, played back like the UI would ─────────
