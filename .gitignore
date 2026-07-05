@@ -33,6 +33,11 @@ ExportedObj/
 *.unitypackage
 *.app
 
+# Headless harness (Tools/): its csproj is hand-written, unlike Unity's generated ones
+!Tools/**/*.csproj
+Tools/**/bin/
+Tools/**/obj/
+
 # OS
 .DS_Store
 Thumbs.db
