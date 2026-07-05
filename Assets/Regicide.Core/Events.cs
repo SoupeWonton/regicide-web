@@ -265,6 +265,45 @@ namespace Regicide.Core
             $"CAST {SpellTables.Name(Suit, Tier)} ({PhysicalCard.SuitGlyph(Suit)}): {Note}";
     }
 
+    public sealed class RelicOffered : GameEvent
+    {
+        public List<string> Options = new List<string>();
+        public override string ToString() =>
+            $"Relic raid: pick one — {string.Join(" / ", Options.Select(id => RelicTables.Get(id).Name))}";
+    }
+
+    public sealed class RelicGained : GameEvent
+    {
+        public string RelicId; public string Source;
+        public override string ToString() => $"Relic gained: {RelicTables.Get(RelicId).Name} ({Source}) → bag";
+    }
+
+    public sealed class RelicEquipped : GameEvent
+    {
+        public string RelicId; public string SwappedOut;
+        public override string ToString() =>
+            $"Equipped {RelicTables.Get(RelicId).Name} ({RelicTables.Get(RelicId).Slot})" +
+            (SwappedOut != null ? $", {RelicTables.Get(SwappedOut).Name} to the bag" : "");
+    }
+
+    public sealed class RelicUsed : GameEvent
+    {
+        public string RelicId; public string Note;
+        public override string ToString() => $"{RelicTables.Get(RelicId).Name}: {Note}";
+    }
+
+    public sealed class CaravanOffered : GameEvent
+    {
+        public string RelicId; public int Cost;
+        public override string ToString() =>
+            $"Caravan: {RelicTables.Get(RelicId).Name} for {Cost} card-value from hand";
+    }
+
+    public sealed class DebtDue : GameEvent
+    {
+        public override string ToString() => "Debt comes due: discard 1 card";
+    }
+
     public sealed class CampaignWonEvent : GameEvent
     {
         public CardFace? Crown;

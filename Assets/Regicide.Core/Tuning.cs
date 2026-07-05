@@ -38,6 +38,34 @@ namespace Regicide.Core
         /// <summary>Full Recycle (♥ Half): cards drawn after recycling the whole discard.</summary>
         public const int RecycleDraw = 2;
 
+        // Relic numbers (§8 — placeholders, centralized for tuning).
+        /// <summary>Hoard (Ring): max hand size bonus.</summary>
+        public const int HoardHandBonus = 2;
+        /// <summary>Interest (Ring): cards drawn at fight start after a no-pay fight.</summary>
+        public const int InterestDraw = 1;
+        /// <summary>Debt (Ring): cards drawn now / turns owing a discard.</summary>
+        public const int DebtDraw = 2;
+        public const int DebtTurns = 2;
+        /// <summary>Requisition Writ (Ring): hand cards converted per fragment.</summary>
+        public const int RequisitionCards = 2;
+        /// <summary>Liquidate (Ring): cards drawn for the discarded one.</summary>
+        public const int LiquidateDraw = 2;
+        /// <summary>Last Coin (Ring): cards drawn on the first empty-handed turn each fight.</summary>
+        public const int LastCoinDraw = 3;
+        /// <summary>Caravan: pay-from-hand relic cost (card value) / Caravan Coin discount.</summary>
+        public const int CaravanCost = 8;
+        public const int CaravanCoinDiscount = 2;
+        /// <summary>Slip Away (Cloak): card value paid to retreat from a fight.</summary>
+        public const int SlipAwayCost = 5;
+        /// <summary>Sainted Scalpel (Amulet): max discards shuffled back.</summary>
+        public const int ScalpelMax = 6;
+        /// <summary>Aegis (Amulet): counterattack reduction.</summary>
+        public const int AegisReduction = 5;
+        /// <summary>Bloodlust (Amulet): bonus damage on the next play.</summary>
+        public const int BloodlustBonus = 3;
+        /// <summary>Lair: relics offered after the raid (pick 1).</summary>
+        public const int LairOffers = 2;
+
         /// <summary>Camp bonus: shield already on the first enemy of the next fight (§9).</summary>
         public const int CampStartShield = 10;
 

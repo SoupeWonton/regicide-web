@@ -131,6 +131,47 @@ namespace Regicide.Core
         public CastSpell(Suit suit) { Suit = suit; }
     }
 
+    /// <summary>Answer a RelicSelect pending choice (§8 Lair): claim one offered relic into the bag.</summary>
+    public sealed class ChooseRelic : IAction
+    {
+        public string RelicId;
+        public ChooseRelic(string relicId) { RelicId = relicId; }
+    }
+
+    /// <summary>
+    /// Equip a bag relic into its slot (§8). Free at any between-encounter screen,
+    /// locked during combat; equipping over an occupied slot swaps the old one to the bag.
+    /// </summary>
+    public sealed class EquipRelic : IAction
+    {
+        public string RelicId;
+        public EquipRelic(string relicId) { RelicId = relicId; }
+    }
+
+    /// <summary>Caravan (§8): buy the offered relic by discarding hand cards totalling ≥ the cost.</summary>
+    public sealed class BuyRelic : IAction
+    {
+        public List<int> PayPhysicalIds;
+        public BuyRelic(List<int> payPhysicalIds) { PayPhysicalIds = payPhysicalIds; }
+        public BuyRelic(params int[] payPhysicalIds) { PayPhysicalIds = new List<int>(payPhysicalIds); }
+    }
+
+    /// <summary>
+    /// Use an equipped activated relic (§8): the Amulet buttons plus the activated
+    /// Cloak/Ring verbs. Targets name hand cards (Liquidate, Slip Away pay), a
+    /// discard card (Echo) or a Tavern card (Lodestone); empty for untargeted uses.
+    /// </summary>
+    public sealed class UseRelic : IAction
+    {
+        public string RelicId;
+        public List<int> PhysicalIds;
+        public UseRelic(string relicId, params int[] physicalIds)
+        {
+            RelicId = relicId;
+            PhysicalIds = new List<int>(physicalIds);
+        }
+    }
+
     /// <summary>
     /// Answer a RecoverSelect (Triage: pick up to Max discards to recover) or
     /// RecoverToHand (Last Rites: pick ≤1 recovered card into hand) pending choice.

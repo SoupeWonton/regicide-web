@@ -54,6 +54,10 @@ namespace Regicide.Core
                 ArmCrystal a => HandleArmCrystal(a),
                 ForgeConvert _ => HandleForgeConvert(),
                 CastSpell a => HandleCastSpell(a),
+                ChooseRelic a => HandleChooseRelic(a),
+                EquipRelic a => HandleEquipRelic(a),
+                BuyRelic a => HandleBuyRelic(a),
+                UseRelic a => HandleUseRelic(a),
                 ContinueRun _ => HandleContinueRun(),
                 _ => Result.Fail($"Unknown action {action?.GetType().Name ?? "null"}"),
             };
@@ -179,9 +183,58 @@ namespace Regicide.Core
                 State.NextFightStartShield = 0;
             }
 
+            // Vanguard (§8): the first fight of each road opens without a counterattack.
+            if (State.HasRelic("vanguard") && !State.RoadFirstFightDone)
+                State.Encounter.VanguardArmed = true;
+            State.RoadFirstFightDone = true;
+
             State.Phase = CampaignPhase.Encounter;
             events.Add(new EncounterStarted { EnemyCount = enemies.Count });
             events.Add(new NextEnemy { Face = State.Encounter.Current.Face });
+
+            // Interest (§8): a fight after a no-pay fight starts +1 card.
+            if (State.HasRelic("interest") && State.LastFightPaidNothing)
+            {
+                var drawn = Draw(Tuning.InterestDraw);
+                if (drawn.PhysicalIds.Count > 0)
+                {
+                    events.Add(new RelicUsed { RelicId = "interest", Note = $"+{drawn.PhysicalIds.Count} card" });
+                    events.Add(drawn);
+                }
+            }
+
+            CheckTurnStart(events);
+        }
+
+        /// <summary>
+        /// A player turn is about to begin (fight start, or a counterattack just
+        /// resolved). Last Coin's empty-hand rescue fires first, then a Debt
+        /// installment comes due (skipped on an empty hand — no soft-locks, §1).
+        /// </summary>
+        private void CheckTurnStart(List<GameEvent> events)
+        {
+            var enc = State.Encounter;
+            if (State.Phase != CampaignPhase.Encounter || enc?.Current == null || State.PendingChoice != null)
+                return;
+
+            if (State.HasRelic("last_coin") && State.Deck.Hand.Count == 0 &&
+                !enc.UsedThisFight.Contains("last_coin"))
+            {
+                enc.UsedThisFight.Add("last_coin");
+                var drawn = Draw(Tuning.LastCoinDraw);
+                if (drawn.PhysicalIds.Count > 0)
+                {
+                    events.Add(new RelicUsed { RelicId = "last_coin", Note = $"empty-handed — drew {drawn.PhysicalIds.Count}" });
+                    events.Add(drawn);
+                }
+            }
+
+            if (enc.DebtTurnsRemaining > 0 && State.Deck.Hand.Count > 0)
+            {
+                enc.DebtTurnsRemaining--;
+                State.PendingChoices.Add(new PendingChoice { Kind = PendingChoiceKind.DebtDiscard, RequiredValue = 1 });
+                events.Add(new DebtDue());
+            }
         }
 
         // ── combat: play / yield ────────────────────────────────────────────────
@@ -221,6 +274,13 @@ namespace Regicide.Core
 
             var activeSuits = cards.SelectMany(c => c.EffectiveSuits()).Distinct().ToList();
             Suit? blocked = enemy.ImmuneSuit is Suit imm && activeSuits.Contains(imm) ? (Suit?)imm : null;
+            if (blocked != null && State.Encounter.UnbindingArmed)
+            {
+                // Unbinding (§8): the enemy's immunity is cancelled for this play only.
+                State.Encounter.UnbindingArmed = false;
+                blocked = null;
+                events.Add(new RelicUsed { RelicId = "unbinding", Note = "immunity cancelled for this play" });
+            }
             bool SuitActive(Suit s) => activeSuits.Contains(s) && blocked != s;
 
             foreach (int id in ids) State.Deck.Hand.Remove(id);
@@ -497,18 +557,7 @@ namespace Regicide.Core
                 }
                 else
                 {
-                    // Recruit: mint a PhysicalCard, shuffle it into the Tavern (§6) —
-                    // or straight into the hand under Conscript / Field Promotion (§10).
-                    var card = State.Cards.Mint(enemy.Suit, enemy.Rank);
-                    State.OwnedCards.Add(card.PhysicalId);
-                    bool toHand = (State.Hero.PathC2 == ClassTables.RungConscript ||
-                                   State.Hero.StaffId == "field_promotion") &&
-                                  State.Deck.Hand.Count < State.MaxHandSize;
-                    if (toHand)
-                        State.Deck.Hand.Add(card.PhysicalId);
-                    else
-                        State.Deck.Tavern.Insert(_rng.Int(State.Deck.Tavern.Count + 1), card.PhysicalId);
-                    events.Add(new Recruited { PhysicalId = card.PhysicalId, Face = card.Printed, ToHand = toHand });
+                    RecruitEnemy(enemy, false, events);
                 }
 
                 AdvancePastDead(events);
@@ -520,6 +569,16 @@ namespace Regicide.Core
                 enemy.Alive = false;
                 enemy.KillOutcome = KillKind.Overkill;
                 events.Add(new EnemyKilled { Face = enemy.Face, Kind = KillKind.Overkill });
+
+                // Conscription (§8): an overkill still recruits — one value down.
+                // Never at gates (banished outright) and never a royal (§6).
+                if (State.HasRelic("conscription") && !State.Encounter.IsGate &&
+                    !CardRules.IsRoyal(enemy.Rank) && !State.OwnsFace(enemy.Face))
+                {
+                    events.Add(new RelicUsed { RelicId = "conscription", Note = "the overkill is pressed into service anyway" });
+                    RecruitEnemy(enemy, true, events);
+                }
+
                 AdvancePastDead(events);
             }
             else
@@ -528,14 +587,130 @@ namespace Regicide.Core
             }
         }
 
+        /// <summary>
+        /// Mint a defeated enemy into the deck (§6), running the Hat-relic pipeline:
+        /// Conscription's −1 token → Press-gang home-suit rewrite → Plunder's
+        /// same-suit upgrade → Battlefield Promotion's +1 rank → destination
+        /// (hand > Tavern top > shuffled in) → Apprentice draw → Rallying Cry return.
+        /// </summary>
+        private void RecruitEnemy(EnemyState enemy, bool overkilled, List<GameEvent> events)
+        {
+            var card = State.Cards.Mint(enemy.Suit, enemy.Rank);
+            State.OwnedCards.Add(card.PhysicalId);
+            string source = $"recruited (ch{State.Chapter})";
+
+            if (overkilled)
+                card.ValueModifier = -1; // Conscription's value token (§8) — not a graft
+
+            if (State.HasRelic("press_gang"))
+            {
+                var home = ClassTables.Classes[State.Hero.ClassId].HomeSuit;
+                if (card.EffectiveFace().Suit != home)
+                {
+                    card.Grafts.Add(new GraftRecord(State.Cards.NextGraftSeq(), GraftKind.Suit, default, home,
+                        "press_gang " + source));
+                    events.Add(new RelicUsed { RelicId = "press_gang", Note = $"recruit rewritten to {PhysicalCard.SuitGlyph(home)}" });
+                }
+            }
+
+            if (State.HasRelic("plunder"))
+            {
+                // PLACEHOLDER interpretation of "swap the recruit for a stronger
+                // same-suit card in your discard": the recruit enters at the rank of
+                // the strongest same-suit discard, if higher. Tune later.
+                var suit = card.EffectiveFace().Suit;
+                int bestRank = 0;
+                foreach (int id in State.Deck.Discard)
+                {
+                    var f = State.Cards.Get(id).EffectiveFace();
+                    if (f.Suit == suit && (int)f.Rank <= Tuning.GraftRankCap && (int)f.Rank > bestRank)
+                        bestRank = (int)f.Rank;
+                }
+                if (bestRank > (int)card.EffectiveFace().Rank)
+                {
+                    card.Grafts.Add(new GraftRecord(State.Cards.NextGraftSeq(), GraftKind.Rank, (Rank)bestRank, default,
+                        "plunder " + source));
+                    events.Add(new RelicUsed { RelicId = "plunder", Note = $"recruit swapped up to rank {bestRank}" });
+                }
+            }
+
+            if (State.HasRelic("battlefield_promotion") && State.Encounter != null &&
+                !State.Encounter.UsedThisFight.Contains("battlefield_promotion"))
+            {
+                State.Encounter.UsedThisFight.Add("battlefield_promotion");
+                int r = (int)card.EffectiveFace().Rank + 1;
+                if (r <= Tuning.GraftRankCap)
+                {
+                    card.Grafts.Add(new GraftRecord(State.Cards.NextGraftSeq(), GraftKind.Rank, (Rank)r, default,
+                        "battlefield_promotion " + source));
+                    events.Add(new RelicUsed { RelicId = "battlefield_promotion", Note = $"first recruit promoted to rank {r}" });
+                }
+            }
+
+            bool toHand = (State.Hero.PathC2 == ClassTables.RungConscript ||
+                           State.Hero.StaffId == "field_promotion") &&
+                          State.Deck.Hand.Count < State.MaxHandSize;
+            if (toHand)
+                State.Deck.Hand.Add(card.PhysicalId);
+            else if (State.HasRelic("black_standard"))
+                State.Deck.Tavern.Insert(0, card.PhysicalId); // your next draw (§8)
+            else
+                State.Deck.Tavern.Insert(_rng.Int(State.Deck.Tavern.Count + 1), card.PhysicalId);
+            events.Add(new Recruited { PhysicalId = card.PhysicalId, Face = card.Printed, ToHand = toHand });
+
+            if (State.HasRelic("apprentice"))
+            {
+                var drawn = Draw(1); // simple variant sanctioned by §8: on recruit, draw 1
+                if (drawn.PhysicalIds.Count > 0)
+                {
+                    events.Add(new RelicUsed { RelicId = "apprentice", Note = "the recruit earns a draw" });
+                    events.Add(drawn);
+                }
+            }
+
+            if (State.HasRelic("rallying_cry") && State.Deck.Discard.Count > 0)
+            {
+                int pick = State.Deck.Discard[_rng.Int(State.Deck.Discard.Count)];
+                State.Deck.Discard.Remove(pick);
+                State.Deck.Tavern.Add(pick);
+                events.Add(new RelicUsed { RelicId = "rallying_cry", Note = $"card #{pick} rallies back to the Tavern" });
+            }
+        }
+
         private void ResolveCounterattack(List<GameEvent> events)
         {
-            var enemy = State.Encounter.Current;
+            var enc = State.Encounter;
+            var enemy = enc.Current;
+
+            if (enc.SecondWindArmed)
+            {
+                // Second Wind (§8): an extra turn before the enemy counterattacks.
+                enc.SecondWindArmed = false;
+                events.Add(new RelicUsed { RelicId = "second_wind", Note = "extra turn — the counterattack never comes" });
+                CheckTurnStart(events);
+                return;
+            }
+            if (enc.VanguardArmed)
+            {
+                // Vanguard (§8): the road's first enemy can't counter on its first turn.
+                enc.VanguardArmed = false;
+                events.Add(new RelicUsed { RelicId = "vanguard", Note = "the first counterattack never lands" });
+                CheckTurnStart(events);
+                return;
+            }
+
             int net = System.Math.Max(0, enemy.Attack - enemy.Shield);
+            if (net > 0 && enc.AegisArmed)
+            {
+                enc.AegisArmed = false;
+                net = System.Math.Max(0, net - Tuning.AegisReduction);
+                events.Add(new RelicUsed { RelicId = "aegis", Note = $"counterattack blunted by {Tuning.AegisReduction}" });
+            }
 
             if (net == 0)
             {
                 events.Add(new CounterattackBlocked());
+                CheckTurnStart(events);
                 return; // turn ends; play again next turn
             }
 
@@ -582,6 +757,8 @@ namespace Regicide.Core
 
             if (enc.AllDead)
             {
+                State.LastFightPaidNothing = !enc.PaidThisFight; // Interest (§8)
+
                 if (enc.IsGate)
                 {
                     ResolveGateClear(events);
@@ -608,6 +785,12 @@ namespace Regicide.Core
                     SeamRest(events);
                     events.Add(new ChapterCompleted { Chapter = State.Chapter });
                 }
+                else if (node != null && node.Kind == RoadNodeKind.Lair)
+                {
+                    // The raid pays off (§8): pick 1 of 2 unowned relics.
+                    State.Phase = CampaignPhase.Road;
+                    OfferLairRelics(events);
+                }
                 else
                 {
                     State.Phase = CampaignPhase.Road;
@@ -616,12 +799,39 @@ namespace Regicide.Core
             else
             {
                 // A fresh duel: once-per-enemy abilities refresh; unspent per-enemy
-                // arms (Transfuse, Stockpile) lapse with the enemy they targeted.
+                // arms (Transfuse, Stockpile, Aegis, Unbinding) lapse with their enemy.
                 enc.UsedThisEnemy.Clear();
                 enc.StockpileArmed = false;
                 enc.TransfuseArmed = false;
+                enc.AegisArmed = false;
+                enc.UnbindingArmed = false;
                 events.Add(new NextEnemy { Face = enc.Current.Face });
+                CheckTurnStart(events); // play-again-after-a-kill is a fresh turn
             }
+        }
+
+        /// <summary>Offer 1-of-2 unowned relics after a Lair raid (§8). Seeded, blocking.</summary>
+        private void OfferLairRelics(List<GameEvent> events)
+        {
+            var owned = new HashSet<string>(State.RelicBag);
+            foreach (var e in State.EquippedRelics) if (e != null) owned.Add(e);
+
+            var pool = RelicTables.All.Select(r => r.Id).Where(id => !owned.Contains(id)).ToList();
+            var options = new List<string>();
+            for (int i = 0; i < Tuning.LairOffers && pool.Count > 0; i++)
+            {
+                string pick = pool[_rng.Int(pool.Count)];
+                pool.Remove(pick);
+                options.Add(pick);
+            }
+            if (options.Count == 0) return; // every relic owned — nothing left to raid
+
+            State.PendingChoices.Add(new PendingChoice
+            {
+                Kind = PendingChoiceKind.RelicSelect,
+                RelicOptions = options,
+            });
+            events.Add(new RelicOffered { Options = new List<string>(options) });
         }
 
         /// <summary>Seam reset (§9): reshuffle discard into the Tavern, draw up to full.</summary>
@@ -750,12 +960,18 @@ namespace Regicide.Core
             return Result.Success(events);
         }
 
-        /// <summary>Mint a kept royal as a real PhysicalCard, shuffled into the Tavern (§6).</summary>
+        /// <summary>
+        /// Mint a kept royal as a real PhysicalCard, shuffled into the Tavern (§6) —
+        /// or onto the Tavern top under the Muster relic (§8).
+        /// </summary>
         private PhysicalCard KeepRoyal(Suit suit, Rank rank, List<GameEvent> events)
         {
             var card = State.Cards.Mint(suit, rank);
             State.OwnedCards.Add(card.PhysicalId);
-            State.Deck.Tavern.Insert(_rng.Int(State.Deck.Tavern.Count + 1), card.PhysicalId);
+            if (State.HasRelic("muster"))
+                State.Deck.Tavern.Insert(0, card.PhysicalId);
+            else
+                State.Deck.Tavern.Insert(_rng.Int(State.Deck.Tavern.Count + 1), card.PhysicalId);
             events.Add(new RoyalKept { PhysicalId = card.PhysicalId, Face = card.Printed });
             return card;
         }
@@ -793,10 +1009,15 @@ namespace Regicide.Core
 
             // ── validated; mutate ──
             var events = new List<GameEvent>();
-            State.StaffOffer = null; // walking away from a Fallen Heroes stop closes its offer (§10)
+            State.StaffOffer = null;   // walking away from a Fallen Heroes stop closes its offer (§10)
+            State.CaravanOffer = null; // likewise the caravan's stall (§8)
             State.Map.CurrentNodeId = node.Id;
             node.Known = node.Visited = true;
             foreach (int next in node.Next) State.Map.Get(next).Known = true;
+            if (State.HasRelic("forked_road"))
+                foreach (int next in node.Next)             // Forked Road (§8): see one
+                    foreach (int nn in State.Map.Get(next).Next) // layer further ahead
+                        State.Map.Get(nn).Known = true;
             events.Add(new MovedToNode { NodeId = node.Id, Kind = node.Kind });
 
             switch (node.Kind)
@@ -814,6 +1035,27 @@ namespace Regicide.Core
                     BeginEncounter(Lineups.For(node.Kind, State.Chapter, State, _rng), node.Id, events,
                                    Lineups.RoyalRank(State.Chapter));
                     break;
+
+                case RoadNodeKind.Lair:
+                    // The Lair is a raid (§8): an elite-grade fight, then pick 1 of 2 relics.
+                    BeginEncounter(Lineups.For(RoadNodeKind.Elite, State.Chapter, State, _rng), node.Id, events);
+                    break;
+
+                case RoadNodeKind.Caravan:
+                {
+                    // The caravan (§8): one unowned relic, pay-from-hand while standing here.
+                    var owned = new HashSet<string>(State.RelicBag);
+                    foreach (var e in State.EquippedRelics) if (e != null) owned.Add(e);
+                    var pool = RelicTables.All.Select(rl => rl.Id).Where(id => !owned.Contains(id)).ToList();
+                    if (pool.Count == 0)
+                    {
+                        events.Add(new LandmarkVisited { Kind = node.Kind, Note = "the caravan has nothing you lack" });
+                        break;
+                    }
+                    State.CaravanOffer = pool[_rng.Int(pool.Count)];
+                    events.Add(new CaravanOffered { RelicId = State.CaravanOffer, Cost = CaravanPrice() });
+                    break;
+                }
 
                 case RoadNodeKind.Camp:
                     ResolveCamp(events);
@@ -912,6 +1154,8 @@ namespace Regicide.Core
                 events.Add(new ContinentEntered { Continent = 2, LitRungId = State.Hero.PathC2 });
             }
 
+            State.UsedThisProvince.Clear(); // Forced March / Bedroll / Requisition Writ refresh (§8)
+            State.RoadFirstFightDone = false; // a fresh road re-arms Vanguard (§8)
             State.Map = RoadGen.Generate(State.Chapter, _rng);
             events.Add(new MapGenerated { Chapter = State.Chapter, NodeCount = State.Map.Nodes.Count });
             State.Phase = CampaignPhase.Road;
@@ -923,13 +1167,28 @@ namespace Regicide.Core
         private Result HandleDefendDiscard(DefendDiscard a)
         {
             var pending = State.PendingChoice;
-            if (pending == null || pending.Kind != PendingChoiceKind.Defend)
-                return Result.Fail("No defend pending");
+            if (pending == null ||
+                (pending.Kind != PendingChoiceKind.Defend && pending.Kind != PendingChoiceKind.DebtDiscard))
+                return Result.Fail("No discard owed");
 
             var ids = a.PhysicalIds ?? new List<int>();
             if (ids.Distinct().Count() != ids.Count) return Result.Fail("Duplicate card in defend");
             foreach (int id in ids)
                 if (!State.Deck.Hand.Contains(id)) return Result.Fail($"Card #{id} is not in hand");
+
+            if (pending.Kind == PendingChoiceKind.DebtDiscard)
+            {
+                if (ids.Count != 1) return Result.Fail("The debt instalment is exactly one card");
+
+                // ── validated; mutate ── (no turn-start recheck: this IS the turn's start)
+                State.Deck.Hand.Remove(ids[0]);
+                State.Deck.Discard.Add(ids[0]);
+                State.PendingChoices.RemoveAt(0);
+                return Result.Success(new List<GameEvent>
+                {
+                    new RelicUsed { RelicId = "debt", Note = $"instalment paid (card #{ids[0]})" },
+                });
+            }
 
             int paid = ids.Sum(id => State.Cards.Get(id).EffectiveValue());
             if (paid < pending.RequiredValue)
@@ -939,6 +1198,7 @@ namespace Regicide.Core
             foreach (int id in ids) State.Deck.Hand.Remove(id);
             State.Deck.Discard.AddRange(ids);
             State.PendingChoices.RemoveAt(0);
+            if (State.Encounter != null) State.Encounter.PaidThisFight = true; // Interest (§8)
 
             var events = new List<GameEvent>
             {
@@ -958,6 +1218,7 @@ namespace Regicide.Core
                 events.Add(new CardsRecovered { Count = 1 });
             }
 
+            CheckTurnStart(events); // a fresh turn begins once the counter is paid
             return Result.Success(events);
         }
 
@@ -1079,6 +1340,7 @@ namespace Regicide.Core
                     State.Deck.Discard.Add(card.PhysicalId);
                     enemy.Shield += v;
                     pending.RequiredValue -= v;
+                    enc.PaidThisFight = true; // a parry is still a payment (Interest, §8)
                     var extra = new List<GameEvent> { new ShieldGained { Amount = v, Total = enemy.Shield } };
                     if (pending.RequiredValue <= 0)
                     {
@@ -1198,6 +1460,303 @@ namespace Regicide.Core
             return Result.Success(events);
         }
 
+        // ── relics (§8) ─────────────────────────────────────────────────────────
+
+        private int CaravanPrice() =>
+            Tuning.CaravanCost - (State.HasRelic("caravan_coin") ? Tuning.CaravanCoinDiscount : 0);
+
+        private Result HandleChooseRelic(ChooseRelic a)
+        {
+            var pending = State.PendingChoice;
+            if (pending == null || pending.Kind != PendingChoiceKind.RelicSelect)
+                return Result.Fail("No relic pick pending");
+            if (!pending.RelicOptions.Contains(a.RelicId))
+                return Result.Fail($"'{a.RelicId}' is not on offer");
+
+            // ── validated; mutate ──
+            State.RelicBag.Add(a.RelicId);
+            State.PendingChoices.RemoveAt(0);
+            return Result.Success(new List<GameEvent>
+            {
+                new RelicGained { RelicId = a.RelicId, Source = "lair raid" },
+            });
+        }
+
+        private Result HandleEquipRelic(EquipRelic a)
+        {
+            if (State.Phase == CampaignPhase.Encounter)
+                return Result.Fail("Relic swaps are locked during combat");
+            if (State.PendingChoice != null)
+                return Result.Fail($"Resolve the pending {State.PendingChoice.Kind} first");
+            if (!RelicTables.Exists(a.RelicId)) return Result.Fail($"Unknown relic '{a.RelicId}'");
+            if (!State.RelicBag.Contains(a.RelicId)) return Result.Fail("That relic is not in the bag");
+
+            // ── validated; mutate ── A relic fits only its own slot; equipping over
+            // an occupied slot swaps the old relic back to the bag — swaps are free.
+            int slot = (int)RelicTables.Get(a.RelicId).Slot;
+            string old = State.EquippedRelics[slot];
+            State.RelicBag.Remove(a.RelicId);
+            if (old != null) State.RelicBag.Add(old);
+            State.EquippedRelics[slot] = a.RelicId;
+            return Result.Success(new List<GameEvent>
+            {
+                new RelicEquipped { RelicId = a.RelicId, SwappedOut = old },
+            });
+        }
+
+        private Result HandleBuyRelic(BuyRelic a)
+        {
+            if (State.CaravanOffer == null)
+                return Result.Fail("No caravan here");
+            var ids = a.PayPhysicalIds ?? new List<int>();
+            if (ids.Distinct().Count() != ids.Count) return Result.Fail("Duplicate card in payment");
+            foreach (int id in ids)
+                if (!State.Deck.Hand.Contains(id)) return Result.Fail($"Card #{id} is not in hand");
+            int paid = ids.Sum(id => State.Cards.Get(id).EffectiveValue());
+            int price = CaravanPrice();
+            if (paid < price) return Result.Fail($"Paid {paid}, the caravan wants {price}");
+
+            // ── validated; mutate ──
+            foreach (int id in ids) State.Deck.Hand.Remove(id);
+            State.Deck.Discard.AddRange(ids);
+            string relic = State.CaravanOffer;
+            State.CaravanOffer = null;
+            State.RelicBag.Add(relic);
+            return Result.Success(new List<GameEvent>
+            {
+                new RelicGained { RelicId = relic, Source = $"caravan, {paid} card-value" },
+            });
+        }
+
+        private Result HandleUseRelic(UseRelic a)
+        {
+            string id = a.RelicId;
+            if (!State.HasRelic(id))
+                return Result.Fail($"'{id}' is not equipped");
+
+            var ids = a.PhysicalIds ?? new List<int>();
+            var enc = State.Encounter;
+            bool inFight = State.Phase == CampaignPhase.Encounter && enc?.Current != null;
+            if (State.PendingChoice != null)
+                return Result.Fail($"Resolve the pending {State.PendingChoice.Kind} first");
+
+            List<GameEvent> events;
+            Result Used(string note, params GameEvent[] extra)
+            {
+                events = new List<GameEvent> { new RelicUsed { RelicId = id, Note = note } };
+                events.AddRange(extra);
+                return Result.Success(events);
+            }
+
+            switch (id)
+            {
+                // ── Cloak ──
+                case "forced_march": // once/province: skip an ordinary fight, no rewards
+                {
+                    if (!inFight) return Result.Fail("Forced March skips a fight you are in");
+                    if (State.UsedThisProvince.Contains(id)) return Result.Fail("Already marched this province");
+                    var node = State.EncounterNodeId != null ? State.Map?.Get(State.EncounterNodeId.Value) : null;
+                    if (node == null || (node.Kind != RoadNodeKind.Skirmish && node.Kind != RoadNodeKind.Veteran))
+                        return Result.Fail("Only ordinary fights (skirmish/veteran) can be marched past");
+                    State.UsedThisProvince.Add(id);
+                    State.Encounter = null;
+                    State.EncounterNodeId = null;
+                    State.Phase = CampaignPhase.Road;
+                    return Used("the column marches past — no fight, no spoils");
+                }
+
+                case "bedroll": // once/province: reshuffle discard into the Tavern, no Camp
+                {
+                    if (inFight) return Result.Fail("No unrolling mid-fight");
+                    if (State.Phase != CampaignPhase.Road) return Result.Fail("Bedrolls open on the road");
+                    if (State.UsedThisProvince.Contains(id)) return Result.Fail("Already rested this province");
+                    State.UsedThisProvince.Add(id);
+                    int n = State.Deck.Discard.Count;
+                    State.Deck.Tavern.AddRange(State.Deck.Discard);
+                    State.Deck.Discard.Clear();
+                    _rng.Shuffle(State.Deck.Tavern);
+                    return Used($"{n} discard(s) shuffled back into the Tavern");
+                }
+
+                case "slip_away": // pay 5 card-value to retreat: hand kept, enemy not defeated
+                {
+                    if (!inFight) return Result.Fail("Nothing to slip away from");
+                    if (ids.Count == 0) return Result.Fail("Slipping away costs cards");
+                    if (ids.Distinct().Count() != ids.Count) return Result.Fail("Duplicate card in payment");
+                    foreach (int pid in ids)
+                        if (!State.Deck.Hand.Contains(pid)) return Result.Fail($"Card #{pid} is not in hand");
+                    int paid = ids.Sum(pid => State.Cards.Get(pid).EffectiveValue());
+                    if (paid < Tuning.SlipAwayCost)
+                        return Result.Fail($"Paid {paid}, slipping away costs {Tuning.SlipAwayCost}");
+                    foreach (int pid in ids) State.Deck.Hand.Remove(pid);
+                    State.Deck.Discard.AddRange(ids);
+                    State.Encounter = null;
+                    State.EncounterNodeId = null;
+                    State.Phase = CampaignPhase.Road;
+                    return Used($"retreated for {paid} — the enemy stands undefeated");
+                }
+
+                case "forked_road":
+                case "scout_ahead":
+                case "vanguard":
+                    return Result.Fail($"{RelicTables.Get(id).Name} is passive — it works on its own");
+
+                // ── Ring ──
+                case "debt": // once/fight: draw 2 now, discard 1 at each of the next two turn starts
+                {
+                    if (!inFight) return Result.Fail("Debt is taken in combat");
+                    if (enc.UsedThisFight.Contains(id)) return Result.Fail("Once per fight");
+                    enc.UsedThisFight.Add(id);
+                    enc.DebtTurnsRemaining = Tuning.DebtTurns;
+                    var drawn = Draw(Tuning.DebtDraw);
+                    return Used($"drew {drawn.PhysicalIds.Count} against the next {Tuning.DebtTurns} turns", drawn);
+                }
+
+                case "requisition_writ": // once/province: two lowest hand cards → one fragment
+                {
+                    // PLACEHOLDER interpretation of "your two lowest cards": the two
+                    // lowest-value HAND cards leave the run entirely. Tune later.
+                    if (State.UsedThisProvince.Contains(id)) return Result.Fail("Once per province");
+                    if (State.Deck.Hand.Count < Tuning.RequisitionCards)
+                        return Result.Fail($"The writ takes {Tuning.RequisitionCards} hand cards");
+                    State.UsedThisProvince.Add(id);
+                    var lowest = State.Deck.Hand
+                        .OrderBy(pid => State.Cards.Get(pid).EffectiveValue())
+                        .Take(Tuning.RequisitionCards).ToList();
+                    foreach (int pid in lowest)
+                    {
+                        State.Deck.Hand.Remove(pid);
+                        State.OwnedCards.Remove(pid);
+                    }
+                    State.TokenFragments++;
+                    return Used($"converted {lowest.Count} card(s) into a fragment (pool {State.TokenFragments})");
+                }
+
+                case "liquidate": // once/fight: discard one card to draw 2
+                {
+                    if (!inFight) return Result.Fail("Liquidate works in combat");
+                    if (enc.UsedThisFight.Contains(id)) return Result.Fail("Once per fight");
+                    if (ids.Count != 1 || !State.Deck.Hand.Contains(ids[0]))
+                        return Result.Fail("Liquidate discards exactly one hand card");
+                    enc.UsedThisFight.Add(id);
+                    State.Deck.Hand.Remove(ids[0]);
+                    State.Deck.Discard.Add(ids[0]);
+                    var drawn = Draw(Tuning.LiquidateDraw);
+                    return Used($"liquidated #{ids[0]}, drew {drawn.PhysicalIds.Count}", drawn);
+                }
+
+                case "double_or_nothing": // once/fight: discard the hand (n), draw n+1
+                {
+                    if (!inFight) return Result.Fail("Double or Nothing is a combat gamble");
+                    if (enc.UsedThisFight.Contains(id)) return Result.Fail("Once per fight");
+                    if (State.Deck.Hand.Count == 0) return Result.Fail("Nothing to gamble");
+                    enc.UsedThisFight.Add(id);
+                    int n = State.Deck.Hand.Count;
+                    State.Deck.Discard.AddRange(State.Deck.Hand);
+                    State.Deck.Hand.Clear();
+                    var drawn = Draw(n + 1);
+                    return Used($"threw {n} card(s), drew {drawn.PhysicalIds.Count}", drawn);
+                }
+
+                case "hoard":
+                case "interest":
+                case "last_coin":
+                case "caravan_coin":
+                    return Result.Fail($"{RelicTables.Get(id).Name} is passive — it works on its own");
+
+                // ── Amulet buttons ──
+                case "sainted_scalpel": // once/fight: up to 6 discards → Tavern, draw 1
+                {
+                    if (!inFight) return Result.Fail("The scalpel works in combat");
+                    if (enc.UsedThisFight.Contains(id)) return Result.Fail("Once per fight");
+                    enc.UsedThisFight.Add(id);
+                    int n = System.Math.Min(Tuning.ScalpelMax, State.Deck.Discard.Count);
+                    if (n > 0)
+                    {
+                        _rng.Shuffle(State.Deck.Discard);
+                        var back = State.Deck.Discard.Take(n).ToList();
+                        State.Deck.Discard.RemoveRange(0, n);
+                        State.Deck.Tavern.AddRange(back);
+                        _rng.Shuffle(State.Deck.Tavern);
+                    }
+                    var drawn = Draw(1);
+                    return Used($"stitched {n} discard(s) back, drew {drawn.PhysicalIds.Count}", drawn);
+                }
+
+                case "unbinding": // once/enemy: cancel immunity for the next play
+                    if (!inFight) return Result.Fail("Unbinding works in combat");
+                    if (enc.UsedThisEnemy.Contains(id)) return Result.Fail("Once per enemy");
+                    enc.UsedThisEnemy.Add(id);
+                    enc.UnbindingArmed = true;
+                    return Used("the enemy's immunity unravels for one play");
+
+                case "second_wind": // once/fight: an extra turn before the counterattack
+                    if (!inFight) return Result.Fail("Second Wind works in combat");
+                    if (enc.UsedThisFight.Contains(id)) return Result.Fail("Once per fight");
+                    enc.UsedThisFight.Add(id);
+                    enc.SecondWindArmed = true;
+                    return Used("armed — the next counterattack never comes");
+
+                case "aegis": // once/enemy: next counterattack −5
+                    if (!inFight) return Result.Fail("Aegis works in combat");
+                    if (enc.UsedThisEnemy.Contains(id)) return Result.Fail("Once per enemy");
+                    enc.UsedThisEnemy.Add(id);
+                    enc.AegisArmed = true;
+                    return Used($"armed — the next counterattack is blunted by {Tuning.AegisReduction}");
+
+                case "bloodlust": // once/enemy: next play +3 damage
+                    if (!inFight) return Result.Fail("Bloodlust works in combat");
+                    if (enc.UsedThisEnemy.Contains(id)) return Result.Fail("Once per enemy");
+                    enc.UsedThisEnemy.Add(id);
+                    enc.AttackBank += Tuning.BloodlustBonus;
+                    return Used($"+{Tuning.BloodlustBonus} banked onto the next play");
+
+                case "echo": // once/fight: replay a discard for its VALUE only
+                {
+                    if (!inFight) return Result.Fail("Echo works in combat");
+                    if (enc.UsedThisFight.Contains(id)) return Result.Fail("Once per fight");
+                    if (ids.Count != 1 || !State.Deck.Discard.Contains(ids[0]))
+                        return Result.Fail("Echo replays exactly one discard card");
+                    enc.UsedThisFight.Add(id);
+                    int v = State.Cards.Get(ids[0]).EffectiveValue();
+                    var enemy = enc.Current;
+                    enemy.Hp -= v; // value only: no suit powers, no doubles, no counterattack
+                    events = new List<GameEvent>
+                    {
+                        new RelicUsed { RelicId = id, Note = $"#{ids[0]} echoes for {v}" },
+                        new DamageDealt { Amount = v, Doubled = false },
+                    };
+                    if (enemy.Hp <= 0)
+                    {
+                        enemy.Alive = false;
+                        enemy.KillOutcome = enemy.Hp == 0 ? KillKind.Exact : KillKind.Overkill;
+                        events.Add(new EnemyKilled { Face = enemy.Face, Kind = enemy.KillOutcome.Value });
+                        if (enemy.Hp == 0 && !enc.IsGate &&
+                            !State.OwnsFace(enemy.Face) && !CardRules.IsRoyal(enemy.Rank))
+                            RecruitEnemy(enemy, false, events);
+                        AdvancePastDead(events);
+                    }
+                    return Result.Success(events);
+                }
+
+                case "lodestone": // once/fight: pull a named Tavern card into hand
+                {
+                    if (!inFight) return Result.Fail("Lodestone works in combat");
+                    if (enc.UsedThisFight.Contains(id)) return Result.Fail("Once per fight");
+                    if (ids.Count != 1 || !State.Deck.Tavern.Contains(ids[0]))
+                        return Result.Fail("Lodestone pulls exactly one Tavern card");
+                    if (State.Deck.Hand.Count >= State.MaxHandSize) return Result.Fail("Hand is full");
+                    enc.UsedThisFight.Add(id);
+                    State.Deck.Tavern.Remove(ids[0]);
+                    State.Deck.Hand.Add(ids[0]);
+                    return Used($"#{ids[0]} pulled from the Tavern into hand");
+                }
+
+                default:
+                    return Result.Fail($"{RelicTables.Get(id).Name} has no activated use");
+            }
+        }
+
         // ── spells: gauntlet, bracelet, forge, casting (§7) ─────────────────────
 
         private Result HandleArmCrystal(ArmCrystal a)
@@ -1311,6 +1870,7 @@ namespace Regicide.Core
                     State.Deck.Discard.Add(best);
                     enemy.Shield += v;
                     pending.RequiredValue -= v;
+                    enc.PaidThisFight = true; // a brace is still a payment (Interest, §8)
                     Cast($"spent #{best} — shield +{v}, payment cut to {System.Math.Max(0, pending.RequiredValue)}");
                     events.Add(new ShieldGained { Amount = v, Total = enemy.Shield });
                     if (pending.RequiredValue <= 0)

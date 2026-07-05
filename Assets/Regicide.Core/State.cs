@@ -123,6 +123,20 @@ namespace Regicide.Core
         /// <summary>Rally (♦ Half): at the next counterattack, draw min(net, 5) before paying (§7).</summary>
         public bool RallyArmed;
 
+        // Relic combat state (§8).
+        /// <summary>Vanguard (Cloak): the fight's first counterattack is suppressed.</summary>
+        public bool VanguardArmed;
+        /// <summary>Second Wind (Amulet, once/fight): the next counterattack is skipped entirely.</summary>
+        public bool SecondWindArmed;
+        /// <summary>Aegis (Amulet, once/enemy): the next counterattack is reduced by 5.</summary>
+        public bool AegisArmed;
+        /// <summary>Unbinding (Amulet, once/enemy): the next play ignores the enemy's immunity.</summary>
+        public bool UnbindingArmed;
+        /// <summary>Debt (Ring): turns still owing a start-of-turn discard.</summary>
+        public int DebtTurnsRemaining;
+        /// <summary>True once any counterattack was paid with discards this fight (Interest, §8).</summary>
+        public bool PaidThisFight;
+
         public EnemyState Current =>
             CurrentIndex < Enemies.Count ? Enemies[CurrentIndex] : null;
 
@@ -143,6 +157,10 @@ namespace Regicide.Core
         RecoverSelect,
         /// <summary>Last Rites staff (§10): optionally pick one recovered card into hand.</summary>
         RecoverToHand,
+        /// <summary>Lair raid won (§8): pick 1 of the offered relics.</summary>
+        RelicSelect,
+        /// <summary>Debt relic (§8): a start-of-turn discard of exactly one card is owed.</summary>
+        DebtDiscard,
     }
 
     /// <summary>A decision blocking the game until the player answers (§4).</summary>
@@ -167,6 +185,8 @@ namespace Regicide.Core
         public List<int> RecoverIds;
         /// <summary>RecoverSelect: max cards the player may pick (the recovered amount).</summary>
         public int RecoverMax;
+        /// <summary>RelicSelect: the relic ids on offer (§8 Lair).</summary>
+        public List<string> RelicOptions;
     }
 
     /// <summary>The root state. Core owns it; the UI is a pure view of it (§4).</summary>
@@ -207,6 +227,28 @@ namespace Regicide.Core
         /// </summary>
         public int[] GauntletTiers = new int[4];
 
+        /// <summary>Unequipped relics collect here (§8). Bag relics are inert.</summary>
+        public List<string> RelicBag = new List<string>();
+        /// <summary>The four named slots, indexed by (int)RelicSlot. Null = empty.</summary>
+        public string[] EquippedRelics = new string[4];
+        /// <summary>Caravan offer (§8): the relic buyable while standing there. Null elsewhere.</summary>
+        public string CaravanOffer;
+
+        /// <summary>Once-per-province ability ids used (Forced March, Bedroll, Requisition Writ §8).</summary>
+        public HashSet<string> UsedThisProvince = new HashSet<string>();
+        /// <summary>Interest (§8): true if the previous fight ended without paying any discards.</summary>
+        public bool LastFightPaidNothing;
+        /// <summary>Vanguard (§8): set once any fight starts on the current road.</summary>
+        public bool RoadFirstFightDone;
+
+        /// <summary>Whether a relic is live (equipped in its slot — bag relics do nothing).</summary>
+        public bool HasRelic(string id)
+        {
+            foreach (var r in EquippedRelics)
+                if (r == id) return true;
+            return false;
+        }
+
         /// <summary>
         /// Queue of decisions awaiting input, resolved head-first (a gate keep can
         /// stack behind a graft, etc.). <see cref="PendingChoice"/> reads the head.
@@ -229,6 +271,7 @@ namespace Regicide.Core
         public int MaxHandSize =>
             Tuning.BaseMaxHandSize
             + (Hero.PathC2 == ClassTables.RungDepot ? Tuning.DepotHandBonus : 0)
+            + (HasRelic("hoard") ? Tuning.HoardHandBonus : 0)
             + (Encounter != null && Encounter.StockpileArmed ? 1 : 0);
 
         /// <summary>True if any owned card's *effective* face matches — the graft trigger test (§6).</summary>

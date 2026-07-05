@@ -82,6 +82,17 @@ namespace Regicide.Headless
             Run("spells: guard up ignores suit immunity", TestGuardUpImmunity);
             Run("spells: brace during the pay step", TestBrace);
             Run("spells: refit and full recycle", TestRefitRecycle);
+            Run("relics: lair raid pick-1-of-2, bag, slots, free swaps", TestLairAndEquip);
+            Run("relics: caravan pay-from-hand + caravan coin", TestCaravan);
+            Run("relics: hoard and interest (ring passives)", TestHoardInterest);
+            Run("relics: debt instalments and last coin", TestDebtLastCoin);
+            Run("relics: requisition writ, liquidate, double or nothing", TestRingActives);
+            Run("relics: forked road and forced march", TestForkedRoadForcedMarch);
+            Run("relics: bedroll, slip away, vanguard", TestCloakActives);
+            Run("relics: press-gang, promotion, black standard, apprentice, rallying cry", TestHatRecruits);
+            Run("relics: conscription, plunder, muster", TestHatEdgeCases);
+            Run("relics: scalpel, unbinding, second wind, aegis", TestAmuletsOne);
+            Run("relics: bloodlust, echo, lodestone", TestAmuletsTwo);
 
             Console.WriteLine();
             if (_failures.Count == 0)
@@ -583,6 +594,8 @@ namespace Regicide.Headless
                 if (target == null) return; // only Hunt/Gate ahead — caller's business
                 Must(s.Dispatch(new MoveToNode(target.Id)));
                 if (s.State.Phase == CampaignPhase.Encounter) WinFight(s);
+                if (s.State.PendingChoice?.Kind == PendingChoiceKind.RelicSelect)
+                    Must(s.Dispatch(new ChooseRelic(s.State.PendingChoice.RelicOptions[0])));
             }
         }
 
@@ -1397,6 +1410,8 @@ namespace Regicide.Headless
                             .First(n => n.Kind == want);
                 Must(s.Dispatch(new MoveToNode(node.Id)));
                 if (s.State.Phase == CampaignPhase.Encounter) WinFight(s);
+                if (s.State.PendingChoice?.Kind == PendingChoiceKind.RelicSelect)
+                    Must(s.Dispatch(new ChooseRelic(s.State.PendingChoice.RelicOptions[0])));
             }
         }
 
@@ -1551,6 +1566,412 @@ namespace Regicide.Headless
             Check(Get<CardsRecovered>(r2).Count == 4, "the whole discard recycled");
             Check(s2.State.Deck.Discard.Count == 0, "discard empty");
             Check(Get<CardsDrawn>(r2).PhysicalIds.Count == 2, "and drew 2");
+        }
+
+        // ── step-8 tests: relics ────────────────────────────────────────────────
+
+        /// <summary>Stage a relic straight into the bag and equip it (harness license).</summary>
+        private static void Wear(GameSession s, string relicId)
+        {
+            s.State.RelicBag.Add(relicId);
+            Must(s.Dispatch(new EquipRelic(relicId)));
+        }
+
+        private static void TestLairAndEquip()
+        {
+            var s = NewRun("lair");
+            WalkTo(s, RoadNodeKind.Skirmish, RoadNodeKind.Camp, RoadNodeKind.Veteran, RoadNodeKind.Forge);
+
+            var lair = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
+                        .First(n => n.Kind == RoadNodeKind.Lair);
+            Must(s.Dispatch(new MoveToNode(lair.Id)));
+            Check(s.State.Phase == CampaignPhase.Encounter, "the lair is a raid — a real fight");
+            WinFight(s);
+
+            var pending = s.State.PendingChoice;
+            Check(pending?.Kind == PendingChoiceKind.RelicSelect, "relic pick pending after the raid");
+            Check(pending.RelicOptions.Count == 2, "pick 1 of 2");
+            Check(pending.RelicOptions.All(RelicTables.Exists), "offers are real relics");
+
+            MustFail(s.Dispatch(new MoveToNode(s.State.Map.Current.Next[0])), "no walking past the pick");
+            MustFail(s.Dispatch(new ChooseRelic("crown_of_ages")), "not on offer");
+            string picked = pending.RelicOptions[0];
+            var r = Must(s.Dispatch(new ChooseRelic(picked)));
+            Check(s.State.RelicBag.Contains(picked), "claimed relic lands in the bag");
+
+            MustFail(s.Dispatch(new EquipRelic("no_such")), "unknown relic");
+            MustFail(s.Dispatch(new EquipRelic("hoard")), "hoard is not in the bag");
+            Must(s.Dispatch(new EquipRelic(picked)));
+            int slot = (int)RelicTables.Get(picked).Slot;
+            Check(s.State.EquippedRelics[slot] == picked && !s.State.RelicBag.Contains(picked),
+                "equipped into its own slot, out of the bag");
+
+            // A second relic of the same slot swaps freely.
+            string other = RelicTables.All.First(x => x.Slot == RelicTables.Get(picked).Slot && x.Id != picked).Id;
+            s.State.RelicBag.Add(other);
+            var r2 = Must(s.Dispatch(new EquipRelic(other)));
+            Check(s.State.EquippedRelics[slot] == other && s.State.RelicBag.Contains(picked),
+                "swap is free — the old relic returns to the bag");
+
+            Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            MustFail(s.Dispatch(new EquipRelic(picked)), "swaps locked during combat");
+        }
+
+        private static void TestCaravan()
+        {
+            var s = NewRun("caravan");
+            WalkTo(s, RoadNodeKind.Skirmish, RoadNodeKind.Camp, RoadNodeKind.Veteran);
+            var caravan = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
+                           .First(n => n.Kind == RoadNodeKind.Caravan);
+            var r = Must(s.Dispatch(new MoveToNode(caravan.Id)));
+            string offer = s.State.CaravanOffer;
+            Check(offer != null && Get<CaravanOffered>(r).Cost == Tuning.CaravanCost, "a relic for 8 card-value");
+
+            ClearHand(s);
+            var c2 = Give(s, Suit.Clubs, Rank.Two);
+            var h9 = Give(s, Suit.Hearts, Rank.Nine);
+            MustFail(s.Dispatch(new BuyRelic(c2.PhysicalId)), "2 is short of 8");
+            Must(s.Dispatch(new BuyRelic(h9.PhysicalId)));
+            Check(s.State.RelicBag.Contains(offer), "bought relic in the bag");
+            Check(s.State.CaravanOffer == null, "the stall closes after the sale");
+            Check(s.State.Deck.Discard.Contains(h9.PhysicalId), "payment went to the discard");
+            MustFail(s.Dispatch(new BuyRelic(c2.PhysicalId)), "nothing left to buy");
+
+            // Caravan Coin: cost 8 → 6.
+            var s2 = NewRun("caravancoin");
+            Wear(s2, "caravan_coin");
+            WalkTo(s2, RoadNodeKind.Skirmish, RoadNodeKind.Camp, RoadNodeKind.Veteran, RoadNodeKind.Caravan);
+            ClearHand(s2);
+            var d6 = Give(s2, Suit.Diamonds, Rank.Six);
+            Must(s2.Dispatch(new BuyRelic(d6.PhysicalId)));
+            Check(s2.State.RelicBag.Count == 1, "6 pays the discounted price");
+        }
+
+        private static void TestHoardInterest()
+        {
+            var s = NewRun("hoard");
+            Check(s.State.MaxHandSize == 5, "base cap");
+            Wear(s, "hoard");
+            Check(s.State.MaxHandSize == 7, "hoard raises the cap by 2");
+
+            var s2 = NewRun("interest");
+            Wear(s2, "interest");
+            Fight(s2, EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish));
+            ClearHand(s2);
+            var c9 = Give(s2, Suit.Clubs, Rank.Nine);
+            Must(s2.Dispatch(new PlayCards(c9.PhysicalId))); // exact, fight won, nothing paid
+            Check(s2.State.LastFightPaidNothing, "no discards paid last fight");
+
+            ClearHand(s2);
+            var r = Must(s2.Dispatch(new StartEncounter(EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss))));
+            Check(r.Events.OfType<RelicUsed>().Any(e => e.RelicId == "interest"), "interest pays out");
+            Check(s2.State.Deck.Hand.Count == 1, "+1 card at fight start");
+        }
+
+        private static void TestDebtLastCoin()
+        {
+            var s = NewRun("debt");
+            Wear(s, "debt");
+            Fight(s, EnemyState.Royal(Suit.Hearts, Rank.Jack, EnemyTier.Boss)); // 20 hp, atk 10
+            ClearHand(s);
+            var s9 = Give(s, Suit.Spades, Rank.Nine);
+            Give(s, Suit.Hearts, Rank.Five);
+            Give(s, Suit.Diamonds, Rank.Six);
+
+            var r = Must(s.Dispatch(new UseRelic("debt")));
+            Check(Has<CardsDrawn>(r) && s.State.Deck.Hand.Count == 5, "drew 2 on credit");
+            MustFail(s.Dispatch(new UseRelic("debt")), "once per fight");
+
+            Must(s.Dispatch(new PlayCards(s9.PhysicalId))); // shield 9 → net 1 → defend
+            Must(s.Dispatch(new DefendDiscard(s.State.Deck.Hand[0])));
+            Check(s.State.PendingChoice?.Kind == PendingChoiceKind.DebtDiscard, "first instalment due");
+            MustFail(s.Dispatch(new PlayCards(s.State.Deck.Hand[0])), "no playing while owing");
+            MustFail(s.Dispatch(new DefendDiscard(s.State.Deck.Hand[0], s.State.Deck.Hand[1])),
+                "the instalment is exactly one card");
+            Must(s.Dispatch(new DefendDiscard(s.State.Deck.Hand[0])));
+            Check(s.State.Encounter.DebtTurnsRemaining == 1, "one instalment left");
+
+            var s2 = NewRun("lastcoin");
+            Wear(s2, "last_coin");
+            Fight(s2,
+                EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish),
+                EnemyState.Number(Suit.Hearts, Rank.Seven, EnemyTier.Veteran));
+            ClearHand(s2);
+            var c9b = Give(s2, Suit.Clubs, Rank.Nine);
+            var r2 = Must(s2.Dispatch(new PlayCards(c9b.PhysicalId))); // exact kill, hand empties
+            Check(r2.Events.OfType<RelicUsed>().Any(e => e.RelicId == "last_coin"),
+                "the empty-handed turn starts with the last coin");
+            Check(s2.State.Deck.Hand.Count == 3, "drew 3");
+        }
+
+        private static void TestRingActives()
+        {
+            var s = NewRun("writ");
+            Wear(s, "requisition_writ");
+            int owned = s.State.OwnedCards.Count, frags = s.State.TokenFragments;
+            Must(s.Dispatch(new UseRelic("requisition_writ")));
+            Check(s.State.Deck.Hand.Count == 3 && s.State.OwnedCards.Count == owned - 2,
+                "two lowest hand cards left the run");
+            Check(s.State.TokenFragments == frags + 1, "one fragment banked");
+            MustFail(s.Dispatch(new UseRelic("requisition_writ")), "once per province");
+
+            var s2 = NewRun("liquidate");
+            Wear(s2, "liquidate");
+            MustFail(s2.Dispatch(new UseRelic("liquidate", s2.State.Deck.Hand[0])), "combat only");
+            Fight(s2, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            int target = s2.State.Deck.Hand[0];
+            var r = Must(s2.Dispatch(new UseRelic("liquidate", target)));
+            Check(s2.State.Deck.Discard.Contains(target) && s2.State.Deck.Hand.Count == 5,
+                "discarded 1, drew 2 (4 → 5 with a hand of 5-cap)");
+            MustFail(s2.Dispatch(new UseRelic("liquidate", s2.State.Deck.Hand[0])), "once per fight");
+
+            var s3 = NewRun("doubleornothing");
+            Wear(s3, "double_or_nothing");
+            Fight(s3, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            ClearHand(s3);
+            Give(s3, Suit.Clubs, Rank.Two);
+            Give(s3, Suit.Hearts, Rank.Three);
+            Give(s3, Suit.Diamonds, Rank.Four);
+            var r3 = Must(s3.Dispatch(new UseRelic("double_or_nothing")));
+            Check(s3.State.Deck.Hand.Count == 4, "threw 3, drew 4");
+        }
+
+        private static void TestForkedRoadForcedMarch()
+        {
+            var s = NewRun("forkedroad");
+            Wear(s, "forked_road");
+            Must(s.Dispatch(new MoveToNode(s.State.Map.Current.Next[0]))); // onto the skirmish
+            var twoAhead = s.State.Map.Current.Next
+                .SelectMany(id => s.State.Map.Get(id).Next)
+                .Select(id => s.State.Map.Get(id)).ToList();
+            Check(twoAhead.All(n => n.Known), "forked road reveals a layer further");
+            WinFight(s);
+
+            var s2 = NewRun("march");
+            Wear(s2, "forced_march");
+            Must(s2.Dispatch(new MoveToNode(s2.State.Map.Current.Next[0]))); // skirmish fight
+            int owned = s2.State.OwnedCards.Count;
+            var r = Must(s2.Dispatch(new UseRelic("forced_march")));
+            Check(s2.State.Phase == CampaignPhase.Road && s2.State.Encounter == null,
+                "marched straight past the fight");
+            Check(s2.State.OwnedCards.Count == owned, "no recruit from a skipped fight");
+            // Only ordinary fights: the lair raid refuses the march.
+            WalkTo(s2, RoadNodeKind.Camp, RoadNodeKind.Veteran, RoadNodeKind.Forge);
+            var lair = s2.State.Map.Current.Next.Select(id => s2.State.Map.Get(id))
+                         .First(n => n.Kind == RoadNodeKind.Lair);
+            Must(s2.Dispatch(new MoveToNode(lair.Id)));
+            MustFail(s2.Dispatch(new UseRelic("forced_march")), "elites cannot be marched past");
+        }
+
+        private static void TestCloakActives()
+        {
+            var s = NewRun("bedroll");
+            Wear(s, "bedroll");
+            for (int i = 0; i < 4; i++) GiveDiscard(s, Suit.Clubs, Rank.Two);
+            Must(s.Dispatch(new UseRelic("bedroll")));
+            Check(s.State.Deck.Discard.Count == 0, "discard reshuffled without a camp");
+            MustFail(s.Dispatch(new UseRelic("bedroll")), "once per province");
+
+            var s2 = NewRun("slipaway");
+            Wear(s2, "slip_away");
+            Fight(s2, EnemyState.Royal(Suit.Spades, Rank.King, EnemyTier.Gate)); // unwinnable-ish
+            ClearHand(s2);
+            var c2 = Give(s2, Suit.Clubs, Rank.Two);
+            var h6 = Give(s2, Suit.Hearts, Rank.Six);
+            var d4 = Give(s2, Suit.Diamonds, Rank.Four);
+            MustFail(s2.Dispatch(new UseRelic("slip_away", c2.PhysicalId)), "2 is short of the 5 toll");
+            Must(s2.Dispatch(new UseRelic("slip_away", h6.PhysicalId)));
+            Check(s2.State.Phase == CampaignPhase.Road && s2.State.Encounter == null, "away clean");
+            Check(s2.State.Deck.Hand.Contains(c2.PhysicalId) && s2.State.Deck.Hand.Contains(d4.PhysicalId),
+                "the rest of the hand is kept");
+
+            var s3 = NewRun("vanguard");
+            Wear(s3, "vanguard");
+            Must(s3.Dispatch(new MoveToNode(s3.State.Map.Current.Next[0]))); // road fight #1
+            var r = Must(s3.Dispatch(new Yield()));
+            Check(r.Events.OfType<RelicUsed>().Any(e => e.RelicId == "vanguard"),
+                "the road's first enemy holds its first counter");
+            Check(s3.State.PendingChoice == null, "nothing to pay");
+            var r2 = Must(s3.Dispatch(new Yield()));
+            Check(Has<CounterattackIncoming>(r2), "the second counter lands normally");
+            Must(s3.Dispatch(new DefendDiscard(s3.State.Deck.Hand.ToList())));
+        }
+
+        private static void TestHatRecruits()
+        {
+            var s = NewRun("hatrecruits"); // sentinel — home suit ♠
+            Wear(s, "press_gang");
+            Wear(s, "interest"); // ring slot, irrelevant — proves multi-slot coexistence
+            Fight(s, EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish));
+            ClearHand(s);
+            var c9 = Give(s, Suit.Clubs, Rank.Nine);
+            var r = Must(s.Dispatch(new PlayCards(c9.PhysicalId)));
+            var rec = s.State.Cards.Get(Get<Recruited>(r).PhysicalId);
+            Check(rec.Printed.Suit == Suit.Hearts && rec.EffectiveFace().Suit == Suit.Spades,
+                "press-gang rewrites the recruit to the home suit (printed face untouched)");
+
+            var s2 = NewRun("promotion");
+            Wear(s2, "battlefield_promotion");
+            Wear(s2, "black_standard"); // same Hat slot? no — both are Hats! swap...
+            Check(s2.State.EquippedRelics[(int)RelicSlot.Hat] == "black_standard",
+                "second hat swapped the first out");
+            Wear(s2, "battlefield_promotion"); // swap back: promotion live, standard in bag
+            Fight(s2,
+                EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish),
+                EnemyState.Number(Suit.Diamonds, Rank.Seven, EnemyTier.Veteran));
+            ClearHand(s2);
+            var c9b = Give(s2, Suit.Clubs, Rank.Nine);
+            var r2 = Must(s2.Dispatch(new PlayCards(c9b.PhysicalId)));
+            var first = s2.State.Cards.Get(Get<Recruited>(r2).PhysicalId);
+            Check(first.EffectiveFace().Rank == Rank.Seven, "first recruit promoted 6 → 7");
+            ClearHand(s2);
+            var extra = Give(s2, Suit.Hearts, Rank.Two); // keep a card so no last-coin style edge
+            var c10 = Give(s2, Suit.Clubs, Rank.Ten);
+            s2.State.Encounter.Current.Hp = 20;
+            var r3 = Must(s2.Dispatch(new PlayCards(c10.PhysicalId)));
+            var second = s2.State.Cards.Get(Get<Recruited>(r3).PhysicalId);
+            Check(second.EffectiveFace().Rank == Rank.Seven, "second recruit is NOT promoted (once/fight)");
+
+            var s3 = NewRun("standard");
+            Wear(s3, "black_standard");
+            Wear(s3, "apprentice"); // hat slot again — swaps standard out; test apprentice
+            Fight(s3, EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish));
+            ClearHand(s3);
+            var c9c = Give(s3, Suit.Clubs, Rank.Nine);
+            var r4 = Must(s3.Dispatch(new PlayCards(c9c.PhysicalId)));
+            Check(r4.Events.OfType<RelicUsed>().Any(e => e.RelicId == "apprentice") &&
+                  s3.State.Deck.Hand.Count == 1, "apprentice draws 1 on recruit");
+
+            var s4 = NewRun("rallyingcry");
+            Wear(s4, "rallying_cry");
+            Fight(s4, EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish));
+            var staged = GiveDiscard(s4, Suit.Clubs, Rank.Two);
+            ClearHand(s4);
+            var c9d = Give(s4, Suit.Clubs, Rank.Nine);
+            var r5 = Must(s4.Dispatch(new PlayCards(c9d.PhysicalId)));
+            // Discard held the staged 2♣ + the played 9♣; the rally returns one of them.
+            Check(r5.Events.OfType<RelicUsed>().Any(e => e.RelicId == "rallying_cry") &&
+                  s4.State.Deck.Discard.Count == 1,
+                "one discard rallies back to the Tavern on recruit");
+        }
+
+        private static void TestHatEdgeCases()
+        {
+            var s = NewRun("conscription");
+            Wear(s, "conscription");
+            Fight(s, EnemyState.Number(Suit.Spades, Rank.Six, EnemyTier.Skirmish)); // 18 hp
+            ClearHand(s);
+            var c10 = Give(s, Suit.Clubs, Rank.Ten); // 20 vs 18 → overkill
+            var r = Must(s.Dispatch(new PlayCards(c10.PhysicalId)));
+            Check(Get<EnemyKilled>(r).Kind == KillKind.Overkill, "an overkill");
+            var rec = s.State.Cards.Get(Get<Recruited>(r).PhysicalId);
+            Check(rec.EffectiveValue() == 5, "conscripted 6 carries the −1 token (value 5)");
+
+            // Gate overkills stay banished even under Conscription.
+            GateFight(s, Rank.Jack, Suit.Hearts, Suit.Spades);
+            var enemy = s.State.Encounter.Current;
+            enemy.Hp = 17; // 9♣ doubled = 18 → overkill
+            ClearHand(s);
+            var c9 = Give(s, Suit.Clubs, Rank.Nine);
+            var r2 = Must(s.Dispatch(new PlayCards(c9.PhysicalId)));
+            Check(!Has<Recruited>(r2), "a gate overkill is banished outright");
+            WinFight(s); // clean up: exact-kill the second jack (auto-keep resolves)
+
+            var s2 = NewRun("plunder");
+            Wear(s2, "plunder");
+            Fight(s2, EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish));
+            GiveDiscard(s2, Suit.Hearts, Rank.Nine); // a stronger same-suit discard
+            ClearHand(s2);
+            var c9b = Give(s2, Suit.Clubs, Rank.Nine);
+            var r3 = Must(s2.Dispatch(new PlayCards(c9b.PhysicalId)));
+            var rec2 = s2.State.Cards.Get(Get<Recruited>(r3).PhysicalId);
+            Check(rec2.EffectiveFace().Rank == Rank.Nine, "the recruit is swapped up to the discard's 9");
+
+            // Muster's Tavern-top placement is observable at the King Gate — the only
+            // gate with no seam rest after it (victory reshuffles nothing).
+            var s3 = NewRun("muster");
+            Wear(s3, "muster");
+            GateFight(s3, Rank.King, Suit.Hearts);
+            WinFight(s3); // one exact king → auto-keep = the crown, straight to victory
+            Check(s3.State.Phase == CampaignPhase.CampaignWon, "crowned");
+            Check(s3.State.Cards.Get(s3.State.Deck.Tavern[0]).Printed.Rank == Rank.King,
+                "the mustered royal sits on the Tavern top");
+        }
+
+        private static void TestAmuletsOne()
+        {
+            var s = NewRun("scalpel");
+            Wear(s, "sainted_scalpel");
+            Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            for (int i = 0; i < 8; i++) GiveDiscard(s, Suit.Clubs, Rank.Two);
+            ClearHand(s);
+            Must(s.Dispatch(new UseRelic("sainted_scalpel")));
+            Check(s.State.Deck.Discard.Count == 2, "6 of 8 discards stitched back");
+            Check(s.State.Deck.Hand.Count == 1, "and drew 1");
+            MustFail(s.Dispatch(new UseRelic("sainted_scalpel")), "once per fight");
+
+            var s2 = NewRun("unbinding");
+            Wear(s2, "unbinding");
+            Fight(s2, EnemyState.Number(Suit.Clubs, Rank.Six, EnemyTier.Skirmish)); // ♣-immune
+            ClearHand(s2);
+            var c9 = Give(s2, Suit.Clubs, Rank.Nine);
+            Must(s2.Dispatch(new UseRelic("unbinding")));
+            MustFail(s2.Dispatch(new UseRelic("unbinding")), "once per enemy");
+            var r = Must(s2.Dispatch(new PlayCards(c9.PhysicalId)));
+            Check(Get<DamageDealt>(r).Amount == 18, "♣ doubles through the unbound immunity");
+
+            var s3 = NewRun("secondwind");
+            Wear(s3, "second_wind");
+            Fight(s3, EnemyState.Number(Suit.Hearts, Rank.Ten, EnemyTier.Veteran)); // atk 6
+            Must(s3.Dispatch(new UseRelic("second_wind")));
+            var r2 = Must(s3.Dispatch(new Yield()));
+            Check(r2.Events.OfType<RelicUsed>().Any(e => e.RelicId == "second_wind") &&
+                  s3.State.PendingChoice == null, "the counterattack never comes");
+
+            var s4 = NewRun("aegis");
+            Wear(s4, "aegis");
+            Fight(s4, EnemyState.Number(Suit.Hearts, Rank.Ten, EnemyTier.Veteran)); // atk 6
+            Must(s4.Dispatch(new UseRelic("aegis")));
+            var r3 = Must(s4.Dispatch(new Yield()));
+            Check(Get<CounterattackIncoming>(r3).NetAttack == 1, "6 blunted by 5 → 1");
+            Must(s4.Dispatch(new DefendDiscard(s4.State.Deck.Hand[0])));
+        }
+
+        private static void TestAmuletsTwo()
+        {
+            var s = NewRun("bloodlust");
+            Wear(s, "bloodlust");
+            Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            ClearHand(s);
+            var h5 = Give(s, Suit.Hearts, Rank.Five);
+            Give(s, Suit.Diamonds, Rank.Ten);
+            Give(s, Suit.Diamonds, Rank.Ten);
+            Must(s.Dispatch(new UseRelic("bloodlust")));
+            var r = Must(s.Dispatch(new PlayCards(h5.PhysicalId)));
+            Check(Get<DamageDealt>(r).Amount == 8, "5 + 3 bloodlust = 8");
+            Must(s.Dispatch(new DefendDiscard(s.State.Deck.Hand.ToList())));
+
+            var s2 = NewRun("echo");
+            Wear(s2, "echo");
+            Fight(s2, EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish)); // 18 hp
+            var loud = GiveDiscard(s2, Suit.Clubs, Rank.Nine); // a ♣ in the discard
+            ClearHand(s2);
+            Give(s2, Suit.Spades, Rank.Three);
+            s2.State.Encounter.Current.Hp = 9;
+            var r2 = Must(s2.Dispatch(new UseRelic("echo", loud.PhysicalId)));
+            Check(Get<DamageDealt>(r2).Amount == 9, "value only — the ♣ does not double");
+            Check(Get<EnemyKilled>(r2).Kind == KillKind.Exact && Has<Recruited>(r2),
+                "an exact echo still recruits");
+            Check(s2.State.Deck.Discard.Contains(loud.PhysicalId), "the echoed card stays in the discard");
+
+            var s3 = NewRun("lodestone");
+            Wear(s3, "lodestone");
+            Fight(s3, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            ClearHand(s3);
+            int wanted = s3.State.Deck.Tavern[7]; // any specific buried card
+            Must(s3.Dispatch(new UseRelic("lodestone", wanted)));
+            Check(s3.State.Deck.Hand.Contains(wanted), "the named card is pulled into hand");
+            MustFail(s3.Dispatch(new UseRelic("lodestone", s3.State.Deck.Tavern[0])), "once per fight");
         }
 
         // ── demo: a full scripted fight, played back like the UI would ─────────
