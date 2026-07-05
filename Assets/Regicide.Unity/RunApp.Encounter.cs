@@ -121,7 +121,9 @@ namespace Regicide.Unity
                 zone.Add(caption);
             }
 
-            zone.Add(CardView.Face(enemy.Face, CardView.Size.Large));
+            var enemyCard = CardView.Face(enemy.Face, CardView.Size.Large);
+            enemyCard.name = "fx-enemy"; // FX hook: damage floats and shakes anchor here
+            zone.Add(enemyCard);
 
             var stats = Widgets.EnemyStatus(enemy);
             stats.style.marginTop = 8;

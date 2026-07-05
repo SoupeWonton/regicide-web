@@ -90,8 +90,12 @@ namespace Regicide.Unity
             var card = new VisualElement();
             card.style.width = w; card.style.height = h;
             card.style.backgroundColor = Theme.NightRaised;
+            card.style.backgroundImage = new StyleBackground(Textures.Lattice());
+            card.style.backgroundRepeat = new BackgroundRepeat(Repeat.Repeat, Repeat.Repeat);
+            card.style.backgroundSize = new BackgroundSize(24, 24);
             Theme.SetBorder(card, Theme.GoldDim, 2);
             Theme.SetRadius(card, 8);
+            card.style.overflow = Overflow.Hidden;
             card.style.alignItems = Align.Center;
             card.style.justifyContent = Justify.Center;
             var pip = new Label("❖");
@@ -107,6 +111,9 @@ namespace Regicide.Unity
             var card = new VisualElement();
             card.style.width = w; card.style.height = h;
             card.style.backgroundColor = Theme.Parchment;
+            card.style.backgroundImage = new StyleBackground(Textures.Parchment());
+            card.style.backgroundRepeat = new BackgroundRepeat(Repeat.Repeat, Repeat.Repeat);
+            card.style.backgroundSize = new BackgroundSize(96, 96);
             Theme.SetBorder(card, Theme.Ink, size == Size.Small ? 1.5f : 2f);
             Theme.SetRadius(card, size == Size.Large ? 12 : 8);
             card.style.marginRight = 4;
@@ -115,6 +122,7 @@ namespace Regicide.Unity
 
             if (onClick != null)
             {
+                Fx.Transition(card, 120);
                 card.RegisterCallback<ClickEvent>(_ => onClick());
                 card.RegisterCallback<MouseEnterEvent>(_ =>
                 {

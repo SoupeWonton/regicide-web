@@ -43,7 +43,11 @@ namespace Regicide.Unity
 
         // ── root chrome ─────────────────────────────────────────────────────────
 
-        /// <summary>Night background with a faux vignette (gold breath up top, red below).</summary>
+        /// <summary>
+        /// Night background: gold breath up top, red below, film-grain noise and a
+        /// radial vignette (the web prototype's exact recipe, textures generated
+        /// at runtime — see <see cref="Textures"/>).
+        /// </summary>
         public static void Background(VisualElement root)
         {
             root.style.backgroundColor = Night;
@@ -64,6 +68,22 @@ namespace Regicide.Unity
             glowBottom.style.height = Length.Percent(24);
             glowBottom.style.backgroundColor = Fade(RedDeep, 0.08f);
             root.Add(glowBottom);
+
+            var grain = new VisualElement();
+            grain.pickingMode = PickingMode.Ignore;
+            grain.style.position = Position.Absolute;
+            grain.style.left = 0; grain.style.right = 0; grain.style.top = 0; grain.style.bottom = 0;
+            grain.style.backgroundImage = new StyleBackground(Textures.Noise());
+            grain.style.backgroundRepeat = new BackgroundRepeat(Repeat.Repeat, Repeat.Repeat);
+            grain.style.backgroundSize = new BackgroundSize(128, 128);
+            root.Add(grain);
+
+            var vignette = new VisualElement();
+            vignette.pickingMode = PickingMode.Ignore;
+            vignette.style.position = Position.Absolute;
+            vignette.style.left = 0; vignette.style.right = 0; vignette.style.top = 0; vignette.style.bottom = 0;
+            vignette.style.backgroundImage = new StyleBackground(Textures.Vignette());
+            root.Add(vignette);
         }
 
         // ── framed panel ────────────────────────────────────────────────────────
@@ -125,21 +145,27 @@ namespace Regicide.Unity
                 default: bg = NightRaised; border = GoldDim; fg = Parchment; break;
             }
             b.style.backgroundColor = enabled ? bg : Fade(bg, 0.4f);
+            if (enabled)
+                b.style.backgroundImage = new StyleBackground(
+                    Textures.Gradient(Lighten(bg, 0.10f), Color.Lerp(bg, Color.black, 0.25f)));
             SetBorder(b, enabled ? border : Fade(border, 0.35f), 1);
             b.style.color = enabled ? fg : Fade(fg, 0.45f);
 
             if (enabled)
             {
+                Fx.Transition(b, 90);
                 b.RegisterCallback<MouseEnterEvent>(_ =>
                 {
                     SetBorder(b, kind == ButtonKind.Danger ? RedBright : GoldBright, 1);
-                    b.style.backgroundColor = Lighten(bg, 0.07f);
+                    b.style.scale = new Scale(new Vector3(1.04f, 1.04f, 1f));
                 });
                 b.RegisterCallback<MouseLeaveEvent>(_ =>
                 {
                     SetBorder(b, border, 1);
-                    b.style.backgroundColor = bg;
+                    b.style.scale = new Scale(Vector3.one);
                 });
+                b.RegisterCallback<MouseDownEvent>(_ => b.style.scale = new Scale(new Vector3(0.97f, 0.97f, 1f)), TrickleDown.TrickleDown);
+                b.RegisterCallback<MouseUpEvent>(_ => b.style.scale = new Scale(Vector3.one), TrickleDown.TrickleDown);
             }
             return b;
         }

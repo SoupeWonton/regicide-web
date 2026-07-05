@@ -30,6 +30,8 @@ namespace Regicide.Unity
         private bool _outcomeRecorded;
 
         private VisualElement _root;
+        private VisualElement _fxLayer;
+        private string _lastScreenKey;
         private readonly List<string> _log = new List<string>();
 
         // Transient view-side selection state (never rules — just what's highlighted).
@@ -85,6 +87,94 @@ namespace Regicide.Unity
                 _meta.SaveTo(_metaPath);
             }
             Render();
+            // The FX pass reads element positions — wait one layout tick.
+            _root.schedule.Execute(() => PlayFx(r)).ExecuteLater(35);
+        }
+
+        /// <summary>Trigger feedback (§10): map the dispatch's events onto the FX layer.</summary>
+        private void PlayFx(Result r)
+        {
+            if (_fxLayer == null || _fxLayer.panel == null) return;
+            var enemy = _root.Q<VisualElement>("fx-enemy");
+            int slot = 0;
+            void Toast(string text, Color tint)
+            {
+                if (slot < 5) Fx.Toast(_fxLayer, text, tint, slot++);
+            }
+
+            if (!r.Ok)
+            {
+                Fx.Float(_fxLayer, null, "✗ " + r.Error, Theme.RedBright, 16);
+                return;
+            }
+
+            foreach (var e in r.Events)
+            {
+                switch (e)
+                {
+                    case DamageDealt d:
+                        Fx.Float(_fxLayer, enemy, "-" + d.Amount,
+                            d.Doubled ? Theme.GoldBright : Theme.RedBright, d.Doubled ? 34 : 28);
+                        Fx.Shake(enemy);
+                        break;
+                    case ShieldGained sg:
+                        Fx.Float(_fxLayer, enemy, "+" + sg.Amount + " ⛨", Theme.Shield, 20, 52);
+                        break;
+                    case CardsDrawn cd:
+                        for (int i = 0; i < cd.PhysicalIds.Count; i++)
+                            Fx.PopIn(_root.Q<VisualElement>("card-" + cd.PhysicalIds[i]), i * 60);
+                        break;
+                    case EnemyKilled k:
+                        Toast(k.Kind == KillKind.Exact
+                                ? $"EXACT KILL — {PhysicalCard.Pretty(k.Face)}"
+                                : $"{PhysicalCard.Pretty(k.Face)} overkilled — no spoils",
+                            k.Kind == KillKind.Exact ? Theme.GoldBright : Theme.Grey);
+                        break;
+                    case Recruited rec:
+                        Toast($"Recruited {PhysicalCard.Pretty(rec.Face)}" + (rec.ToHand ? " → hand" : ""), Theme.Green);
+                        break;
+                    case GraftApplied g:
+                        Toast($"Grafted — now {PhysicalCard.Pretty(g.NewEffective)}", Theme.Gold);
+                        break;
+                    case RoyalKept rk:
+                        Toast($"{PhysicalCard.Pretty(rk.Face)} joins your court", Theme.GoldBright);
+                        break;
+                    case RoyalLeft rl:
+                        Toast($"{PhysicalCard.Pretty(rl.Face)} is left behind", Theme.Grey);
+                        break;
+                    case FragmentDropped _:
+                        Toast("+1 spell fragment", Theme.Gold);
+                        break;
+                    case HalfForged _:
+                        Toast("A Half is forged", Theme.GoldBright);
+                        break;
+                    case SpellCast sc:
+                        Toast($"CAST — {SpellTables.Name(sc.Suit, sc.Tier)}", Theme.Blue);
+                        break;
+                    case RelicGained rg:
+                        Toast($"Relic claimed: {RelicTables.Get(rg.RelicId).Name}", Theme.Gold);
+                        break;
+                    case StaffTriggered st:
+                        Toast($"Staff — {st.Note}", Theme.ParchmentDim);
+                        break;
+                    case CounterattackIncoming ci:
+                        Fx.Float(_fxLayer, null, $"COUNTER {ci.NetAttack}", Theme.RedBright, 30);
+                        Fx.Flash(_fxLayer, Theme.RedDeep, 260);
+                        break;
+                    case CounterattackBlocked _:
+                        Fx.Float(_fxLayer, enemy, "BLOCKED", Theme.Shield, 24);
+                        break;
+                    case PlayerDied _:
+                        Fx.Flash(_fxLayer, Theme.RedDeep, 1000);
+                        break;
+                    case CampaignWonEvent _:
+                        Fx.Flash(_fxLayer, Theme.Gold, 1000);
+                        break;
+                    case ChapterCompleted _:
+                        Toast("PROVINCE CLEARED", Theme.GoldBright);
+                        break;
+                }
+            }
         }
 
         private void NewRun(string seed)
@@ -133,8 +223,21 @@ namespace Regicide.Unity
             screen.style.flexGrow = 1;
             _root.Add(screen);
 
+            // Fade whole screens in when the phase (or menu/run state) changes.
+            string key = _session == null ? "menu" : S.Phase.ToString();
+            if (key != _lastScreenKey) Fx.FadeIn(screen);
+            _lastScreenKey = key;
+
             if (S != null && S.PendingChoice != null) _root.Add(BuildPendingOverlay(S.PendingChoice));
             if (_pickerIds != null) _root.Add(BuildPickerOverlay());
+
+            // The FX layer sits above everything; floats/toasts/flashes land here.
+            _fxLayer = new VisualElement();
+            _fxLayer.pickingMode = PickingMode.Ignore;
+            _fxLayer.style.position = Position.Absolute;
+            _fxLayer.style.left = 0; _fxLayer.style.right = 0;
+            _fxLayer.style.top = 0; _fxLayer.style.bottom = 0;
+            _root.Add(_fxLayer);
         }
 
         // ── small UI kit (Theme-backed; signatures stable across the partials) ──
@@ -217,6 +320,7 @@ namespace Regicide.Unity
                         Render();
                     },
                     selected: _sel.Contains(captured));
+                card.name = "card-" + captured; // FX hook: drawn cards pop in by name
                 CardView.Fan(card, i, hand.Count);
                 row.Add(card);
             }
