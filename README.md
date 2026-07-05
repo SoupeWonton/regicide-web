@@ -12,9 +12,19 @@ Two assemblies:
 - **`Assets/Regicide.Unity/`** — MonoBehaviours, UI, assets. References Core. A **pure view**
   over Core state: submit an action → `Dispatch` → re-render from state + play back events.
 
-Seeded so far: `Rng.cs` (deterministic mulberry32 — use it for *all* randomness) and
-`Cards.cs` (suits/ranks/values, royal + number-enemy stats). `Bootstrap.cs` is a throwaway
-smoke check that Core is reachable.
+**Status: Core is feature-complete for the alpha** (spec §15 steps 1–10): base combat,
+the recruit/graft engine, roads & run flow, the three royal gates with the 3/2/1 keep
+pyramid and crown victory, the four home C2 rungs, all 16 Staffs + Fallen Heroes, the
+full spell system (gauntlet/bracelet/Forge/8 effects), all 29 relics with Lair/Caravan
+acquisition, Sanctum/Shrine, and meta/lineage persistence.
+
+Verify Core headlessly (no Unity needed):
+```
+dotnet run --project Tools/Headless
+```
+That runs the assertion suite (1350+ checks, including a full campaign played to
+coronation) and then a scripted demo fight. It compiles `Assets/Regicide.Core` directly
+with LangVersion pinned to 9.0 for Unity parity.
 
 ## Scope of this build (alpha)
 Continent 1 + Continent 2: class select → conquer a full A–10 deck by exact-kill recruiting
