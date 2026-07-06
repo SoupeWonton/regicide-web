@@ -97,6 +97,7 @@ namespace Regicide.Headless
             Run("meta/lineage: outcomes banked, JSON round-trip, corrupt-safe", TestMeta);
             Run("ValidatePlay: pure legality preview matches dispatch", TestValidatePlay);
             Run("killing blow still fires suit powers (draw/recover/shield)", TestKillingBlowEffects);
+            Run("roads: sparse committed lanes, everything reachable, no dead ends", TestSparseLanes);
 
             Console.WriteLine();
             if (_failures.Count == 0)
@@ -587,7 +588,7 @@ namespace Regicide.Headless
                 RoadNodeKind.Boss, RoadNodeKind.Skirmish, RoadNodeKind.Veteran, RoadNodeKind.Elite,
                 RoadNodeKind.Recruit, RoadNodeKind.Camp, RoadNodeKind.Lair, RoadNodeKind.Event,
                 RoadNodeKind.Heroes, RoadNodeKind.Forge, RoadNodeKind.Sanctum, RoadNodeKind.Caravan,
-                RoadNodeKind.Shrine,
+                RoadNodeKind.Shrine, RoadNodeKind.Hunt, // a lane can force the Hunt
             };
             int guard = 0;
             while (s.State.Phase == CampaignPhase.Road && guard++ < 30)
@@ -595,11 +596,9 @@ namespace Regicide.Headless
                 var next = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id)).ToList();
                 if (next.Count == 0) throw new Exception("road dead-ended");
                 var target = priority.Select(k => next.FirstOrDefault(n => n.Kind == k)).FirstOrDefault(n => n != null);
-                if (target == null) return; // only Hunt/Gate ahead — caller's business
+                if (target == null) return; // only the Gate ahead — caller's business
                 Must(s.Dispatch(new MoveToNode(target.Id)));
-                if (s.State.Phase == CampaignPhase.Encounter) WinFight(s);
-                if (s.State.PendingChoice?.Kind == PendingChoiceKind.RelicSelect)
-                    Must(s.Dispatch(new ChooseRelic(s.State.PendingChoice.RelicOptions[0])));
+                ResolveStop(s);
             }
         }
 
@@ -1376,14 +1375,8 @@ namespace Regicide.Headless
 
             MustFail(s.Dispatch(new SwapStaff("footwork")), "no offer away from the shrine");
 
-            Must(s.Dispatch(new MoveToNode(s.State.Map.Current.Next[0])));
-            WinFight(s);
-            var camp = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
-                        .First(n => n.Kind == RoadNodeKind.Camp);
-            Must(s.Dispatch(new MoveToNode(camp.Id)));
-            var heroes = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
-                          .First(n => n.Kind == RoadNodeKind.Heroes);
-            var r = Must(s.Dispatch(new MoveToNode(heroes.Id)));
+            int heroesId = WalkUpTo(s, RoadNodeKind.Heroes);
+            var r = Must(s.Dispatch(new MoveToNode(heroesId)));
             Check(Has<StaffSwapOffered>(r), "arriving offers the swap");
 
             var offer = s.State.StaffOffer;
@@ -1405,18 +1398,73 @@ namespace Regicide.Headless
 
         // ── step-7 tests: spells ────────────────────────────────────────────────
 
-        /// <summary>Move along the road picking nodes of the wanted kind (fighting through).</summary>
+        /// <summary>Resolve whatever standing on a node produced (fight, relic pick, hunt).</summary>
+        private static void ResolveStop(GameSession s)
+        {
+            if (s.State.Phase == CampaignPhase.Encounter) WinFight(s);
+            if (s.State.PendingChoice?.Kind == PendingChoiceKind.RelicSelect)
+                Must(s.Dispatch(new ChooseRelic(s.State.PendingChoice.RelicOptions[0])));
+            if (s.State.PendingChoice?.Kind == PendingChoiceKind.HuntSelect)
+            {
+                var q = s.State.PendingChoice.HuntOptions[0];
+                Must(s.Dispatch(new ChooseHunt(q.Suit, q.Rank)));
+                WinFight(s);
+            }
+        }
+
+        /// <summary>BFS route (one-way road) from the current node to the nearest node of a kind.</summary>
+        private static List<int> PathTo(GameSession s, RoadNodeKind want)
+        {
+            var map = s.State.Map;
+            var prev = new Dictionary<int, int>();
+            var seen = new HashSet<int> { map.CurrentNodeId };
+            var queue = new Queue<int>();
+            queue.Enqueue(map.CurrentNodeId);
+            int goal = -1;
+            while (queue.Count > 0 && goal < 0)
+            {
+                int cur = queue.Dequeue();
+                foreach (int nx in map.Get(cur).Next)
+                {
+                    if (!seen.Add(nx)) continue;
+                    prev[nx] = cur;
+                    if (map.Get(nx).Kind == want) { goal = nx; break; }
+                    queue.Enqueue(nx);
+                }
+            }
+            if (goal < 0)
+                throw new Exception($"{want} is lane-locked away from here on this seed");
+
+            var path = new List<int>();
+            for (int at = goal; at != map.CurrentNodeId; at = prev[at]) path.Add(at);
+            path.Reverse();
+            return path;
+        }
+
+        /// <summary>
+        /// Walk to the nearest node of each wanted kind. Roads are sparse lanes now,
+        /// so this BFS-pathfinds and fights through whatever the route holds.
+        /// </summary>
         private static void WalkTo(GameSession s, params RoadNodeKind[] preferences)
         {
             foreach (var want in preferences)
+                foreach (int step in PathTo(s, want))
+                {
+                    Must(s.Dispatch(new MoveToNode(step)));
+                    ResolveStop(s);
+                }
+        }
+
+        /// <summary>Walk to the node JUST BEFORE the nearest wanted node; returns the wanted node's id.</summary>
+        private static int WalkUpTo(GameSession s, RoadNodeKind want)
+        {
+            var path = PathTo(s, want);
+            for (int i = 0; i < path.Count - 1; i++)
             {
-                var node = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
-                            .First(n => n.Kind == want);
-                Must(s.Dispatch(new MoveToNode(node.Id)));
-                if (s.State.Phase == CampaignPhase.Encounter) WinFight(s);
-                if (s.State.PendingChoice?.Kind == PendingChoiceKind.RelicSelect)
-                    Must(s.Dispatch(new ChooseRelic(s.State.PendingChoice.RelicOptions[0])));
+                Must(s.Dispatch(new MoveToNode(path[i])));
+                ResolveStop(s);
             }
+            return path[path.Count - 1];
         }
 
         private static void TestForgeAndBracelet()
@@ -1424,7 +1472,7 @@ namespace Regicide.Headless
             var s = NewRun("forge");
             MustFail(s.Dispatch(new ForgeConvert()), "no forge here");
 
-            WalkTo(s, RoadNodeKind.Skirmish, RoadNodeKind.Camp, RoadNodeKind.Veteran, RoadNodeKind.Forge);
+            WalkTo(s, RoadNodeKind.Forge);
             s.State.TokenFragments = 3; // staged pool (fight drops along the walk vary by seed)
             s.State.TokenHalves = 0;
             var r = Must(s.Dispatch(new ForgeConvert()));
@@ -1584,11 +1632,8 @@ namespace Regicide.Headless
         private static void TestLairAndEquip()
         {
             var s = NewRun("lair");
-            WalkTo(s, RoadNodeKind.Skirmish, RoadNodeKind.Camp, RoadNodeKind.Veteran, RoadNodeKind.Forge);
-
-            var lair = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
-                        .First(n => n.Kind == RoadNodeKind.Lair);
-            Must(s.Dispatch(new MoveToNode(lair.Id)));
+            int lairId = WalkUpTo(s, RoadNodeKind.Lair); // stop at the door — the test inspects the raid
+            Must(s.Dispatch(new MoveToNode(lairId)));
             Check(s.State.Phase == CampaignPhase.Encounter, "the lair is a raid — a real fight");
             WinFight(s);
 
@@ -1604,7 +1649,8 @@ namespace Regicide.Headless
             Check(s.State.RelicBag.Contains(picked), "claimed relic lands in the bag");
 
             MustFail(s.Dispatch(new EquipRelic("no_such")), "unknown relic");
-            MustFail(s.Dispatch(new EquipRelic("hoard")), "hoard is not in the bag");
+            string notOffered = RelicTables.All.Select(x => x.Id).First(id => !pending.RelicOptions.Contains(id));
+            MustFail(s.Dispatch(new EquipRelic(notOffered)), "an unowned relic is not in the bag");
             Must(s.Dispatch(new EquipRelic(picked)));
             int slot = (int)RelicTables.Get(picked).Slot;
             Check(s.State.EquippedRelics[slot] == picked && !s.State.RelicBag.Contains(picked),
@@ -1624,10 +1670,8 @@ namespace Regicide.Headless
         private static void TestCaravan()
         {
             var s = NewRun("caravan");
-            WalkTo(s, RoadNodeKind.Skirmish, RoadNodeKind.Camp, RoadNodeKind.Veteran);
-            var caravan = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
-                           .First(n => n.Kind == RoadNodeKind.Caravan);
-            var r = Must(s.Dispatch(new MoveToNode(caravan.Id)));
+            int caravanId = WalkUpTo(s, RoadNodeKind.Caravan);
+            var r = Must(s.Dispatch(new MoveToNode(caravanId)));
             string offer = s.State.CaravanOffer;
             Check(offer != null && Get<CaravanOffered>(r).Cost == Tuning.CaravanCost, "a relic for 8 card-value");
 
@@ -1644,7 +1688,7 @@ namespace Regicide.Headless
             // Caravan Coin: cost 8 → 6.
             var s2 = NewRun("caravancoin");
             Wear(s2, "caravan_coin");
-            WalkTo(s2, RoadNodeKind.Skirmish, RoadNodeKind.Camp, RoadNodeKind.Veteran, RoadNodeKind.Caravan);
+            WalkTo(s2, RoadNodeKind.Caravan);
             ClearHand(s2);
             var d6 = Give(s2, Suit.Diamonds, Rank.Six);
             Must(s2.Dispatch(new BuyRelic(d6.PhysicalId)));
@@ -1996,9 +2040,9 @@ namespace Regicide.Headless
             MustFail(s.Dispatch(new RearrangeGraft(grafted.PhysicalId, seq, receiver.PhysicalId)),
                 "no rearranging away from a sanctum");
 
-            WalkTo(s, RoadNodeKind.Skirmish, RoadNodeKind.Camp);
-            int fragsBefore = s.State.TokenFragments; // after the fight's own 50/50 drop
-            WalkTo(s, RoadNodeKind.Shrine);
+            int shrineId = WalkUpTo(s, RoadNodeKind.Shrine);
+            int fragsBefore = s.State.TokenFragments; // after the route's own 50/50 drops
+            Must(s.Dispatch(new MoveToNode(shrineId)));
             Check(s.State.TokenFragments == fragsBefore + 1, "the shrine's blessing: +1 fragment");
 
             WalkTo(s, RoadNodeKind.Sanctum);
@@ -2118,8 +2162,7 @@ namespace Regicide.Headless
             // And a boss killing blow: the seam rest redeals AFTER the draw —
             // the draw happens, then the seam reshuffles (that is by design, §9).
             var s3 = NewRun("lastblow-boss");
-            WalkTo(s3, RoadNodeKind.Skirmish, RoadNodeKind.Camp, RoadNodeKind.Veteran,
-                RoadNodeKind.Forge, RoadNodeKind.Camp, RoadNodeKind.Elite);
+            WalkTo(s3, RoadNodeKind.Elite); // the elite is a merge point; the boss follows it
             var bossNode = s3.State.Map.Current.Next.Select(id => s3.State.Map.Get(id))
                             .First(n => n.Kind == RoadNodeKind.Boss);
             Must(s3.Dispatch(new MoveToNode(bossNode.Id)));
@@ -2140,6 +2183,50 @@ namespace Regicide.Headless
             if (s3.State.PendingChoice?.Kind == PendingChoiceKind.GraftSelect)
                 r3 = Must(s3.Dispatch(new ChooseGraft(s3.State.Deck.Hand[0], GraftBranch.ReplaceRank)));
             Check(Has<SeamRestApplied>(r3), "then the seam redeals — that wash is intended (§9)");
+        }
+
+        // ── sparse road lanes ───────────────────────────────────────────────────
+
+        private static void TestSparseLanes()
+        {
+            int crossroads = 0, forkPairs = 0, laneCommits = 0;
+            for (int seedI = 0; seedI < 20; seedI++)
+            {
+                var rng = new Rng($"lanes-{seedI}");
+                for (int ch = 1; ch <= 6; ch++)
+                {
+                    var map = RoadGen.Generate(ch, rng);
+                    int last = map.Nodes.Max(n => n.Layer);
+                    if (!map.Nodes.Where(n => n.Layer < last).All(n => n.Next.Count > 0))
+                        throw new Exception($"dead end (seed {seedI} ch{ch})");
+
+                    // Everything must stay reachable from the start (pillar 6).
+                    var seen = new HashSet<int> { map.CurrentNodeId };
+                    var q = new Queue<int>();
+                    q.Enqueue(map.CurrentNodeId);
+                    while (q.Count > 0)
+                        foreach (int nx in map.Get(q.Dequeue()).Next)
+                            if (seen.Add(nx)) q.Enqueue(nx);
+                    if (seen.Count != map.Nodes.Count)
+                        throw new Exception($"unreachable stop (seed {seedI} ch{ch})");
+
+                    // Census of 2-wide → 2-wide layer pairs.
+                    var layers = map.Nodes.GroupBy(n => n.Layer).OrderBy(g => g.Key)
+                                          .Select(g => g.ToList()).ToList();
+                    for (int i = 0; i + 1 < layers.Count; i++)
+                    {
+                        if (layers[i].Count != 2 || layers[i + 1].Count != 2) continue;
+                        forkPairs++;
+                        int edges = layers[i].Sum(n => n.Next.Count);
+                        if (edges == 4) crossroads++;
+                        if (edges == 2) laneCommits++;
+                    }
+                }
+            }
+            _passed += 2; // the throw-checks above
+            Check(forkPairs > 100, $"census populated ({forkPairs} fork pairs)");
+            Check(crossroads < forkPairs / 4, $"full crossroads are rare ({crossroads}/{forkPairs})");
+            Check(laneCommits > forkPairs / 4, $"committed lanes are common ({laneCommits}/{forkPairs})");
         }
 
         // ── demo: a full scripted fight, played back like the UI would ─────────

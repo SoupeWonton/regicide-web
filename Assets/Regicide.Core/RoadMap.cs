@@ -88,11 +88,39 @@ namespace Regicide.Core
                 map.Nodes.AddRange(row);
             }
 
-            // Every node connects to every node of the next layer: forks are a choice
-            // of destination, and no branch can dead-end (pillar 6, no soft-locks).
+            // Sparse lanes, not a mesh: picking a fork COMMITS you to a path, and
+            // crossings between lanes are the exception. Invariants (pillar 6, no
+            // soft-locks): every node keeps ≥1 exit and every next-layer node ≥1
+            // entrance, so nothing dead-ends and nothing is unreachable — singleton
+            // layers (start, elite, boss, gate) are the natural merge points.
             for (int layer = 0; layer + 1 < built.Count; layer++)
-                foreach (var node in built[layer])
-                    node.Next.AddRange(built[layer + 1].Select(n => n.Id));
+            {
+                var from = built[layer];
+                var to = built[layer + 1];
+
+                if (from.Count == 1)
+                {
+                    from[0].Next.AddRange(to.Select(n => n.Id)); // a fork opens: both offered
+                }
+                else if (to.Count == 1)
+                {
+                    foreach (var node in from) node.Next.Add(to[0].Id); // lanes merge
+                }
+                else
+                {
+                    // 2 → 2: weighted lane patterns. Mostly committed lanes
+                    // (straight or crossed); sometimes ONE side gets a choice;
+                    // a full mesh is rare.
+                    var (a, b) = (from[0], from[1]);
+                    var (c, d) = (to[0], to[1]);
+                    int roll = rng.Int(100);
+                    if (roll < 35) { a.Next.Add(c.Id); b.Next.Add(d.Id); }                    // ║ straight lanes
+                    else if (roll < 50) { a.Next.Add(d.Id); b.Next.Add(c.Id); }               // ╳ crossed lanes
+                    else if (roll < 70) { a.Next.Add(c.Id); a.Next.Add(d.Id); b.Next.Add(d.Id); } // top side chooses
+                    else if (roll < 90) { a.Next.Add(c.Id); b.Next.Add(c.Id); b.Next.Add(d.Id); } // bottom side chooses
+                    else { a.Next.Add(c.Id); a.Next.Add(d.Id); b.Next.Add(c.Id); b.Next.Add(d.Id); } // rare crossroads
+                }
+            }
 
             var start = built[0][0];
             start.Known = start.Visited = true;

@@ -270,13 +270,25 @@ namespace Regicide.Unity
                         Toast($"Relic claimed: {RelicTables.Get(rg.RelicId).Name}", Theme.Gold);
                         break;
                     case CounterattackIncoming ci:
+                        // The enemy card lunges at you; the hit lands mid-lunge.
                         Sfx.Play(Sfx.Sound.Counter);
-                        Fx.Float(_fxLayer, null, $"COUNTER {ci.NetAttack}", Theme.RedBright, 30);
-                        Fx.Flash(_fxLayer, Theme.RedDeep, 260);
+                        Fx.Lunge(enemy, 0, 90);
+                        _fxLayer.schedule.Execute(() =>
+                        {
+                            Sfx.Play(Sfx.Sound.Impact, 0.8f);
+                            Fx.Flash(_fxLayer, Theme.RedDeep, 260);
+                            Fx.Shake(_root.Q<VisualElement>("fx-hand"), 9f);
+                            Fx.Float(_fxLayer, null, $"COUNTER {ci.NetAttack}", Theme.RedBright, 30);
+                        }).ExecuteLater(140);
                         break;
                     case CounterattackBlocked _:
-                        Sfx.Play(Sfx.Sound.Shield);
-                        Fx.Float(_fxLayer, enemy, "BLOCKED", Theme.Shield, 24);
+                        // A half-lunge that glances off the shield.
+                        Fx.Lunge(enemy, 0, 45, 300);
+                        _fxLayer.schedule.Execute(() =>
+                        {
+                            Sfx.Play(Sfx.Sound.Shield);
+                            Fx.Float(_fxLayer, enemy, "BLOCKED", Theme.Shield, 24);
+                        }).ExecuteLater(110);
                         break;
                     case PlayerDied _:
                         Sfx.Play(Sfx.Sound.Death);
@@ -435,6 +447,7 @@ namespace Regicide.Unity
         private VisualElement HandStrip(bool selectable)
         {
             var row = new VisualElement();
+            row.name = "fx-hand"; // FX hook: counterattacks rattle the hand
             row.style.flexDirection = FlexDirection.Row;
             row.style.alignItems = Align.FlexEnd;
             row.style.justifyContent = Justify.Center;

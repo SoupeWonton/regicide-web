@@ -101,6 +101,22 @@ namespace Regicide.Unity
             layer.schedule.Execute(() => box.RemoveFromHierarchy()).ExecuteLater(2000 + slot * 220);
         }
 
+        /// <summary>
+        /// An attack lunge: dart out (fast) toward the target, recover (slow).
+        /// The enemy card striking the player, mostly.
+        /// </summary>
+        public static void Lunge(VisualElement e, float dx, float dy, int ms = 380)
+        {
+            if (e == null || e.panel == null) return;
+            e.experimental.animation.Start(0f, 1f, ms, (el, t) =>
+            {
+                float phase = t < 0.35f ? t / 0.35f : 1f - (t - 0.35f) / 0.65f;
+                float ease = phase * phase * (3f - 2f * phase); // smoothstep both ways
+                el.style.translate = new Translate(dx * ease, dy * ease);
+                el.style.scale = new Scale(Vector3.one * (1f + 0.12f * ease));
+            });
+        }
+
         /// <summary>Impact wiggle — hit enemies, rejected actions.</summary>
         public static void Shake(VisualElement e, float strength = 7f)
         {
