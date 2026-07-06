@@ -75,17 +75,34 @@ namespace Regicide.Unity
 
         // ── the map: layer columns, node discs, drawn edges ─────────────────────
 
+        /// <summary>Show-paths toggle: lights every route still reachable from here.</summary>
+        private bool _showPaths;
+
         private VisualElement MapPanel()
         {
             var frame = Theme.Frame("The Road");
             frame.style.flexGrow = 1;
             frame.style.marginRight = 8;
 
+            var header = Row();
+            header.style.flexWrap = Wrap.NoWrap;
+            header.style.justifyContent = Justify.SpaceBetween;
+            header.style.marginBottom = 6;
             var hint = new Label("one-way — ? until scouted");
             hint.style.fontSize = 10;
             hint.style.color = Theme.Grey;
-            hint.style.marginBottom = 6;
-            frame.Add(hint);
+            header.Add(hint);
+            var toggle = Theme.Button(_showPaths ? "HIDE PATHS" : "SHOW PATHS",
+                () => { _showPaths = !_showPaths; Render(); }, Theme.ButtonKind.Ghost);
+            toggle.style.fontSize = 10;
+            toggle.style.letterSpacing = 2;
+            Theme.SetPadding(toggle, 3, 10);
+            Theme.SetRadius(toggle, 11);
+            Tips.Attach(toggle, "show paths",
+                "lights every route you can still take from where you stand — " +
+                "forks commit you, so check before you step");
+            header.Add(toggle);
+            frame.Add(header);
 
             // The body holds the layer columns AND the edge canvas drawn over them.
             // No scroll view: the columns spread across whatever width the window
@@ -100,6 +117,15 @@ namespace Regicide.Unity
             var current = S.Map.Current;
             var discs = new Dictionary<int, VisualElement>();
 
+            // Everything still reachable from here (forward BFS) — feeds the
+            // show-paths view. The current node counts as reachable.
+            var open = new HashSet<int> { current.Id };
+            var walk = new Queue<int>();
+            walk.Enqueue(current.Id);
+            while (walk.Count > 0)
+                foreach (int nx in S.Map.Get(walk.Dequeue()).Next)
+                    if (open.Add(nx)) walk.Enqueue(nx);
+
             foreach (var layer in S.Map.Nodes.GroupBy(n => n.Layer).OrderBy(g => g.Key))
             {
                 var column = new VisualElement();
@@ -111,17 +137,26 @@ namespace Regicide.Unity
                     bool reachable = current.Next.Contains(node.Id);
                     var disc = Widgets.NodeDisc(node, isCurrent, reachable,
                         () => Dispatch(new MoveToNode(captured)));
+                    // Show-paths: stops your lane can no longer reach fade out.
+                    if (_showPaths && !open.Contains(node.Id) && !node.Visited)
+                        disc.style.opacity = 0.3f;
                     discs[node.Id] = disc;
                     column.Add(disc);
                 }
                 body.Add(column);
             }
 
-            var edges = new List<(VisualElement from, VisualElement to, bool lit)>();
+            var edges = new List<(VisualElement from, VisualElement to, Color color, float width)>();
             foreach (var node in S.Map.Nodes)
                 foreach (int next in node.Next)
                     if (discs.TryGetValue(node.Id, out var from) && discs.TryGetValue(next, out var to))
-                        edges.Add((from, to, node.Id == current.Id && current.Next.Contains(next)));
+                    {
+                        bool isNextStep = node.Id == current.Id && current.Next.Contains(next);
+                        var (color, width) = isNextStep ? (Widgets.EdgeLit, 2.5f)
+                            : _showPaths && open.Contains(node.Id) ? (Widgets.EdgeOpen, 2f)
+                            : (Widgets.EdgeDim, 1.5f);
+                        edges.Add((from, to, color, width));
+                    }
             var canvas = Widgets.EdgeCanvas(edges);
             body.Add(canvas);
             // The window is resizable — redraw the roads whenever the map reflows.

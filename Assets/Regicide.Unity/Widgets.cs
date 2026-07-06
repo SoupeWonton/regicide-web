@@ -94,12 +94,17 @@ namespace Regicide.Unity
             return wrap;
         }
 
+        /// <summary>The road-edge colour states the map uses.</summary>
+        public static Color EdgeLit => new Color(Theme.Gold.r, Theme.Gold.g, Theme.Gold.b, 0.75f);
+        public static Color EdgeOpen => new Color(Theme.Gold.r, Theme.Gold.g, Theme.Gold.b, 0.35f);
+        public static Color EdgeDim => new Color(Theme.Grey.r, Theme.Grey.g, Theme.Grey.b, 0.30f);
+
         /// <summary>
         /// An absolute-positioned canvas that draws road edges between node discs
-        /// with Painter2D. Register pairs AFTER layout: pass functions resolving
-        /// each node id to its disc element; lines connect element centres.
+        /// with Painter2D, each with its own colour/width. Register pairs AFTER
+        /// layout: lines connect element centres.
         /// </summary>
-        public static VisualElement EdgeCanvas(List<(VisualElement from, VisualElement to, bool lit)> edges)
+        public static VisualElement EdgeCanvas(List<(VisualElement from, VisualElement to, Color color, float width)> edges)
         {
             var canvas = new VisualElement();
             canvas.pickingMode = PickingMode.Ignore;
@@ -109,15 +114,13 @@ namespace Regicide.Unity
             canvas.generateVisualContent += ctx =>
             {
                 var p = ctx.painter2D;
-                foreach (var (from, to, lit) in edges)
+                foreach (var (from, to, color, width) in edges)
                 {
                     if (from.panel == null || to.panel == null) continue;
                     var a = canvas.WorldToLocal(from.worldBound.center);
                     var b = canvas.WorldToLocal(to.worldBound.center);
-                    p.strokeColor = lit
-                        ? new Color(Theme.Gold.r, Theme.Gold.g, Theme.Gold.b, 0.75f)
-                        : new Color(Theme.Grey.r, Theme.Grey.g, Theme.Grey.b, 0.30f);
-                    p.lineWidth = lit ? 2.5f : 1.5f;
+                    p.strokeColor = color;
+                    p.lineWidth = width;
                     p.BeginPath();
                     p.MoveTo(a);
                     // A soft dip between stops — reads as a road, not a wire.
