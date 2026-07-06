@@ -87,6 +87,10 @@ namespace Regicide.Unity
             name.style.color = reachable || current ? Theme.ParchmentDim : Theme.Grey;
             name.style.marginTop = 2;
             wrap.Add(name);
+
+            Tips.Attach(wrap, () => node.Known
+                ? (label, ContentText.NodeTip(node.Kind) + (reachable ? "\n\nclick to travel here" : ""))
+                : ("unscouted", "the road ahead is unknown — stops reveal themselves as you approach"));
             return wrap;
         }
 
@@ -220,7 +224,7 @@ namespace Regicide.Unity
         /// silhouette of what belongs there (a ring in the ring slot…), drawn with
         /// Painter2D. Gold when something is equipped.
         /// </summary>
-        public static VisualElement RelicSlotIcon(RelicSlot slot, bool filled, float size = 56)
+        public static VisualElement RelicSlotIcon(RelicSlot slot, bool filled, float size = 56, string relicId = null)
         {
             var socket = new VisualElement();
             socket.style.width = size; socket.style.height = size;
@@ -303,6 +307,21 @@ namespace Regicide.Unity
                 }
             };
             socket.Add(canvas);
+
+            Tips.Attach(socket, () =>
+            {
+                if (filled && relicId != null && RelicTables.Exists(relicId))
+                    return (RelicTables.Get(relicId).Name,
+                        ContentText.RelicRules.TryGetValue(relicId, out var rules) ? rules : "");
+                string theme = slot switch
+                {
+                    RelicSlot.Hat => "recruitment relics live here",
+                    RelicSlot.Amulet => "activated-button relics live here",
+                    RelicSlot.Ring => "economy relics live here",
+                    _ => "road relics live here",
+                };
+                return ($"{slot} slot — empty", theme + "\n\nrelics come from Lair raids and the Caravan; swaps are free outside combat");
+            });
             return socket;
         }
 
@@ -369,6 +388,15 @@ namespace Regicide.Unity
             caption.style.color = spent || tier == 0 ? Theme.Grey : Theme.ParchmentDim;
             caption.style.marginTop = 2;
             v.Add(caption);
+
+            string tipTitle = PhysicalCard.SuitGlyph(suit) + " " +
+                (tier > 0 ? SpellTables.Name(suit, tier) : "crystal socket");
+            string tipBody = spent
+                ? "already cast — one spell per suit per fight, and casting empties the slot"
+                : tier > 0
+                    ? ContentText.SpellRules(suit, tier) + "\n\nspells ignore the enemy's immunity"
+                    : "empty — arm a fragment or a Half here from the bracelet, between fights";
+            Tips.Attach(v, tipTitle, tipBody);
             return v;
         }
     }

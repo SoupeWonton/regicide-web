@@ -415,6 +415,15 @@ namespace Regicide.Unity
             _fxLayer.style.left = 0; _fxLayer.style.right = 0;
             _fxLayer.style.top = 0; _fxLayer.style.bottom = 0;
             _root.Add(_fxLayer);
+
+            // Tooltips draw above even the FX; a fresh layer per render kills stale tips.
+            var tipLayer = new VisualElement();
+            tipLayer.pickingMode = PickingMode.Ignore;
+            tipLayer.style.position = Position.Absolute;
+            tipLayer.style.left = 0; tipLayer.style.right = 0;
+            tipLayer.style.top = 0; tipLayer.style.bottom = 0;
+            _root.Add(tipLayer);
+            Tips.SetLayer(tipLayer);
         }
 
         // ── small UI kit (Theme-backed; signatures stable across the partials) ──
@@ -818,6 +827,10 @@ namespace Regicide.Unity
             v.Add(caption);
 
             Fx.Transition(v, 100);
+            Tips.Attach(v, () => ($"{label} — {count} card{(count == 1 ? "" : "s")}",
+                label == "deck"
+                    ? "the cards left to draw · click to view (sorted by suit — draw order stays hidden)"
+                    : "spent cards land here; rests and ♥ recovery return them to the deck · click to view"));
             v.RegisterCallback<MouseEnterEvent>(_ =>
             {
                 v.style.translate = new Translate(0, -4);

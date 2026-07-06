@@ -144,6 +144,37 @@ namespace Regicide.Unity
             }
         }
 
+        /// <summary>Hover explainer per node kind — what committing to this stop does.</summary>
+        public static string NodeTip(RoadNodeKind kind) => kind switch
+        {
+            RoadNodeKind.Start => "where this road began",
+            RoadNodeKind.Skirmish => "an ordinary fight — an exact kill recruits the card (or grafts, if you already own its face)",
+            RoadNodeKind.Veteran => "a tougher fight — exact kills recruit (or graft)",
+            RoadNodeKind.Elite => "a dangerous fight — in Continent 2, a lone royal duel",
+            RoadNodeKind.Boss => "the province boss — clearing it ends the chapter with a free seam rest",
+            RoadNodeKind.Gate => "all four royals of this rank, one duel at a time. Exact kills stay eligible for the keep; overkills are banished forever",
+            RoadNodeKind.Recruit => "a recruiting fight — it prefers a card you are still missing",
+            RoadNodeKind.Hunt => "chase a specific recruit you are missing from this province's ranks",
+            RoadNodeKind.Camp => "rest: reshuffle the discard into the deck, refill your hand, and arm the next fight's double first strike + 10 block",
+            RoadNodeKind.Forge => "convert 2 spell fragments into 1 Half — repeatable while you stand here",
+            RoadNodeKind.Sanctum => "move one graft from one card to another, once per visit",
+            RoadNodeKind.Lair => "a raid: an elite-grade fight, then pick 1 of 2 relics",
+            RoadNodeKind.Caravan => "a relic for sale — pay with cards from your hand",
+            RoadNodeKind.Shrine => "a small offering: +1 spell fragment",
+            RoadNodeKind.Heroes => "the Fallen Heroes — swap your Staff freely while you stand here",
+            _ => "",
+        };
+
+        /// <summary>The four suit powers (§3), one line each — tooltip fodder.</summary>
+        public static string SuitPower(Suit suit) => suit switch
+        {
+            Suit.Clubs => "♣ doubles the whole play's damage",
+            Suit.Diamonds => "♦ draws cards, up to the play's value",
+            Suit.Hearts => "♥ recovers discards to the deck, up to the play's value",
+            Suit.Spades => "♠ builds block equal to the play's value",
+            _ => "",
+        };
+
         public static string StaffName(string id) =>
             Staffs.TryGetValue(id, out var e) ? e.Name : id;
 

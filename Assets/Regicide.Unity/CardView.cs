@@ -42,6 +42,10 @@ namespace Regicide.Unity
         {
             var card = Blank(size, onClick);
             PaintFace(card, face.Suit, PhysicalCard.RankGlyph(face.Rank), size);
+            Tips.Attach(card,
+                $"{PhysicalCard.Pretty(face)} — value {CardRules.AttackValue(face.Rank)}",
+                ContentText.SuitPower(face.Suit) +
+                "\nenemies of a suit BLOCK that suit's power (the value still counts)");
             return card;
         }
 
@@ -89,6 +93,25 @@ namespace Regicide.Unity
             }
 
             if (selected) MarkSelected(card);
+
+            Tips.Attach(card, () =>
+            {
+                var effNow = c.EffectiveFace();
+                var body = new System.Text.StringBuilder();
+                foreach (var s in c.EffectiveSuits())
+                    body.AppendLine(ContentText.SuitPower(s));
+                if (!effNow.Equals(c.Printed) || c.Grafts.Count > 0)
+                {
+                    body.AppendLine();
+                    body.AppendLine($"printed {PhysicalCard.Pretty(c.Printed)} — conquest rewrote it:");
+                    foreach (var g in c.Grafts)
+                        body.AppendLine($"· {g.Kind} from {g.Source}");
+                }
+                if (c.ValueModifier != 0)
+                    body.AppendLine($"value token {(c.ValueModifier > 0 ? "+" : "")}{c.ValueModifier}");
+                return ($"{PhysicalCard.Pretty(effNow)} — value {c.EffectiveValue()}",
+                        body.ToString().TrimEnd());
+            });
             return card;
         }
 

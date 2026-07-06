@@ -60,6 +60,40 @@ namespace Regicide.Unity
             var table = new VisualElement();
             table.style.flexShrink = 0;
 
+            // YOUR block, on YOUR side of the table (it lives per-enemy in the rules,
+            // but pinned to the enemy card it read as the NPC's stat).
+            if (enemy != null && enemy.Shield > 0)
+            {
+                var block = new VisualElement();
+                block.style.position = Position.Absolute;
+                block.style.left = 18;
+                block.style.top = 26;
+                block.style.alignItems = Align.Center;
+
+                var row = new VisualElement();
+                row.style.flexDirection = FlexDirection.Row;
+                row.style.alignItems = Align.Center;
+                row.Add(Widgets.MiniIcon(Widgets.Icon.Shield, Color.Lerp(Theme.Shield, Color.white, 0.4f), 24));
+                var n = new Label(enemy.Shield.ToString());
+                n.style.fontSize = 24;
+                n.style.unityFontStyleAndWeight = FontStyle.Bold;
+                n.style.color = Color.Lerp(Theme.Shield, Color.white, 0.5f);
+                n.style.marginLeft = 5;
+                row.Add(n);
+                block.Add(row);
+
+                var cap = new Label("BLOCK");
+                cap.style.fontSize = 9;
+                cap.style.letterSpacing = 2;
+                cap.style.color = Theme.ParchmentDim;
+                block.Add(cap);
+
+                Tips.Attach(block, "your block",
+                    "your ♠ plays build block against THIS enemy — it cuts its counterattack " +
+                    "and resets when the next duellist steps up.");
+                table.Add(block);
+            }
+
             var pending = S.PendingChoice;
             if (pending != null && pending.Kind == PendingChoiceKind.Defend)
             {
@@ -295,30 +329,18 @@ namespace Regicide.Unity
                 hitRow.Add(hit);
                 plaque.Add(hitRow);
             }
+            // The plaque explains itself on hover (picking enabled just for that).
+            plaque.pickingMode = PickingMode.Position;
+            Tips.Attach(plaque, () => net == 0
+                ? ("counterattack — blanked",
+                   "your block fully covers this enemy's attack: no payment this turn. Block resets when the next duellist steps up.")
+                : ("counterattack",
+                   $"after a play that leaves this enemy alive (or a yield), it strikes for attack − your block = {net}. " +
+                   "Pay at least that much card value from your hand — or die. No counter after a kill."));
             card.Add(plaque);
 
-            // ── shield: a blue chip on the card's left edge ──
-            if (enemy.Shield > 0)
-            {
-                var sh = new VisualElement();
-                sh.style.flexDirection = FlexDirection.Row;
-                sh.style.alignItems = Align.Center;
-                sh.style.backgroundColor = new Color(Theme.Shield.r, Theme.Shield.g, Theme.Shield.b, 0.25f);
-                Theme.SetBorder(sh, new Color(Theme.Shield.r, Theme.Shield.g, Theme.Shield.b, 0.8f), 1);
-                Theme.SetRadius(sh, 10);
-                Theme.SetPadding(sh, 2, 6);
-                sh.Add(Widgets.MiniIcon(Widgets.Icon.Shield, Color.Lerp(Theme.Shield, Color.white, 0.5f), 13));
-                var shN = new Label(enemy.Shield.ToString());
-                shN.style.fontSize = 12;
-                shN.style.marginLeft = 3;
-                shN.style.color = Color.Lerp(Theme.Shield, Color.white, 0.55f);
-                sh.Add(shN);
-                sh.style.position = Position.Absolute;
-                sh.style.left = -26;
-                sh.style.top = EnemyCardH / 2f - 10;
-                sh.pickingMode = PickingMode.Ignore;
-                card.Add(sh);
-            }
+            // (The player's block reads on the PLAYER's side of the table now —
+            // pinned to the enemy it looked like the NPC's stat.)
 
             // ── immunity: the suit, slashed, riding the top-right corner ──
             if (enemy.ImmuneSuit is Suit imm)
@@ -357,6 +379,11 @@ namespace Regicide.Unity
                 cap.style.fontSize = 8;
                 cap.style.color = Theme.ParchmentDim;
                 badge.Add(cap);
+
+                badge.pickingMode = PickingMode.Position;
+                Tips.Attach(badge, $"immune to {PhysicalCard.SuitGlyph(imm)}",
+                    $"this enemy blocks {PhysicalCard.SuitGlyph(imm)}'s POWER — " +
+                    "the card's value still counts toward damage. Spells ignore immunity entirely.");
                 card.Add(badge);
             }
         }
