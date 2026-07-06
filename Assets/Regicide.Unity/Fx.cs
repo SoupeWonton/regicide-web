@@ -143,6 +143,55 @@ namespace Regicide.Unity
                 })).ExecuteLater(delayMs);
         }
 
+        /// <summary>
+        /// Pile-to-pile card stream (the shuffle cue): little card-backs arc from
+        /// one pile icon to the other while both piles pulse.
+        /// </summary>
+        public static void FlyPile(VisualElement layer, VisualElement from, VisualElement to, int count)
+        {
+            if (layer == null || layer.panel == null ||
+                from == null || from.panel == null || to == null || to.panel == null) return;
+
+            Vector2 a = layer.WorldToLocal(from.worldBound.center);
+            Vector2 b = layer.WorldToLocal(to.worldBound.center);
+
+            void Pulse(VisualElement pile, int delay)
+            {
+                layer.schedule.Execute(() =>
+                    pile.experimental.animation.Start(0f, 1f, 300, (el, t) =>
+                    {
+                        float bump = Mathf.Sin(t * Mathf.PI);
+                        el.style.scale = new Scale(Vector3.one * (1f + 0.16f * bump));
+                    })).ExecuteLater(delay);
+            }
+            Pulse(from, 0);
+            Pulse(to, 260);
+
+            for (int i = 0; i < count; i++)
+            {
+                var ghost = CardView.Back(CardView.Size.Small);
+                ghost.pickingMode = PickingMode.Ignore;
+                ghost.style.position = Position.Absolute;
+                ghost.style.left = a.x - 20;
+                ghost.style.top = a.y - 28;
+                ghost.style.scale = new Scale(Vector3.one * 0.5f);
+                ghost.style.opacity = 0f;
+                layer.Add(ghost);
+
+                var g = ghost;
+                Vector2 delta = b - a;
+                float arcLift = 26f + (i % 3) * 10f;
+                layer.schedule.Execute(() =>
+                    g.experimental.animation.Start(0f, 1f, 260, (el, t) =>
+                    {
+                        float e = 1f - (1f - t) * (1f - t);
+                        el.style.opacity = t < 0.15f ? t / 0.15f : 1f - Mathf.Max(0f, (t - 0.8f) / 0.2f);
+                        el.style.translate = new Translate(delta.x * e, delta.y * e - arcLift * Mathf.Sin(Mathf.PI * e));
+                    })).ExecuteLater(i * 55);
+                layer.schedule.Execute(() => g.RemoveFromHierarchy()).ExecuteLater(330 + i * 55);
+            }
+        }
+
         /// <summary>Fade a whole screen in on phase changes.</summary>
         public static void FadeIn(VisualElement screen, int ms = 240)
         {

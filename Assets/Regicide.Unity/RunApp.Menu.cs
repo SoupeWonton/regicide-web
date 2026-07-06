@@ -164,7 +164,7 @@ namespace Regicide.Unity
                 string captured = staffId;
                 var row = Row();
                 row.style.marginBottom = 4;
-                var take = BtnPrimary($"⚚ {ContentText.StaffName(staffId)}",
+                var take = BtnPrimary($"{ContentText.StaffName(staffId)}",
                     () => Dispatch(new SelectClass(_classPick, captured)));
                 take.style.minWidth = 170;
                 row.Add(take);
@@ -183,7 +183,7 @@ namespace Regicide.Unity
             teaser.style.alignSelf = Align.Center;
             foreach (string ladder in ContentText.LockedLadders[_classPick])
             {
-                var l = new Label($"🔒 {ladder}");
+                var l = new Label($"locked · {ladder}");
                 l.style.color = Theme.Grey;
                 l.style.fontSize = 11;
                 teaser.Add(l);
@@ -242,7 +242,7 @@ namespace Regicide.Unity
 
             if (won)
             {
-                box.Add(Theme.Title("👑  LONG LIVE THE CROWN", 34));
+                box.Add(Theme.Title("LONG LIVE THE CROWN", 34));
 
                 // The court you kept: every royal in the conquest, crown first.
                 var royals = S.OwnedCards.Select(id => S.Cards.Get(id))
@@ -280,7 +280,7 @@ namespace Regicide.Unity
             }
             else
             {
-                box.Add(Theme.Title("☠  THE RUN ENDS", 34));
+                box.Add(Theme.Title("THE RUN ENDS", 34));
                 var line = new Label($"Fallen in chapter {S.Chapter}, Continent {S.Continent}. " +
                                      "No revive, no save — the lineage remembers.");
                 line.style.color = Theme.ParchmentDim;

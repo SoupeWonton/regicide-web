@@ -107,7 +107,7 @@ namespace Regicide.Unity
             card.style.overflow = Overflow.Hidden;
             card.style.alignItems = Align.Center;
             card.style.justifyContent = Justify.Center;
-            var pip = new Label("❖");
+            var pip = new Label("♠"); // a proven glyph — ❖ is tofu in the runtime font
             pip.style.color = Theme.GoldDim;
             pip.style.fontSize = Dim(size).pip * 0.6f;
             card.Add(pip);

@@ -36,6 +36,7 @@ namespace Regicide.Unity
             Triumph,   // web triumph (same clip as Crown)
             Footsteps, // web footsteps — committing to a road node
             Click,     // web click — generic UI tick
+            Shuffle,   // riffle — the discard returns to the deck (new, web-style recipe)
         }
 
         private static AudioSource _src;
@@ -188,6 +189,14 @@ namespace Regicide.Unity
 
                 case Sound.Error: // no web recipe — a deliberately soft buzz
                     sy.Tone(Osc.Square, 140f, 0.13f, 0.15f);
+                    break;
+
+                case Sound.Shuffle: // riffle: staggered paper hisses + a settling thock
+                    sy.Hiss(0.06f, 0.14f, Filt.Highpass, 2200f);
+                    sy.Hiss(0.05f, 0.12f, Filt.Highpass, 2600f, delay: 0.07f);
+                    sy.Hiss(0.07f, 0.13f, Filt.Highpass, 2000f, delay: 0.14f);
+                    sy.Hiss(0.10f, 0.16f, Filt.Bandpass, 900f, freqTo: 400f, delay: 0.22f);
+                    sy.Tone(Osc.Sine, 140f, 0.08f, 0.12f, to: 90f, delay: 0.24f);
                     break;
             }
 

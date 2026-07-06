@@ -17,12 +17,12 @@ namespace Regicide.Unity
         /// <summary>Category colour + short glyph for a node kind (fonts lack emoji — letters + colour).</summary>
         public static (string glyph, Color tint, string label) NodeStyle(RoadNodeKind kind) => kind switch
         {
-            RoadNodeKind.Start => ("●", Theme.Grey, "Start"),
+            RoadNodeKind.Start => ("•", Theme.Grey, "Start"),
             RoadNodeKind.Skirmish => ("X", Theme.RedBright, "Skirmish"),
             RoadNodeKind.Veteran => ("XX", Theme.RedBright, "Veteran"),
             RoadNodeKind.Elite => ("!", Theme.RedDeep, "Elite"),
-            RoadNodeKind.Boss => ("♛", Theme.RedDeep, "Boss"),
-            RoadNodeKind.Gate => ("♛", Theme.GoldBright, "Royal Gate"),
+            RoadNodeKind.Boss => ("B", Theme.RedDeep, "Boss"),
+            RoadNodeKind.Gate => ("G", Theme.GoldBright, "Royal Gate"),
             RoadNodeKind.Recruit => ("R", Theme.Green, "Recruit"),
             RoadNodeKind.Hunt => ("H", Theme.Green, "Hunt"),
             RoadNodeKind.Camp => ("C", Theme.Blue, "Camp"),
@@ -31,7 +31,7 @@ namespace Regicide.Unity
             RoadNodeKind.Lair => ("L", Theme.RedDeep, "Lair"),
             RoadNodeKind.Sanctum => ("S", Theme.Blue, "Sanctum"),
             RoadNodeKind.Shrine => ("+", Theme.Blue, "Shrine"),
-            RoadNodeKind.Heroes => ("♟", Theme.GoldBright, "Fallen Heroes"),
+            RoadNodeKind.Heroes => ("F", Theme.GoldBright, "Fallen Heroes"),
             _ => ("?", Theme.Grey, kind.ToString()),
         };
 
@@ -125,6 +125,92 @@ namespace Regicide.Unity
             // Repaint once layout has settled so worldBounds are real.
             canvas.schedule.Execute(() => canvas.MarkDirtyRepaint()).ExecuteLater(50);
             return canvas;
+        }
+
+        // ── mini icons (Painter2D — the runtime font has no ⚔/⛨/⚙/👑 glyphs) ────
+
+        public enum Icon { Sword, Shield, Gear, Crown }
+
+        /// <summary>A small drawn icon in the relic-silhouette style. Pure strokes.</summary>
+        public static VisualElement MiniIcon(Icon kind, Color color, float size = 18)
+        {
+            var v = new VisualElement();
+            v.pickingMode = PickingMode.Ignore;
+            v.style.width = size; v.style.height = size;
+            v.style.flexShrink = 0;
+            v.generateVisualContent += ctx =>
+            {
+                var p = ctx.painter2D;
+                float w = v.contentRect.width, h = v.contentRect.height;
+                if (w <= 0 || h <= 0) return;
+                var c = new Vector2(w / 2f, h / 2f);
+                p.strokeColor = color;
+                p.fillColor = color;
+                p.lineWidth = Mathf.Max(1.6f, size * 0.10f);
+                p.lineCap = LineCap.Round;
+
+                switch (kind)
+                {
+                    case Icon.Sword:
+                        // Blade, crossguard, grip.
+                        p.BeginPath();
+                        p.MoveTo(c + new Vector2(-w * 0.30f, h * 0.30f));
+                        p.LineTo(c + new Vector2(w * 0.28f, -h * 0.28f));
+                        p.Stroke();
+                        p.BeginPath();
+                        p.MoveTo(c + new Vector2(-w * 0.28f, -h * 0.02f));
+                        p.LineTo(c + new Vector2(w * 0.02f, h * 0.28f));
+                        p.Stroke();
+                        p.BeginPath();
+                        p.Arc(c + new Vector2(-w * 0.32f, h * 0.32f), w * 0.06f,
+                            new Angle(0, AngleUnit.Degree), new Angle(360, AngleUnit.Degree));
+                        p.Fill();
+                        break;
+
+                    case Icon.Shield:
+                        p.BeginPath();
+                        p.MoveTo(c + new Vector2(-w * 0.30f, -h * 0.30f));
+                        p.LineTo(c + new Vector2(w * 0.30f, -h * 0.30f));
+                        p.LineTo(c + new Vector2(w * 0.30f, h * 0.05f));
+                        p.LineTo(c + new Vector2(0, h * 0.38f));
+                        p.LineTo(c + new Vector2(-w * 0.30f, h * 0.05f));
+                        p.ClosePath();
+                        p.Stroke();
+                        break;
+
+                    case Icon.Gear:
+                        p.BeginPath();
+                        p.Arc(c, w * 0.24f, new Angle(0, AngleUnit.Degree), new Angle(360, AngleUnit.Degree));
+                        p.Stroke();
+                        p.BeginPath();
+                        p.Arc(c, w * 0.09f, new Angle(0, AngleUnit.Degree), new Angle(360, AngleUnit.Degree));
+                        p.Stroke();
+                        for (int i = 0; i < 6; i++)
+                        {
+                            float a = i * Mathf.PI / 3f;
+                            var dir = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
+                            p.BeginPath();
+                            p.MoveTo(c + dir * w * 0.26f);
+                            p.LineTo(c + dir * w * 0.38f);
+                            p.Stroke();
+                        }
+                        break;
+
+                    case Icon.Crown:
+                        p.BeginPath();
+                        p.MoveTo(c + new Vector2(-w * 0.32f, h * 0.28f));
+                        p.LineTo(c + new Vector2(-w * 0.32f, -h * 0.10f));
+                        p.LineTo(c + new Vector2(-w * 0.14f, h * 0.06f));
+                        p.LineTo(c + new Vector2(0, -h * 0.30f));
+                        p.LineTo(c + new Vector2(w * 0.14f, h * 0.06f));
+                        p.LineTo(c + new Vector2(w * 0.32f, -h * 0.10f));
+                        p.LineTo(c + new Vector2(w * 0.32f, h * 0.28f));
+                        p.ClosePath();
+                        p.Stroke();
+                        break;
+                }
+            };
+            return v;
         }
 
         // ── relic paper-doll (§8) ───────────────────────────────────────────────
@@ -234,10 +320,10 @@ namespace Regicide.Unity
             row.style.flexDirection = FlexDirection.Row;
             row.style.marginTop = 6;
             int net = Math.Max(0, enemy.Attack - enemy.Shield);
-            row.Add(Theme.Chip($"⚔ {enemy.Attack}", Theme.RedBright));
+            row.Add(Theme.Chip($"atk {enemy.Attack}", Theme.RedBright));
             if (enemy.Shield > 0)
             {
-                row.Add(Theme.Chip($"⛨ {enemy.Shield}", Theme.Shield));
+                row.Add(Theme.Chip($"shield {enemy.Shield}", Theme.Shield));
                 row.Add(Theme.Chip(net == 0 ? "counter blanked" : $"net {net}", net == 0 ? Theme.Green : Theme.RedDeep));
             }
             if (enemy.ImmuneSuit is Suit imm)

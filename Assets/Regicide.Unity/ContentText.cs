@@ -155,21 +155,21 @@ namespace Regicide.Unity
             switch (kind)
             {
                 case RoadNodeKind.Start: return "Start";
-                case RoadNodeKind.Skirmish: return "⚔ Skirmish";
-                case RoadNodeKind.Veteran: return "⚔ Veteran";
-                case RoadNodeKind.Elite: return "⚔ Elite";
-                case RoadNodeKind.Boss: return "☠ Boss";
-                case RoadNodeKind.Recruit: return "⚔ Recruit";
-                case RoadNodeKind.Hunt: return "🏹 Hunt";
-                case RoadNodeKind.Camp: return "⛺ Camp";
-                case RoadNodeKind.Forge: return "🔥 Forge";
-                case RoadNodeKind.Sanctum: return "✦ Sanctum";
-                case RoadNodeKind.Lair: return "🐉 Lair";
-                case RoadNodeKind.Caravan: return "🛒 Caravan";
-                case RoadNodeKind.Shrine: return "⛩ Shrine";
+                case RoadNodeKind.Skirmish: return "Skirmish";
+                case RoadNodeKind.Veteran: return "Veteran";
+                case RoadNodeKind.Elite: return "Elite";
+                case RoadNodeKind.Boss: return "Boss";
+                case RoadNodeKind.Recruit: return "Recruit";
+                case RoadNodeKind.Hunt: return "Hunt";
+                case RoadNodeKind.Camp: return "Camp";
+                case RoadNodeKind.Forge: return "Forge";
+                case RoadNodeKind.Sanctum: return "Sanctum";
+                case RoadNodeKind.Lair: return "Lair";
+                case RoadNodeKind.Caravan: return "Caravan";
+                case RoadNodeKind.Shrine: return "Shrine";
                 case RoadNodeKind.Event: return "? Event";
-                case RoadNodeKind.Heroes: return "🕯 Fallen Heroes";
-                case RoadNodeKind.Gate: return "👑 Royal Gate";
+                case RoadNodeKind.Heroes: return "Fallen Heroes";
+                case RoadNodeKind.Gate: return "Royal Gate";
                 default: return kind.ToString();
             }
         }

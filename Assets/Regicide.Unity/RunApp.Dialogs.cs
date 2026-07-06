@@ -63,7 +63,7 @@ namespace Regicide.Unity
             int covered = _sel.Sum(id => S.Cards.Get(id).EffectiveValue());
             bool enough = covered >= pending.RequiredValue;
 
-            var d = Dialog("⚔ COUNTERATTACK");
+            var d = Dialog("COUNTERATTACK");
             var sub = new Label($"discard cards worth {pending.RequiredValue} to survive");
             sub.style.color = Theme.ParchmentDim;
             sub.style.marginBottom = 8;
@@ -133,7 +133,7 @@ namespace Regicide.Unity
         private VisualElement HuntDialog(PendingChoice pending)
         {
             var o = Overlay();
-            var d = Dialog("🏹 THE HUNT");
+            var d = Dialog("THE HUNT");
             var sub = new Label("chase a recruit you are missing — the quarry becomes the fight");
             sub.style.color = Theme.ParchmentDim;
             sub.style.marginBottom = 8;
@@ -158,9 +158,9 @@ namespace Regicide.Unity
         private VisualElement RoyalKeepDialog(PendingChoice pending)
         {
             var o = Overlay();
-            string title = pending.RoyalRank == Rank.King ? "👑 CLAIM YOUR CROWN"
-                : pending.PickIsLeave ? "👑 CHOOSE WHO IS LEFT BEHIND"
-                : "👑 WHO FOLLOWS YOU?";
+            string title = pending.RoyalRank == Rank.King ? "CLAIM YOUR CROWN"
+                : pending.PickIsLeave ? "CHOOSE WHO IS LEFT BEHIND"
+                : "WHO FOLLOWS YOU?";
             var d = Dialog(title);
 
             var chips = Row();
@@ -199,7 +199,7 @@ namespace Regicide.Unity
         private VisualElement RecoverSelectDialog(PendingChoice pending)
         {
             var o = Overlay();
-            var d = Dialog("⚚ TRIAGE");
+            var d = Dialog("TRIAGE");
             var sub = new Label($"pick up to {pending.RecoverMax} discard(s) to recover to the Tavern");
             sub.style.color = Theme.ParchmentDim;
             sub.style.marginBottom = 6;
@@ -216,7 +216,7 @@ namespace Regicide.Unity
         private VisualElement RecoverToHandDialog(PendingChoice pending)
         {
             var o = Overlay();
-            var d = Dialog("⚚ LAST RITES");
+            var d = Dialog("LAST RITES");
             var sub = new Label("take one recovered card into hand?");
             sub.style.color = Theme.ParchmentDim;
             sub.style.marginBottom = 6;
@@ -242,7 +242,7 @@ namespace Regicide.Unity
         private VisualElement RelicSelectDialog(PendingChoice pending)
         {
             var o = Overlay();
-            var d = Dialog("🐉 THE RAID PAYS OFF");
+            var d = Dialog("THE RAID PAYS OFF");
             var sub = new Label("claim one relic — the other is lost to the hoard");
             sub.style.color = Theme.ParchmentDim;
             sub.style.marginBottom = 8;

@@ -82,7 +82,7 @@ namespace Regicide.Unity
             var r = _session.Dispatch(action);
             if (!r.Ok)
             {
-                _log.Add("✗ " + r.Error);
+                _log.Add("! " + r.Error);
             }
             else
             {
@@ -166,6 +166,16 @@ namespace Regicide.Unity
             _flights.Clear();
         }
 
+        /// <summary>The discard riffles back into the deck — piles pulse, cards arc, riffle sound.</summary>
+        private void ShuffleFx()
+        {
+            if (_fxLayer == null || _fxLayer.panel == null) return;
+            Sfx.Play(Sfx.Sound.Shuffle);
+            Fx.FlyPile(_fxLayer,
+                _root.Q<VisualElement>("fx-pile-discard"),
+                _root.Q<VisualElement>("fx-pile-deck"), 5);
+        }
+
         /// <summary>Trigger feedback (§10): map the dispatch's events onto the FX layer.</summary>
         private void PlayFx(Result r)
         {
@@ -175,7 +185,7 @@ namespace Regicide.Unity
             {
                 _flights.Clear();
                 Sfx.Play(Sfx.Sound.Error);
-                Fx.Float(_fxLayer, null, "✗ " + r.Error, Theme.RedBright, 16);
+                Fx.Float(_fxLayer, null, "! " + r.Error, Theme.RedBright, 16);
                 return;
             }
 
@@ -227,7 +237,7 @@ namespace Regicide.Unity
                         break;
                     case ShieldGained sg:
                         Sfx.Play(Sfx.Sound.Shield, 0.7f);
-                        Fx.Float(_fxLayer, enemy, "+" + sg.Amount + " ⛨", Theme.Shield, 20, 52);
+                        Fx.Float(_fxLayer, enemy, "+" + sg.Amount + " shield", Theme.Shield, 18, 56);
                         break;
                     case CardsDrawn cd:
                         Sfx.Play(Sfx.Sound.Draw, 0.7f);
@@ -301,6 +311,30 @@ namespace Regicide.Unity
                     case ChapterCompleted _:
                         Sfx.Play(Sfx.Sound.Triumph);
                         Toast("PROVINCE CLEARED", Theme.GoldBright);
+                        break;
+                    case SeamRestApplied _:
+                        ShuffleFx();
+                        break;
+                    case CampRested _:
+                    {
+                        // The campfire explains itself (§9's four parts), no menu:
+                        // ember glow, the shuffle, then each effect floats up in turn.
+                        Fx.Flash(_fxLayer, Theme.Hex("#e09c3f"), 700);
+                        ShuffleFx();
+                        string[] warmth = { "deck reshuffled", "hand refilled", "first strike ×2 armed", "+10 shield armed" };
+                        for (int i = 0; i < warmth.Length; i++)
+                        {
+                            string line = warmth[i];
+                            _fxLayer.schedule.Execute(() =>
+                                Fx.Float(_fxLayer, null, line, Theme.GoldBright, 20)).ExecuteLater(300 + i * 320);
+                        }
+                        break;
+                    }
+                    case RelicUsed ru when ru.RelicId == "bedroll" || ru.RelicId == "sainted_scalpel":
+                        ShuffleFx();
+                        break;
+                    case CardsRecovered cr when cr.Count > 2:
+                        ShuffleFx(); // Full Recycle / big recoveries visibly re-feed the deck
                         break;
                 }
             }
@@ -598,7 +632,7 @@ namespace Regicide.Unity
             // Deck/discard live in the bottom-right pile icons now — this line
             // carries only the spell pool.
             if (S.TokenFragments > 0 || S.TokenHalves > 0)
-                LinkText($"✦ {S.TokenFragments}" + (S.TokenHalves > 0 ? $" + {S.TokenHalves} half" : ""), null);
+                LinkText($"{S.TokenFragments} frags" + (S.TokenHalves > 0 ? $" + {S.TokenHalves} half" : ""), null);
             return row;
         }
 
@@ -609,12 +643,12 @@ namespace Regicide.Unity
             row.style.flexWrap = Wrap.NoWrap;
             string last = _log.Count > 0 ? _log[_log.Count - 1] : "";
             var line = Theme.Subtle(last.Length > 72 ? last.Substring(0, 72) + "…" : last);
-            line.style.color = last.StartsWith("✗") ? Theme.RedBright : Theme.Grey;
+            line.style.color = last.StartsWith("!") ? Theme.RedBright : Theme.Grey;
             line.style.overflow = Overflow.Hidden;
             line.style.flexShrink = 1;
             row.Add(line);
 
-            var open = Theme.Subtle(" log ▸");
+            var open = Theme.Subtle(" log >");
             open.style.color = Theme.GoldDim;
             open.RegisterCallback<ClickEvent>(_ => { _showLog = true; Render(); });
             open.RegisterCallback<MouseEnterEvent>(_ => open.style.color = Theme.GoldBright);
@@ -627,20 +661,21 @@ namespace Regicide.Unity
 
         private VisualElement GearButton()
         {
-            var g = new Label("⚙");
+            var g = new VisualElement();
             g.style.position = Position.Absolute;
-            g.style.top = 8; g.style.right = 14;
-            g.style.fontSize = 22;
-            g.style.color = Theme.GoldDim;
+            g.style.top = 10; g.style.right = 14;
+            g.Add(Widgets.MiniIcon(Widgets.Icon.Gear, Theme.GoldDim, 22));
             Fx.Transition(g, 90);
             g.RegisterCallback<MouseEnterEvent>(_ =>
             {
-                g.style.color = Theme.GoldBright;
+                g.Clear();
+                g.Add(Widgets.MiniIcon(Widgets.Icon.Gear, Theme.GoldBright, 22));
                 g.style.rotate = new Rotate(30);
             });
             g.RegisterCallback<MouseLeaveEvent>(_ =>
             {
-                g.style.color = Theme.GoldDim;
+                g.Clear();
+                g.Add(Widgets.MiniIcon(Widgets.Icon.Gear, Theme.GoldDim, 22));
                 g.style.rotate = new Rotate(0);
             });
             g.RegisterCallback<ClickEvent>(_ =>
@@ -718,14 +753,18 @@ namespace Regicide.Unity
             wrap.style.flexDirection = FlexDirection.Row;
             wrap.style.alignItems = Align.FlexEnd;
 
-            wrap.Add(Pile("deck", S.Deck.Tavern.Count, Theme.GoldDim, 0f, () => OpenViewer(
+            var deckPile = Pile("deck", S.Deck.Tavern.Count, Theme.GoldDim, 0f, () => OpenViewer(
                 "Cards left to draw (sorted by suit — draw order hidden)",
                 S.Deck.Tavern.OrderBy(id => S.Cards.Get(id).EffectiveFace().Suit)
-                             .ThenBy(id => S.Cards.Get(id).EffectiveFace().Rank).ToList())));
-            wrap.Add(Pile("discard", S.Deck.Discard.Count, Theme.RedDeep, -8f, () => OpenViewer(
+                             .ThenBy(id => S.Cards.Get(id).EffectiveFace().Rank).ToList()));
+            deckPile.name = "fx-pile-deck"; // shuffle FX anchor
+            wrap.Add(deckPile);
+            var discardPile = Pile("discard", S.Deck.Discard.Count, Theme.RedDeep, -8f, () => OpenViewer(
                 "Discard pile",
                 S.Deck.Discard.OrderBy(id => S.Cards.Get(id).EffectiveFace().Suit)
-                              .ThenBy(id => S.Cards.Get(id).EffectiveFace().Rank).ToList())));
+                              .ThenBy(id => S.Cards.Get(id).EffectiveFace().Rank).ToList()));
+            discardPile.name = "fx-pile-discard";
+            wrap.Add(discardPile);
             return wrap;
         }
 
@@ -810,7 +849,7 @@ namespace Regicide.Unity
             {
                 var t = Text(lineText);
                 t.style.fontSize = 11;
-                t.style.color = lineText.StartsWith("✗") ? Theme.RedBright : Theme.ParchmentDim;
+                t.style.color = lineText.StartsWith("!") ? Theme.RedBright : Theme.ParchmentDim;
                 scroll.Add(t);
             }
             d.Add(scroll);
