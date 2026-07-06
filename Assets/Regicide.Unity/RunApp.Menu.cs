@@ -47,6 +47,15 @@ namespace Regicide.Unity
             box.style.minWidth = 440;
             box.style.alignItems = Align.Center;
 
+            // Lineage first; the seed box sits under the run counts and crowns.
+            var lineage = Row();
+            lineage.style.justifyContent = Justify.Center;
+            lineage.style.marginBottom = 12;
+            lineage.Add(Theme.Chip($"{_meta.Runs} run(s)"));
+            lineage.Add(Theme.Chip($"{_meta.Wins} crown(s)", Theme.Gold));
+            if (_meta.C2Cleared) lineage.Add(Theme.Chip("Continent 2 cleared", Theme.Green));
+            box.Add(lineage);
+
             var seed = new TextField("Seed (blank = random)") { value = _menuSeed };
             seed.RegisterValueChangedCallback(e => _menuSeed = e.newValue);
             seed.style.minWidth = 380;
@@ -66,14 +75,6 @@ namespace Regicide.Unity
             newRun.style.fontSize = 18;
             Theme.SetPadding(newRun, 10, 34);
             box.Add(newRun);
-
-            var lineage = Row();
-            lineage.style.justifyContent = Justify.Center;
-            lineage.style.marginTop = 12;
-            lineage.Add(Theme.Chip($"{_meta.Runs} run(s)"));
-            lineage.Add(Theme.Chip($"{_meta.Wins} crown(s)", Theme.Gold));
-            if (_meta.C2Cleared) lineage.Add(Theme.Chip("Continent 2 cleared", Theme.Green));
-            box.Add(lineage);
 
             var note = new Label("no mid-run save — a run is a single sitting");
             note.style.color = Theme.Grey;
@@ -113,24 +114,32 @@ namespace Regicide.Unity
                 bool picked = _classPick == classId;
 
                 var panel = Theme.Frame();
-                panel.style.width = 250;
+                panel.style.width = 215;
                 panel.style.marginRight = 10;
                 Theme.SetBorder(panel, picked ? Theme.GoldBright : Theme.GoldDim, picked ? 2.5f : 1);
                 panel.RegisterCallback<ClickEvent>(_ => { _classPick = captured; Render(); });
 
-                var header = Row();
-                header.Add(CardView.Face(new CardFace(info.HomeSuit, Rank.Ace), CardView.Size.Small));
-                var names = new VisualElement();
-                names.style.marginLeft = 8;
+                // The class crest: one big home-suit glyph, the name in a uniform
+                // slot under it — identical position and size on all four panels.
+                var crest = new VisualElement();
+                crest.style.alignItems = Align.Center;
+
+                var logo = new Label(PhysicalCard.SuitGlyph(info.HomeSuit));
+                logo.style.fontSize = 64 * CardView.GlyphScale(info.HomeSuit);
+                logo.style.height = 74; // ♥'s smaller glyph must not shift the name row
+                logo.style.unityTextAlign = TextAnchor.MiddleCenter;
+                logo.style.color = Color.Lerp(CardView.SuitColor(info.HomeSuit), Color.white, 0.30f);
+                crest.Add(logo);
+
                 var name = new Label(ContentText.ClassName(classId).ToUpperInvariant());
                 name.style.color = picked ? Theme.GoldBright : Theme.Gold;
-                name.style.fontSize = 16;
+                name.style.fontSize = 15; // fits QUARTERMASTER on one line at this width
                 name.style.unityFontStyleAndWeight = FontStyle.Bold;
-                names.Add(name);
-                names.Add(Theme.Chip($"home {PhysicalCard.SuitGlyph(info.HomeSuit)}",
-                    CardView.SuitColor(info.HomeSuit) == Theme.RedSuit ? Theme.RedSuit : Theme.Blue));
-                header.Add(names);
-                panel.Add(header);
+                name.style.letterSpacing = 1;
+                name.style.whiteSpace = WhiteSpace.NoWrap;
+                name.style.unityTextAlign = TextAnchor.MiddleCenter;
+                crest.Add(name);
+                panel.Add(crest);
 
                 var rules = new Label(ContentText.Classes[classId].Rules);
                 rules.style.whiteSpace = WhiteSpace.Normal;

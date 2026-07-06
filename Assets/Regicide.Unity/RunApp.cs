@@ -443,9 +443,52 @@ namespace Regicide.Unity
 
         private string CardLabel(int physicalId) => S.Cards.Get(physicalId).ToString();
 
-        /// <summary>The hand as a Slay-the-Spire card fan feeding the shared selection set.</summary>
+        /// <summary>
+        /// The hand as a Slay-the-Spire card fan feeding the shared selection set.
+        /// Sortable (suit / rank links) and drag-to-reorder — hand ORDER is pure
+        /// presentation, no rule reads it, so reordering the state list is safe.
+        /// </summary>
         private VisualElement HandStrip(bool selectable)
         {
+            var wrap = new VisualElement();
+
+            if (selectable && S.Deck.Hand.Count > 2)
+            {
+                var sortRow = Row();
+                sortRow.style.flexWrap = Wrap.NoWrap;
+                sortRow.style.justifyContent = Justify.Center;
+
+                void SortLink(string text, Comparison<int> by)
+                {
+                    var l = Theme.Subtle(text);
+                    l.style.marginRight = 10;
+                    l.style.color = Theme.GoldDim;
+                    l.RegisterCallback<MouseEnterEvent>(_ => l.style.color = Theme.GoldBright);
+                    l.RegisterCallback<MouseLeaveEvent>(_ => l.style.color = Theme.GoldDim);
+                    l.RegisterCallback<ClickEvent>(_ =>
+                    {
+                        Sfx.Play(Sfx.Sound.Tick, 0.7f);
+                        S.Deck.Hand.Sort(by);
+                        Render();
+                    });
+                    sortRow.Add(l);
+                }
+
+                SortLink("sort ♠♥♦♣", (x, y) =>
+                {
+                    var fx = S.Cards.Get(x).EffectiveFace();
+                    var fy = S.Cards.Get(y).EffectiveFace();
+                    return fx.Suit != fy.Suit ? fx.Suit.CompareTo(fy.Suit) : fx.Rank.CompareTo(fy.Rank);
+                });
+                SortLink("sort 1→10", (x, y) =>
+                {
+                    int vx = S.Cards.Get(x).EffectiveValue(), vy = S.Cards.Get(y).EffectiveValue();
+                    return vx != vy ? vx.CompareTo(vy)
+                        : S.Cards.Get(x).EffectiveFace().Suit.CompareTo(S.Cards.Get(y).EffectiveFace().Suit);
+                });
+                wrap.Add(sortRow);
+            }
+
             var row = new VisualElement();
             row.name = "fx-hand"; // FX hook: counterattacks rattle the hand
             row.style.flexDirection = FlexDirection.Row;
@@ -457,9 +500,11 @@ namespace Regicide.Unity
             for (int i = 0; i < hand.Count; i++)
             {
                 int captured = hand[i];
+                bool wasDrag = false;
                 var card = CardView.Card(S.Cards.Get(captured), CardView.Size.Hand,
                     onClick: !selectable ? (Action)null : () =>
                     {
+                        if (wasDrag) { wasDrag = false; return; } // a drop is not a pick
                         if (!_sel.Remove(captured)) _sel.Add(captured);
                         Sfx.Play(Sfx.Sound.Tick, 0.8f);
                         Render();
@@ -467,6 +512,8 @@ namespace Regicide.Unity
                     selected: _sel.Contains(captured));
                 card.name = "card-" + captured; // FX hook: drawn cards pop in by name
                 CardView.Fan(card, i, hand.Count);
+
+                if (selectable) EnableHandDrag(card, captured, row, () => wasDrag = true);
                 row.Add(card);
             }
             if (hand.Count == 0)
@@ -475,7 +522,57 @@ namespace Regicide.Unity
                 empty.style.color = Theme.Grey;
                 row.Add(empty);
             }
-            return row;
+            wrap.Add(row);
+            return wrap;
+        }
+
+        /// <summary>Pointer-drag a hand card horizontally to reorder it in the fan.</summary>
+        private void EnableHandDrag(VisualElement card, int physicalId, VisualElement fanRow, Action markDragged)
+        {
+            Vector2 start = default;
+            bool held = false, dragging = false;
+
+            card.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                held = true; dragging = false;
+                start = evt.position;
+                card.CapturePointer(evt.pointerId);
+            });
+            card.RegisterCallback<PointerMoveEvent>(evt =>
+            {
+                if (!held) return;
+                Vector2 delta = (Vector2)evt.position - start;
+                if (!dragging && Mathf.Abs(delta.x) > 14f)
+                {
+                    dragging = true;
+                    markDragged();
+                    card.BringToFront();
+                }
+                if (dragging)
+                    card.style.translate = new Translate(delta.x, -24);
+            });
+            card.RegisterCallback<PointerUpEvent>(evt =>
+            {
+                if (card.HasPointerCapture(evt.pointerId)) card.ReleasePointer(evt.pointerId);
+                if (!held) return;
+                held = false;
+                if (!dragging) return;
+                dragging = false;
+
+                // New index = how many OTHER cards sit left of the dropped centre.
+                float x = card.worldBound.center.x;
+                int newIndex = 0;
+                foreach (var sibling in fanRow.Children())
+                    if (sibling != card && sibling.name != null && sibling.name.StartsWith("card-") &&
+                        sibling.worldBound.center.x < x)
+                        newIndex++;
+
+                var handList = S.Deck.Hand;
+                handList.Remove(physicalId);
+                handList.Insert(Mathf.Clamp(newIndex, 0, handList.Count), physicalId);
+                Sfx.Play(Sfx.Sound.Whoosh, 0.5f);
+                Render();
+            });
         }
 
         /// <summary>One quiet line of counts; the pile names are the viewers.</summary>

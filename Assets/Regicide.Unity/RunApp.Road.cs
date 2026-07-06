@@ -71,13 +71,13 @@ namespace Regicide.Unity
             hint.style.marginBottom = 6;
             frame.Add(hint);
 
-            var scroll = new ScrollView(ScrollViewMode.Horizontal);
-            scroll.style.flexGrow = 1;
-
             // The body holds the layer columns AND the edge canvas drawn over them.
+            // No scroll view: the columns spread across whatever width the window
+            // gives, so the map fills the screen and scales with resizes.
             var body = new VisualElement();
             body.style.flexDirection = FlexDirection.Row;
-            body.style.alignItems = Align.Center;
+            body.style.justifyContent = Justify.SpaceEvenly;
+            body.style.alignItems = Align.Stretch;
             body.style.flexGrow = 1;
             Theme.SetPadding(body, 14, 14);
 
@@ -87,8 +87,7 @@ namespace Regicide.Unity
             foreach (var layer in S.Map.Nodes.GroupBy(n => n.Layer).OrderBy(g => g.Key))
             {
                 var column = new VisualElement();
-                column.style.justifyContent = Justify.Center;
-                column.style.marginRight = 42;
+                column.style.justifyContent = Justify.SpaceEvenly; // spread forks vertically too
                 foreach (var node in layer)
                 {
                     int captured = node.Id;
@@ -107,10 +106,12 @@ namespace Regicide.Unity
                 foreach (int next in node.Next)
                     if (discs.TryGetValue(node.Id, out var from) && discs.TryGetValue(next, out var to))
                         edges.Add((from, to, node.Id == current.Id && current.Next.Contains(next)));
-            body.Add(Widgets.EdgeCanvas(edges));
+            var canvas = Widgets.EdgeCanvas(edges);
+            body.Add(canvas);
+            // The window is resizable — redraw the roads whenever the map reflows.
+            body.RegisterCallback<GeometryChangedEvent>(_ => canvas.MarkDirtyRepaint());
 
-            scroll.Add(body);
-            frame.Add(scroll);
+            frame.Add(body);
             return frame;
         }
 
@@ -189,39 +190,61 @@ namespace Regicide.Unity
 
         private VisualElement RelicPanel()
         {
+            // Diablo-style paper-doll: four sockets in a row, each showing a grey
+            // silhouette of what belongs there until something gold fills it.
             var panel = Theme.Frame("Relics — four slots + Staff");
+            var doll = Row();
+            doll.style.flexWrap = Wrap.NoWrap;
+            doll.style.justifyContent = Justify.Center;
+            doll.style.alignItems = Align.FlexStart;
             foreach (RelicSlot slot in new[] { RelicSlot.Hat, RelicSlot.Amulet, RelicSlot.Ring, RelicSlot.Cloak })
             {
                 string id = S.EquippedRelics[(int)slot];
-                var entry = new VisualElement();
-                entry.style.backgroundColor = Theme.NightDeep;
-                Theme.SetBorder(entry, id != null ? Theme.GoldDim : new Color(0.3f, 0.28f, 0.36f), 1);
-                Theme.SetRadius(entry, 6);
-                Theme.SetPadding(entry, 4, 8);
-                entry.style.marginBottom = 4;
+                bool filled = id != null;
 
-                var head = Row();
+                var col = new VisualElement();
+                col.style.alignItems = Align.Center;
+                col.style.flexGrow = 1;
+                col.style.flexBasis = 0;
+                col.style.marginLeft = 3;
+                col.style.marginRight = 3;
+
+                col.Add(Widgets.RelicSlotIcon(slot, filled));
+
                 var slotLabel = new Label(slot.ToString().ToUpperInvariant());
                 slotLabel.style.fontSize = 9;
                 slotLabel.style.letterSpacing = 2;
-                slotLabel.style.color = Theme.Gold;
-                slotLabel.style.marginRight = 6;
-                head.Add(slotLabel);
-                var name = new Label(id != null ? RelicTables.Get(id).Name : "(empty)");
-                name.style.unityFontStyleAndWeight = FontStyle.Bold;
-                name.style.color = id != null ? Theme.Parchment : Theme.Grey;
-                head.Add(name);
-                entry.Add(head);
+                slotLabel.style.marginTop = 3;
+                slotLabel.style.color = filled ? Theme.Gold : Theme.Grey;
+                col.Add(slotLabel);
 
-                if (id != null)
+                if (filled)
                 {
-                    var rules = Text(ContentText.RelicRules[id]);
-                    rules.style.fontSize = 10;
+                    var name = new Label(RelicTables.Get(id).Name);
+                    name.style.unityFontStyleAndWeight = FontStyle.Bold;
+                    name.style.fontSize = 11;
+                    name.style.color = Theme.GoldBright;
+                    name.style.unityTextAlign = TextAnchor.UpperCenter;
+                    name.style.whiteSpace = WhiteSpace.Normal;
+                    col.Add(name);
+
+                    var rules = new Label(ContentText.RelicRules[id]);
+                    rules.style.fontSize = 9;
                     rules.style.color = Theme.ParchmentDim;
-                    entry.Add(rules);
+                    rules.style.unityTextAlign = TextAnchor.UpperCenter;
+                    rules.style.whiteSpace = WhiteSpace.Normal;
+                    col.Add(rules);
                 }
-                panel.Add(entry);
+                else
+                {
+                    var empty = new Label("empty");
+                    empty.style.fontSize = 9;
+                    empty.style.color = Theme.Grey;
+                    col.Add(empty);
+                }
+                doll.Add(col);
             }
+            panel.Add(doll);
 
             if (S.RelicBag.Count > 0)
             {

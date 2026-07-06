@@ -152,7 +152,17 @@ namespace Regicide.Unity
             return screen;
         }
 
-        /// <summary>The enemy as a big card with HP/intent, plus the duel queue.</summary>
+        // Large-card footprint (CardView.Size.Large) and the queue fan step.
+        private const float EnemyCardW = 150f;
+        private const float EnemyCardH = 210f;
+        private const float QueueStep = 16f;
+
+        /// <summary>
+        /// The enemy zone: upcoming duellists stacked greyed BEHIND the current
+        /// card (a visible queue), with diegetic readouts instead of a stats box —
+        /// HP bar under the card, an intent plaque hanging at its right, a shield
+        /// chip on its left edge, and a slashed-suit immunity badge on its corner.
+        /// </summary>
         private VisualElement EnemyZone(EncounterState enc, EnemyState enemy)
         {
             var zone = new VisualElement();
@@ -162,68 +172,178 @@ namespace Regicide.Unity
 
             if (enemy == null) return zone;
 
-            if (enc.Enemies.Count > 1)
+            // Flavor caption in small caps above the stack.
+            string flavor = enemy.Tier.ToString().ToUpperInvariant() +
+                            (enc.Enemies.Count > 1
+                                ? $" · DUEL {enc.CurrentIndex + 1} OF {enc.Enemies.Count}"
+                                : "");
+            var caption = new Label(flavor);
+            caption.style.color = Theme.ParchmentDim;
+            caption.style.fontSize = 11;
+            caption.style.letterSpacing = 2;
+            caption.style.marginBottom = 8;
+            zone.Add(caption);
+
+            var upcoming = enc.Enemies
+                .Where((e, i) => i > enc.CurrentIndex && e.Alive)
+                .ToList();
+            bool scouted = S.HasRelic("scout_ahead");
+
+            // The stack: back-to-front so the current card draws on top.
+            var stack = new VisualElement();
+            stack.style.width = EnemyCardW + upcoming.Count * QueueStep;
+            stack.style.height = EnemyCardH + upcoming.Count * QueueStep;
+
+            for (int j = upcoming.Count - 1; j >= 0; j--)
             {
-                var caption = new Label($"duel {enc.CurrentIndex + 1} of {enc.Enemies.Count} — {enemy.Tier}");
-                caption.style.color = Theme.ParchmentDim;
-                caption.style.fontSize = 12;
-                caption.style.marginBottom = 4;
-                zone.Add(caption);
-            }
-            else
-            {
-                var caption = new Label(enemy.Tier.ToString());
-                caption.style.color = Theme.Grey;
-                caption.style.fontSize = 12;
-                caption.style.marginBottom = 4;
-                zone.Add(caption);
+                var waiting = scouted
+                    ? CardView.Face(upcoming[j].Face, CardView.Size.Large)
+                    : CardView.Back(CardView.Size.Large);
+                waiting.pickingMode = PickingMode.Ignore;
+                waiting.style.position = Position.Absolute;
+                waiting.style.left = (j + 1) * QueueStep;
+                waiting.style.top = (upcoming.Count - (j + 1)) * QueueStep;
+                waiting.style.scale = new Scale(Vector3.one * (1f - 0.07f * (j + 1)));
+                waiting.style.opacity = 0.5f;
+
+                // A night shroud so the queue reads as waiting, not fighting.
+                var shroud = new VisualElement();
+                shroud.pickingMode = PickingMode.Ignore;
+                shroud.style.position = Position.Absolute;
+                shroud.style.left = 0; shroud.style.right = 0;
+                shroud.style.top = 0; shroud.style.bottom = 0;
+                shroud.style.backgroundColor = new Color(Theme.Night.r, Theme.Night.g, Theme.Night.b, 0.45f);
+                Theme.SetRadius(shroud, 12);
+                waiting.Add(shroud);
+
+                stack.Add(waiting);
             }
 
             var enemyCard = CardView.Face(enemy.Face, CardView.Size.Large);
-            enemyCard.name = "fx-enemy"; // FX hook: damage floats and shakes anchor here
-            zone.Add(enemyCard);
+            enemyCard.name = "fx-enemy"; // FX hook: damage floats, shakes and lunges anchor here
+            enemyCard.style.position = Position.Absolute;
+            enemyCard.style.left = 0;
+            enemyCard.style.top = upcoming.Count * QueueStep;
+            AttachReadouts(enemyCard, enemy);
+            stack.Add(enemyCard);
+            zone.Add(stack);
 
-            var stats = Widgets.EnemyStatus(enemy);
-            stats.style.marginTop = 8;
-            zone.Add(stats);
+            // HP directly under the current card, exactly its width — no frame box.
+            var hp = Theme.Bar(enemy.MaxHp > 0 ? enemy.Hp / (float)enemy.MaxHp : 0f,
+                $"{enemy.Hp} / {enemy.MaxHp}", Theme.RedBright, EnemyCardW, 14);
+            hp.style.marginTop = 6;
+            // Centre it under the current card, not under the whole stack.
+            hp.style.translate = new Translate(-(upcoming.Count * QueueStep) / 2f, 0);
+            zone.Add(hp);
 
-            // The queue: fallen royals greyed, the rest scouted or face-down (§8 Scout Ahead).
-            var upcoming = enc.Enemies
-                .Select((e, i) => (e, i))
-                .Where(t => t.i > enc.CurrentIndex)
-                .ToList();
-            if (upcoming.Count > 0)
-            {
-                bool scouted = S.HasRelic("scout_ahead");
-                var queueTitle = new Label(scouted ? "scouted — waiting in line" : "waiting in line");
-                queueTitle.style.fontSize = 10;
-                queueTitle.style.color = Theme.Grey;
-                queueTitle.style.marginTop = 12;
-                zone.Add(queueTitle);
-
-                var queue = Row();
-                queue.style.justifyContent = Justify.Center;
-                foreach (var (e, _) in upcoming)
-                {
-                    if (scouted)
-                    {
-                        var wrap = new VisualElement();
-                        wrap.style.alignItems = Align.Center;
-                        wrap.Add(CardView.Face(e.Face, CardView.Size.Small));
-                        var imm = new Label($"immune {PhysicalCard.SuitGlyph(e.Suit)}");
-                        imm.style.fontSize = 9;
-                        imm.style.color = Theme.Grey;
-                        wrap.Add(imm);
-                        queue.Add(wrap);
-                    }
-                    else
-                    {
-                        queue.Add(CardView.Back(CardView.Size.Small));
-                    }
-                }
-                zone.Add(queue);
-            }
             return zone;
+        }
+
+        /// <summary>Intent plaque, shield chip and immunity badge, pinned to the card.</summary>
+        private static void AttachReadouts(VisualElement card, EnemyState enemy)
+        {
+            int net = Math.Max(0, enemy.Attack - enemy.Shield);
+
+            // ── attack intent: a plaque hanging off the card's right side ──
+            var plaque = new VisualElement();
+            plaque.pickingMode = PickingMode.Ignore;
+            plaque.style.position = Position.Absolute;
+            plaque.style.right = -78;
+            plaque.style.top = EnemyCardH / 2f - 32;
+            plaque.style.backgroundColor = new Color(Theme.NightDeep.r, Theme.NightDeep.g, Theme.NightDeep.b, 0.94f);
+            Theme.SetBorder(plaque, net == 0 ? Theme.Shield : Theme.RedBright, 1.5f);
+            Theme.SetRadius(plaque, 10);
+            Theme.SetPadding(plaque, 6, 12);
+            plaque.style.alignItems = Align.Center;
+
+            if (net == 0)
+            {
+                var blanked = new Label("⛨");
+                blanked.style.fontSize = 20;
+                blanked.style.color = Theme.Shield;
+                plaque.Add(blanked);
+                var word = new Label("blanked");
+                word.style.fontSize = 10;
+                word.style.color = Theme.Shield;
+                plaque.Add(word);
+            }
+            else
+            {
+                if (enemy.Shield > 0)
+                {
+                    // The base attack, struck through — the shield already ate the rest.
+                    var basewrap = new VisualElement();
+                    var baseLbl = new Label($"⚔ {enemy.Attack}");
+                    baseLbl.style.fontSize = 11;
+                    baseLbl.style.color = Theme.Grey;
+                    basewrap.Add(baseLbl);
+                    var strike = new VisualElement();
+                    strike.pickingMode = PickingMode.Ignore;
+                    strike.style.position = Position.Absolute;
+                    strike.style.left = -2; strike.style.right = -2;
+                    strike.style.top = 7; strike.style.height = 1.5f;
+                    strike.style.backgroundColor = new Color(Theme.RedBright.r, Theme.RedBright.g, Theme.RedBright.b, 0.85f);
+                    basewrap.Add(strike);
+                    plaque.Add(basewrap);
+                }
+                var hit = new Label($"⚔ {net}");
+                hit.style.fontSize = 24;
+                hit.style.unityFontStyleAndWeight = FontStyle.Bold;
+                hit.style.color = Theme.RedBright;
+                plaque.Add(hit);
+            }
+            card.Add(plaque);
+
+            // ── shield: a blue chip on the card's left edge ──
+            if (enemy.Shield > 0)
+            {
+                var sh = Theme.Chip($"⛨ {enemy.Shield}", Theme.Shield);
+                sh.style.position = Position.Absolute;
+                sh.style.left = -22;
+                sh.style.top = EnemyCardH / 2f - 10;
+                sh.pickingMode = PickingMode.Ignore;
+                card.Add(sh);
+            }
+
+            // ── immunity: the suit, slashed, riding the top-right corner ──
+            if (enemy.ImmuneSuit is Suit imm)
+            {
+                var badge = new VisualElement();
+                badge.pickingMode = PickingMode.Ignore;
+                badge.style.position = Position.Absolute;
+                badge.style.top = -14; badge.style.right = -16;
+                badge.style.alignItems = Align.Center;
+
+                var disc = new VisualElement();
+                disc.style.width = 34; disc.style.height = 34;
+                Theme.SetRadius(disc, 17);
+                disc.style.backgroundColor = Theme.Parchment;
+                Theme.SetBorder(disc, Theme.Ink, 1.5f);
+                disc.style.alignItems = Align.Center;
+                disc.style.justifyContent = Justify.Center;
+                disc.style.overflow = Overflow.Hidden;
+
+                var glyph = new Label(PhysicalCard.SuitGlyph(imm));
+                glyph.style.fontSize = 18 * CardView.GlyphScale(imm);
+                glyph.style.color = CardView.SuitColor(imm);
+                disc.Add(glyph);
+
+                var slash = new VisualElement();
+                slash.pickingMode = PickingMode.Ignore;
+                slash.style.position = Position.Absolute;
+                slash.style.left = -6; slash.style.right = -6;
+                slash.style.top = 15; slash.style.height = 3.5f;
+                slash.style.backgroundColor = Theme.RedBright;
+                slash.style.rotate = new Rotate(-45);
+                disc.Add(slash);
+
+                badge.Add(disc);
+                var cap = new Label("immune");
+                cap.style.fontSize = 8;
+                cap.style.color = Theme.ParchmentDim;
+                badge.Add(cap);
+                card.Add(badge);
+            }
         }
 
         /// <summary>Every primed one-shot effect, visible at a glance.</summary>
