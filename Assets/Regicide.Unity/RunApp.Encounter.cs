@@ -66,14 +66,24 @@ namespace Regicide.Unity
             var table = new VisualElement();
             table.style.flexShrink = 0;
 
+            // Live legality: Core's ValidatePlay previews EXACTLY what a dispatch
+            // would say, so the player learns why a combo is illegal before clicking.
+            string invalid = _sel.Count > 0 ? _session.ValidatePlay(_sel.ToList()) : null;
+
             var status = Row();
             status.style.justifyContent = Justify.Center;
             int selValue = _sel.Sum(id => S.Cards.Get(id).EffectiveValue());
             if (_sel.Count > 0)
-                status.Add(Theme.Chip($"selected {_sel.Count} card(s) · value {selValue}", Theme.GoldBright));
+            {
+                status.Add(Theme.Chip($"selected {_sel.Count} card(s) · value {selValue}",
+                    invalid == null ? Theme.GoldBright : Theme.Grey));
+                status.Add(invalid == null
+                    ? Theme.Chip("✓ legal play", Theme.Green)
+                    : Theme.Chip("✗ " + invalid, Theme.RedBright));
+            }
             else
             {
-                var hint = new Label("select cards, then play — or yield and take the counterattack");
+                var hint = new Label("legal plays: 1 card · an Ace + one card · a same-rank set totalling ≤ 10 — or yield");
                 hint.style.fontSize = 11;
                 hint.style.color = Theme.Grey;
                 status.Add(hint);
@@ -86,7 +96,7 @@ namespace Regicide.Unity
             actions.style.justifyContent = Justify.Center;
             actions.style.marginTop = 4;
             actions.Add(BtnPrimary($"Play selected ({_sel.Count})",
-                () => Dispatch(new PlayCards(_sel.ToList())), _sel.Count > 0));
+                () => Dispatch(new PlayCards(_sel.ToList())), _sel.Count > 0 && invalid == null));
             actions.Add(Btn("Yield", () => Dispatch(new Yield())));
             table.Add(actions);
 

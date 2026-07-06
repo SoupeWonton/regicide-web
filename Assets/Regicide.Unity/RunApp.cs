@@ -48,10 +48,16 @@ namespace Regicide.Unity
 
         private CampaignState S => _session != null ? _session.State : null;
 
+        // Card-flight snapshots: taken at dispatch time, flown on the FX layer after.
+        private readonly List<(Rect from, CardFace face)> _flights = new List<(Rect, CardFace)>();
+        private Rect _flightTarget;
+        private bool _flightsDown; // defend pays sink instead of striking
+
         private void Start()
         {
             _metaPath = System.IO.Path.Combine(Application.persistentDataPath, "lineage.json");
             _meta = MetaState.LoadFrom(_metaPath);
+            Sfx.Init(gameObject);
 
             var doc = GetComponent<UIDocument>();
             if (doc == null) doc = gameObject.AddComponent<UIDocument>();
@@ -68,6 +74,7 @@ namespace Regicide.Unity
 
         private void Dispatch(IAction action)
         {
+            SnapshotFlights(action);
             var r = _session.Dispatch(action);
             if (!r.Ok)
             {
@@ -91,8 +98,98 @@ namespace Regicide.Unity
             _root.schedule.Execute(() => PlayFx(r)).ExecuteLater(35);
         }
 
+        /// <summary>
+        /// Before the state changes: remember where the spent cards sit on screen
+        /// and where they are headed, so their ghosts can fly after the re-render.
+        /// </summary>
+        private void SnapshotFlights(IAction action)
+        {
+            _flights.Clear();
+            List<int> ids = action switch
+            {
+                PlayCards p => p.PhysicalIds,
+                DefendDiscard dd when S?.PendingChoice?.Kind == PendingChoiceKind.Defend => dd.PhysicalIds,
+                _ => null,
+            };
+            if (ids == null || S == null) return;
+
+            _flightsDown = action is DefendDiscard;
+            var target = _root?.Q<VisualElement>("fx-enemy");
+            _flightTarget = target != null && target.panel != null ? target.worldBound : default;
+
+            foreach (int id in ids)
+            {
+                var el = _root?.Q<VisualElement>("card-" + id);
+                if (el == null || el.panel == null || !S.Cards.TryGet(id, out var card)) continue;
+                _flights.Add((el.worldBound, card.EffectiveFace()));
+            }
+        }
+
+        /// <summary>Fly the snapshotted card ghosts (hand → enemy, or down into the discard).</summary>
+        private void FlyFlights()
+        {
+            if (_flights.Count == 0 || _fxLayer == null || _fxLayer.panel == null) return;
+            Sfx.Play(Sfx.Sound.Whoosh);
+
+            Vector2 to = _flightsDown || _flightTarget == default
+                ? new Vector2(_fxLayer.worldBound.xMax - 120, _fxLayer.worldBound.yMax - 60)
+                : _flightTarget.center;
+            to = _fxLayer.WorldToLocal(to);
+
+            for (int i = 0; i < _flights.Count; i++)
+            {
+                var (fromWorld, face) = _flights[i];
+                var ghost = CardView.Face(face, CardView.Size.Small);
+                ghost.pickingMode = PickingMode.Ignore;
+                ghost.style.position = Position.Absolute;
+                var from = _fxLayer.WorldToLocal(fromWorld.center);
+                ghost.style.left = from.x - 36;
+                ghost.style.top = from.y - 50;
+                _fxLayer.Add(ghost);
+
+                var g = ghost;
+                Vector2 delta = to - from;
+                _fxLayer.schedule.Execute(() =>
+                    g.experimental.animation.Start(0f, 1f, 240, (el, t) =>
+                    {
+                        float e2 = 1f - (1f - t) * (1f - t);
+                        el.style.translate = new Translate(delta.x * e2, delta.y * e2 - 30f * Mathf.Sin(Mathf.PI * e2));
+                        el.style.scale = new Scale(Vector3.one * (1f - 0.45f * e2));
+                        el.style.opacity = 1f - 0.7f * t * t;
+                    })).ExecuteLater(i * 50);
+                _fxLayer.schedule.Execute(() => g.RemoveFromHierarchy()).ExecuteLater(300 + i * 50);
+            }
+            _flights.Clear();
+        }
+
         /// <summary>Trigger feedback (§10): map the dispatch's events onto the FX layer.</summary>
         private void PlayFx(Result r)
+        {
+            if (_fxLayer == null || _fxLayer.panel == null) return;
+
+            if (!r.Ok)
+            {
+                _flights.Clear();
+                Sfx.Play(Sfx.Sound.Error);
+                Fx.Float(_fxLayer, null, "✗ " + r.Error, Theme.RedBright, 16);
+                return;
+            }
+
+            // Spent cards fly first; the consequences land as the ghosts arrive.
+            bool flew = _flights.Count > 0;
+            FlyFlights();
+            if (flew)
+            {
+                var captured = r;
+                _fxLayer.schedule.Execute(() => PlayEventFx(captured)).ExecuteLater(230);
+            }
+            else
+            {
+                PlayEventFx(r);
+            }
+        }
+
+        private void PlayEventFx(Result r)
         {
             if (_fxLayer == null || _fxLayer.panel == null) return;
             var enemy = _root.Q<VisualElement>("fx-enemy");
@@ -102,29 +199,27 @@ namespace Regicide.Unity
                 if (slot < 5) Fx.Toast(_fxLayer, text, tint, slot++);
             }
 
-            if (!r.Ok)
-            {
-                Fx.Float(_fxLayer, null, "✗ " + r.Error, Theme.RedBright, 16);
-                return;
-            }
-
             foreach (var e in r.Events)
             {
                 switch (e)
                 {
                     case DamageDealt d:
+                        Sfx.Play(Sfx.Sound.Impact);
                         Fx.Float(_fxLayer, enemy, "-" + d.Amount,
                             d.Doubled ? Theme.GoldBright : Theme.RedBright, d.Doubled ? 34 : 28);
                         Fx.Shake(enemy);
                         break;
                     case ShieldGained sg:
+                        Sfx.Play(Sfx.Sound.Shield, 0.7f);
                         Fx.Float(_fxLayer, enemy, "+" + sg.Amount + " ⛨", Theme.Shield, 20, 52);
                         break;
                     case CardsDrawn cd:
+                        Sfx.Play(Sfx.Sound.Draw, 0.7f);
                         for (int i = 0; i < cd.PhysicalIds.Count; i++)
                             Fx.PopIn(_root.Q<VisualElement>("card-" + cd.PhysicalIds[i]), i * 60);
                         break;
                     case EnemyKilled k:
+                        Sfx.Play(k.Kind == KillKind.Exact ? Sfx.Sound.Exact : Sfx.Sound.Overkill);
                         Toast(k.Kind == KillKind.Exact
                                 ? $"EXACT KILL — {PhysicalCard.Pretty(k.Face)}"
                                 : $"{PhysicalCard.Pretty(k.Face)} overkilled — no spoils",
@@ -143,31 +238,39 @@ namespace Regicide.Unity
                         Toast($"{PhysicalCard.Pretty(rl.Face)} is left behind", Theme.Grey);
                         break;
                     case FragmentDropped _:
+                        Sfx.Play(Sfx.Sound.Coin, 0.8f);
                         Toast("+1 spell fragment", Theme.Gold);
                         break;
                     case HalfForged _:
+                        Sfx.Play(Sfx.Sound.Coin);
                         Toast("A Half is forged", Theme.GoldBright);
                         break;
                     case SpellCast sc:
+                        Sfx.Play(Sfx.Sound.Spell);
                         Toast($"CAST — {SpellTables.Name(sc.Suit, sc.Tier)}", Theme.Blue);
                         break;
                     case RelicGained rg:
+                        Sfx.Play(Sfx.Sound.Coin);
                         Toast($"Relic claimed: {RelicTables.Get(rg.RelicId).Name}", Theme.Gold);
                         break;
                     case StaffTriggered st:
                         Toast($"Staff — {st.Note}", Theme.ParchmentDim);
                         break;
                     case CounterattackIncoming ci:
+                        Sfx.Play(Sfx.Sound.Counter);
                         Fx.Float(_fxLayer, null, $"COUNTER {ci.NetAttack}", Theme.RedBright, 30);
                         Fx.Flash(_fxLayer, Theme.RedDeep, 260);
                         break;
                     case CounterattackBlocked _:
+                        Sfx.Play(Sfx.Sound.Shield);
                         Fx.Float(_fxLayer, enemy, "BLOCKED", Theme.Shield, 24);
                         break;
                     case PlayerDied _:
+                        Sfx.Play(Sfx.Sound.Death);
                         Fx.Flash(_fxLayer, Theme.RedDeep, 1000);
                         break;
                     case CampaignWonEvent _:
+                        Sfx.Play(Sfx.Sound.Crown);
                         Fx.Flash(_fxLayer, Theme.Gold, 1000);
                         break;
                     case ChapterCompleted _:
@@ -317,6 +420,7 @@ namespace Regicide.Unity
                     onClick: !selectable ? (Action)null : () =>
                     {
                         if (!_sel.Remove(captured)) _sel.Add(captured);
+                        Sfx.Play(Sfx.Sound.Tick, 0.8f);
                         Render();
                     },
                     selected: _sel.Contains(captured));

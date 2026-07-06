@@ -240,20 +240,33 @@ namespace Regicide.Core
 
         // ── combat: play / yield ────────────────────────────────────────────────
 
-        private Result HandlePlayCards(PlayCards a)
+        /// <summary>
+        /// Would this play be legal RIGHT NOW? Pure query — mutates nothing, returns
+        /// the exact rejection HandlePlayCards would give, or null when legal. The
+        /// UI uses it to explain illegal combos before the player clicks (§16).
+        /// </summary>
+        public string ValidatePlay(List<int> physicalIds)
         {
             string gate = ValidateCombatActionAllowed();
-            if (gate != null) return Result.Fail(gate);
+            if (gate != null) return gate;
+
+            if (physicalIds == null || physicalIds.Count == 0) return "No cards selected (use Yield to pass)";
+            if (physicalIds.Distinct().Count() != physicalIds.Count) return "Duplicate card in play";
+            foreach (int id in physicalIds)
+                if (!State.Deck.Hand.Contains(id)) return $"Card #{id} is not in hand";
+
+            var cards = physicalIds.Select(id => State.Cards.Get(id)).ToList();
+            return ValidateCombo(cards, out _);
+        }
+
+        private Result HandlePlayCards(PlayCards a)
+        {
+            string invalid = ValidatePlay(a.PhysicalIds);
+            if (invalid != null) return Result.Fail(invalid);
 
             var ids = a.PhysicalIds;
-            if (ids == null || ids.Count == 0) return Result.Fail("No cards selected (use Yield to pass)");
-            if (ids.Distinct().Count() != ids.Count) return Result.Fail("Duplicate card in play");
-            foreach (int id in ids)
-                if (!State.Deck.Hand.Contains(id)) return Result.Fail($"Card #{id} is not in hand");
-
             var cards = ids.Select(id => State.Cards.Get(id)).ToList();
-            string comboError = ValidateCombo(cards, out bool usedCommit);
-            if (comboError != null) return Result.Fail(comboError);
+            ValidateCombo(cards, out bool usedCommit); // re-derive which allowance the play uses
 
             // ── validated; mutate from here ──
             var events = new List<GameEvent>();

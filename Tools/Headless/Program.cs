@@ -95,6 +95,7 @@ namespace Regicide.Headless
             Run("relics: bloodlust, echo, lodestone", TestAmuletsTwo);
             Run("sanctum: move a graft once per visit; shrine blessing", TestSanctumShrine);
             Run("meta/lineage: outcomes banked, JSON round-trip, corrupt-safe", TestMeta);
+            Run("ValidatePlay: pure legality preview matches dispatch", TestValidatePlay);
 
             Console.WriteLine();
             if (_failures.Count == 0)
@@ -2052,6 +2053,38 @@ namespace Regicide.Headless
                 if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
             }
             Check(MetaState.LoadFrom("Z:\\no\\such\\dir\\meta.json").Runs == 0, "a missing file yields a fresh lineage");
+        }
+
+        // ── ValidatePlay (UI legality preview) ──────────────────────────────────
+
+        private static void TestValidatePlay()
+        {
+            var s2 = NewRun("preview");
+            Fight(s2, EnemyState.Number(Suit.Hearts, Rank.Ten, EnemyTier.Veteran)); // atk 6 — payable
+            ClearHand(s2);
+            var c6a = Give(s2, Suit.Clubs, Rank.Six);
+            var c6b = Give(s2, Suit.Spades, Rank.Six);
+            var c3 = Give(s2, Suit.Hearts, Rank.Three);
+
+            Check(s2.ValidatePlay(new List<int> { c3.PhysicalId }) == null, "single card previews legal");
+            Check(s2.ValidatePlay(new List<int> { c6a.PhysicalId, c6b.PhysicalId }) != null,
+                "6+6=12 previews illegal");
+            Check(s2.ValidatePlay(new List<int> { c6a.PhysicalId, c3.PhysicalId }) != null,
+                "mixed ranks preview illegal");
+            Check(s2.ValidatePlay(new List<int>()) != null, "empty selection previews illegal");
+            Check(s2.ValidatePlay(new List<int> { 9999 }) != null, "unknown card previews illegal");
+
+            // The preview mutates nothing and matches the dispatch verdict exactly.
+            uint rng = s2.State.RngState;
+            var handBefore = s2.State.Deck.Hand.ToList();
+            string preview = s2.ValidatePlay(new List<int> { c6a.PhysicalId, c6b.PhysicalId });
+            Check(s2.State.RngState == rng && s2.State.Deck.Hand.SequenceEqual(handBefore),
+                "preview is a pure query");
+            var r = s2.Dispatch(new PlayCards(c6a.PhysicalId, c6b.PhysicalId));
+            Check(!r.Ok && r.Error == preview, "dispatch rejects with the same message");
+            Check(s2.ValidatePlay(new List<int> { c3.PhysicalId }) == null &&
+                  Must(s2.Dispatch(new PlayCards(c3.PhysicalId))).Ok, "legal preview → legal play");
+            Must(s2.Dispatch(new DefendDiscard(s2.State.Deck.Hand.ToList())));
         }
 
         // ── demo: a full scripted fight, played back like the UI would ─────────

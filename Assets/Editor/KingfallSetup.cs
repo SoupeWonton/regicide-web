@@ -71,6 +71,15 @@ namespace Kingfall.EditorTools
         public static void BuildWindows()
         {
             CreateRunScene();
+
+            // A desktop app, not a kiosk: windowed by default, freely resizable,
+            // fullscreen still available (Alt+Enter). UI Toolkit flex reflows.
+            PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
+            PlayerSettings.defaultScreenWidth = 1600;
+            PlayerSettings.defaultScreenHeight = 900;
+            PlayerSettings.resizableWindow = true;
+            PlayerSettings.allowFullscreenSwitch = true;
+            PlayerSettings.runInBackground = true;
             var report = BuildPipeline.BuildPlayer(
                 new[] { ScenePath },
                 "Builds/Windows/Kingfall.exe",
