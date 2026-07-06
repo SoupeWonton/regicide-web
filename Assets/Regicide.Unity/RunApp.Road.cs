@@ -10,8 +10,14 @@ namespace Regicide.Unity
     {
         // ── road screen (§16): the StS-style map, side panels, hand fan ─────────
 
+        /// <summary>Caravan overlay dismissed by "Walk away" — resets when the offer clears.</summary>
+        private bool _caravanDismissed;
+
         private VisualElement BuildRoad()
         {
+            if (S.CaravanOffer == null) _caravanDismissed = false;
+            bool caravanOpen = S.CaravanOffer != null && !_caravanDismissed;
+
             var v = new VisualElement();
             v.style.flexGrow = 1;
             Theme.SetPadding(v, 8, 12);
@@ -25,20 +31,30 @@ namespace Regicide.Unity
             mid.Add(RoadSidePanels());
             v.Add(mid);
 
-            // The hand rides along the bottom; selectable only while a payment
-            // flow (the caravan) reads the selection.
-            bool paying = S.CaravanOffer != null;
-            var handWrap = new VisualElement();
-            handWrap.style.alignItems = Align.Center;
-            if (paying)
+            // The hand rides along the bottom (payment happens inside the caravan
+            // overlay now, so the bottom fan is view-only and hides under it).
+            if (!caravanOpen)
             {
-                var hint = new Label("Select cards to pay the caravan");
-                hint.style.color = Theme.GoldBright;
-                hint.style.fontSize = 12;
-                handWrap.Add(hint);
+                var handWrap = new VisualElement();
+                handWrap.style.alignItems = Align.Center;
+
+                // Campfire warmth lingers visibly until the next fight spends it (§9).
+                if (S.NextFightFirstAttackDouble || S.NextFightStartShield > 0)
+                {
+                    var parts = new List<string>();
+                    if (S.NextFightFirstAttackDouble) parts.Add("first strike ×2");
+                    if (S.NextFightStartShield > 0) parts.Add($"+{S.NextFightStartShield} shield next fight");
+                    var warmth = Theme.Subtle("campfire warmth — " + string.Join(" · ", parts));
+                    warmth.style.color = Theme.Hex("#e09c3f");
+                    handWrap.Add(warmth);
+                }
+
+                handWrap.Add(HandStrip(false));
+                v.Add(handWrap);
             }
-            handWrap.Add(HandStrip(paying));
-            v.Add(handWrap);
+
+            // The merchant draws over everything — a stop, not a side note.
+            if (caravanOpen) v.Add(CaravanOverlay());
             return v;
         }
 
@@ -125,7 +141,7 @@ namespace Regicide.Unity
 
             var here = S.Map.Current;
             if (here.Kind == RoadNodeKind.Forge) rail.Add(ForgePanel());
-            if (S.CaravanOffer != null) rail.Add(CaravanPanel());
+            if (S.CaravanOffer != null && _caravanDismissed) rail.Add(CaravanPanel());
             if (S.StaffOffer != null) rail.Add(HeroesPanel());
             if (S.SanctumCharge) rail.Add(SanctumPanel());
 
@@ -279,29 +295,83 @@ namespace Regicide.Unity
             return panel;
         }
 
+        /// <summary>Compact side note once the merchant was waved off — the way back in.</summary>
         private VisualElement CaravanPanel()
         {
+            var panel = Theme.Frame("The Caravan");
+            Theme.SetBorder(panel, Theme.GoldDim, 1);
+            var note = Text($"The caravan waits — {RelicTables.Get(S.CaravanOffer).Name} is still for sale.");
+            note.style.fontSize = 11;
+            note.style.color = Theme.ParchmentDim;
+            panel.Add(note);
+            panel.Add(Btn("Reopen the caravan", () => { _caravanDismissed = false; Render(); }));
+            return panel;
+        }
+
+        /// <summary>
+        /// The merchant proper (§8) — a full overlay so the stop is a STOP: the
+        /// relic on show, the price, and the hand fanned inside for payment.
+        /// </summary>
+        private VisualElement CaravanOverlay()
+        {
             string id = S.CaravanOffer;
+            var info = RelicTables.Get(id);
             int cost = Tuning.CaravanCost -
                        (S.HasRelic("caravan_coin") ? Tuning.CaravanCoinDiscount : 0);
-            var panel = Theme.Frame("The Caravan");
-            Theme.SetBorder(panel, Theme.Gold, 2);
+            int paying = _sel.Sum(cid => S.Cards.Get(cid).EffectiveValue());
+            bool covered = paying >= cost;
+
+            var o = Overlay();
+            var d = Dialog("THE CARAVAN");
+            d.style.minWidth = 640;
 
             var head = Row();
-            var name = new Label(RelicTables.Get(id).Name);
+            head.style.flexWrap = Wrap.NoWrap;
+            head.Add(Widgets.RelicSlotIcon(info.Slot, true));
+            var titleCol = new VisualElement();
+            titleCol.style.marginLeft = 10;
+            var name = new Label(info.Name);
             name.style.color = Theme.GoldBright;
+            name.style.fontSize = 17;
             name.style.unityFontStyleAndWeight = FontStyle.Bold;
-            head.Add(name);
-            head.Add(Theme.Chip(RelicTables.Get(id).Slot.ToString(), Theme.Gold));
-            panel.Add(head);
-            panel.Add(Text(ContentText.RelicRules[id]));
+            titleCol.Add(name);
+            var slotRow = Row();
+            slotRow.Add(Theme.Chip(info.Slot.ToString(), Theme.Gold));
+            slotRow.Add(Theme.Chip($"{cost} card-value", covered ? Theme.Green : Theme.RedDeep));
+            titleCol.Add(slotRow);
+            head.Add(titleCol);
+            d.Add(head);
 
-            int paying = _sel.Sum(cid => S.Cards.Get(cid).EffectiveValue());
-            panel.Add(Theme.Bar(cost == 0 ? 1f : Mathf.Clamp01(paying / (float)cost),
-                $"{paying} / {cost} card-value", paying >= cost ? Theme.Green : Theme.RedDeep, 280));
-            panel.Add(BtnPrimary($"Pay {paying} and buy",
-                () => Dispatch(new BuyRelic(_sel.ToList())), paying >= cost));
-            return panel;
+            var rules = Text(ContentText.RelicRules[id]);
+            rules.style.color = Theme.ParchmentDim;
+            rules.style.marginTop = 4;
+            d.Add(rules);
+
+            var payHint = Theme.Subtle("pick cards from your hand — they are spent to the discard");
+            payHint.style.marginTop = 6;
+            d.Add(payHint);
+            d.Add(HandStrip(true));
+
+            var barRow = Row();
+            barRow.style.justifyContent = Justify.Center;
+            barRow.Add(Theme.Bar(cost == 0 ? 1f : Mathf.Clamp01(paying / (float)cost),
+                $"{paying} / {cost} card-value", covered ? Theme.Green : Theme.RedBright, 280, 18));
+            d.Add(barRow);
+
+            var actions = Row();
+            actions.style.justifyContent = Justify.Center;
+            actions.style.marginTop = 6;
+            actions.Add(BtnPrimary($"Buy ({paying}/{cost})",
+                () => Dispatch(new BuyRelic(_sel.ToList())), covered));
+            actions.Add(Theme.Button("Walk away", () =>
+            {
+                _caravanDismissed = true;
+                Render();
+            }, Theme.ButtonKind.Ghost));
+            d.Add(actions);
+
+            o.Add(d);
+            return o;
         }
 
         private VisualElement HeroesPanel()

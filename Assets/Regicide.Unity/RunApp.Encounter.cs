@@ -28,7 +28,7 @@ namespace Regicide.Unity
             top.style.flexWrap = Wrap.NoWrap;
             top.style.justifyContent = Justify.SpaceBetween;
             string where = $"chapter {S.Chapter} · province {S.Province}" +
-                           (enc.IsGate ? $"   ♛ {PhysicalCard.RankGlyph(enc.GateRank)} GATE" : "") +
+                           (enc.IsGate ? $"   ROYAL {PhysicalCard.RankGlyph(enc.GateRank)} GATE" : "") +
                            (enc.Enemies.Count > 1 ? $"   {enc.Enemies.Count(e => !e.Alive)}/{enc.Enemies.Count} down" : "");
             var whereLabel = Theme.Subtle(where);
             if (enc.IsGate) whereLabel.style.color = Theme.Gold;
@@ -119,14 +119,14 @@ namespace Regicide.Unity
                 {
                     var line = Theme.Subtle(invalid == null
                         ? $"value {selValue} — legal play"
-                        : "✗ " + invalid);
+                        : "! " + invalid);
                     line.style.color = invalid == null ? Theme.Green : Theme.RedBright;
                     line.style.fontSize = 12;
                     status.Add(line);
                 }
                 else
                 {
-                    status.Add(Theme.Subtle("1 card · an Ace + one card · a same-rank set ≤ 10 — or yield"));
+                    status.Add(Theme.Subtle("1 card · an Ace + one card · a same-rank set up to 10 — or yield"));
                 }
                 table.Add(status);
 
@@ -258,10 +258,7 @@ namespace Regicide.Unity
 
             if (net == 0)
             {
-                var blanked = new Label("⛨");
-                blanked.style.fontSize = 20;
-                blanked.style.color = Theme.Shield;
-                plaque.Add(blanked);
+                plaque.Add(Widgets.MiniIcon(Widgets.Icon.Shield, Theme.Shield, 18));
                 var word = new Label("blanked");
                 word.style.fontSize = 10;
                 word.style.color = Theme.Shield;
@@ -273,7 +270,7 @@ namespace Regicide.Unity
                 {
                     // The base attack, struck through — the shield already ate the rest.
                     var basewrap = new VisualElement();
-                    var baseLbl = new Label($"⚔ {enemy.Attack}");
+                    var baseLbl = new Label(enemy.Attack.ToString());
                     baseLbl.style.fontSize = 11;
                     baseLbl.style.color = Theme.Grey;
                     basewrap.Add(baseLbl);
@@ -286,20 +283,38 @@ namespace Regicide.Unity
                     basewrap.Add(strike);
                     plaque.Add(basewrap);
                 }
-                var hit = new Label($"⚔ {net}");
+                var hitRow = new VisualElement();
+                hitRow.style.flexDirection = FlexDirection.Row;
+                hitRow.style.alignItems = Align.Center;
+                hitRow.Add(Widgets.MiniIcon(Widgets.Icon.Sword, Theme.RedBright, 20));
+                var hit = new Label(net.ToString());
                 hit.style.fontSize = 24;
                 hit.style.unityFontStyleAndWeight = FontStyle.Bold;
                 hit.style.color = Theme.RedBright;
-                plaque.Add(hit);
+                hit.style.marginLeft = 4;
+                hitRow.Add(hit);
+                plaque.Add(hitRow);
             }
             card.Add(plaque);
 
             // ── shield: a blue chip on the card's left edge ──
             if (enemy.Shield > 0)
             {
-                var sh = Theme.Chip($"⛨ {enemy.Shield}", Theme.Shield);
+                var sh = new VisualElement();
+                sh.style.flexDirection = FlexDirection.Row;
+                sh.style.alignItems = Align.Center;
+                sh.style.backgroundColor = new Color(Theme.Shield.r, Theme.Shield.g, Theme.Shield.b, 0.25f);
+                Theme.SetBorder(sh, new Color(Theme.Shield.r, Theme.Shield.g, Theme.Shield.b, 0.8f), 1);
+                Theme.SetRadius(sh, 10);
+                Theme.SetPadding(sh, 2, 6);
+                sh.Add(Widgets.MiniIcon(Widgets.Icon.Shield, Color.Lerp(Theme.Shield, Color.white, 0.5f), 13));
+                var shN = new Label(enemy.Shield.ToString());
+                shN.style.fontSize = 12;
+                shN.style.marginLeft = 3;
+                shN.style.color = Color.Lerp(Theme.Shield, Color.white, 0.55f);
+                sh.Add(shN);
                 sh.style.position = Position.Absolute;
-                sh.style.left = -22;
+                sh.style.left = -26;
                 sh.style.top = EnemyCardH / 2f - 10;
                 sh.pickingMode = PickingMode.Ignore;
                 card.Add(sh);
@@ -362,7 +377,7 @@ namespace Regicide.Unity
             if (enc.AttackBank > 0) chips.Add(($"+{enc.AttackBank} banked damage", Theme.RedBright));
             if (enc.VanguardArmed) chips.Add(("vanguard: first counter held", Theme.Shield));
             if (enc.SecondWindArmed) chips.Add(("second wind: counter skipped", Theme.Shield));
-            if (enc.AegisArmed) chips.Add(($"aegis: counter −{Tuning.AegisReduction}", Theme.Shield));
+            if (enc.AegisArmed) chips.Add(($"aegis: counter -{Tuning.AegisReduction}", Theme.Shield));
             if (enc.UnbindingArmed) chips.Add(("unbinding: immunity off", Theme.Gold));
             if (chips.Count == 0) return null;
 
