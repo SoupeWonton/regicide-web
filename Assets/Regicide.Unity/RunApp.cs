@@ -227,10 +227,16 @@ namespace Regicide.Unity
                         if (cp.BlockedSuit is Suit blockedSuit)
                             Fx.Float(_fxLayer, enemy,
                                 PhysicalCard.SuitGlyph(blockedSuit) + " blocked — immune", Theme.Grey, 15, -70);
-                        bool drew = r.Events.OfType<CardsDrawn>().Any();
+                        var drawnEvt = r.Events.OfType<CardsDrawn>().FirstOrDefault();
+                        int drawnCount = drawnEvt != null ? drawnEvt.PhysicalIds.Count : 0;
                         if (cp.ActiveSuits.Contains(Suit.Diamonds) && cp.BlockedSuit != Suit.Diamonds &&
-                            !drew && S.Deck.Tavern.Count == 0)
+                            drawnCount == 0 && S.Deck.Tavern.Count == 0)
                             Fx.Float(_fxLayer, null, "deck empty — nothing to draw", Theme.Grey, 16);
+                        else if (cp.ActiveSuits.Contains(Suit.Diamonds) && cp.BlockedSuit != Suit.Diamonds &&
+                                 drawnCount < cp.BaseAttack && S.Deck.Hand.Count >= S.MaxHandSize)
+                            Fx.Float(_fxLayer, null,
+                                drawnCount == 0 ? "hand full — no room to draw" : "hand full — draw capped",
+                                Theme.Grey, 16);
                         bool recovered = r.Events.OfType<CardsRecovered>().Any() ||
                                          r.Events.OfType<RecoverChoiceOffered>().Any();
                         if (cp.ActiveSuits.Contains(Suit.Hearts) && cp.BlockedSuit != Suit.Hearts &&
