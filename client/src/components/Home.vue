@@ -67,6 +67,26 @@ function begin() {
 
         <div v-if="error" class="alert alert-error text-sm py-2">{{ error }}</div>
 
+        <!-- The desktop rebuild (Unity): a one-click, no-admin installer. -->
+        <div class="text-center">
+          <div class="splash-rule h-px mb-3 mx-6 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+          <a
+            class="btn btn-secondary btn-outline w-full"
+            href="https://raw.githubusercontent.com/SoupeWonton/regicide-web/desktop-releases/Kingfall-Setup.exe"
+            download
+          >
+            ⬇ Download for Windows — desktop alpha
+          </a>
+          <p class="text-base-content/40 text-xs mt-1">
+            the new single-player version · installs without admin ·
+            <a
+              class="underline hover:text-base-content/70"
+              href="https://raw.githubusercontent.com/SoupeWonton/regicide-web/desktop-releases/Kingfall-win64.zip"
+              download
+            >portable zip</a>
+          </p>
+        </div>
+
         <router-link to="/sandbox" class="text-xs text-base-content/30 hover:text-base-content/60 text-center">
           🔬 run sandbox (replay viewer)
         </router-link>
