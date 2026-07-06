@@ -52,9 +52,12 @@ namespace Regicide.Unity
                 host.AddComponent<AudioListener>();
         }
 
+        /// <summary>Mute switch (the web version's toggle). Host persists it (PlayerPrefs).</summary>
+        public static bool Muted;
+
         public static void Play(Sound s, float volume = 1f)
         {
-            if (_src == null) return;
+            if (_src == null || Muted) return;
             // Kill and Overkill are the same web recipe; Crown and Triumph likewise.
             Sound key = s == Sound.Kill ? Sound.Overkill : s == Sound.Triumph ? Sound.Crown : s;
             if (!_clips.TryGetValue(key, out var clip))

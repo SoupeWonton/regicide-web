@@ -33,6 +33,8 @@ namespace Regicide.Unity
         private VisualElement _fxLayer;
         private string _lastScreenKey;
         private bool _showLog;
+        private bool _showSettings;
+        private bool _confirmForfeit;
         private readonly List<string> _log = new List<string>();
 
         // Transient view-side selection state (never rules — just what's highlighted).
@@ -59,6 +61,7 @@ namespace Regicide.Unity
             _metaPath = System.IO.Path.Combine(Application.persistentDataPath, "lineage.json");
             _meta = MetaState.LoadFrom(_metaPath);
             Sfx.Init(gameObject);
+            Sfx.Muted = PlayerPrefs.GetInt("kingfall-muted", 0) == 1;
 
             var doc = GetComponent<UIDocument>();
             if (doc == null) doc = gameObject.AddComponent<UIDocument>();
@@ -342,6 +345,13 @@ namespace Regicide.Unity
             if (key != _lastScreenKey) Fx.FadeIn(screen);
             _lastScreenKey = key;
 
+            // Persistent chrome: deck/discard piles bottom-right during a run,
+            // the settings gear top-right always.
+            if (_session != null && S.Phase != CampaignPhase.ClassSelect &&
+                S.Phase != CampaignPhase.CampaignWon && S.Phase != CampaignPhase.CampaignLost)
+                _root.Add(PileCorner());
+            _root.Add(GearButton());
+
             // Defend and Debt resolve INLINE on the battle screen — the hand fan is
             // the selector, no popup (the web UX). Everything else overlays.
             var pending = S?.PendingChoice;
@@ -350,6 +360,7 @@ namespace Regicide.Unity
             if (pending != null && !inlinePending) _root.Add(BuildPendingOverlay(pending));
             if (_pickerIds != null) _root.Add(BuildPickerOverlay());
             if (_showLog) _root.Add(BuildLogOverlay());
+            if (_showSettings) _root.Add(BuildSettingsOverlay());
 
             // The FX layer sits above everything; floats/toasts/flashes land here.
             _fxLayer = new VisualElement();
@@ -459,6 +470,7 @@ namespace Regicide.Unity
         {
             var row = Row();
             row.style.flexWrap = Wrap.NoWrap;
+            row.style.marginRight = 34; // clear of the settings gear
 
             void LinkText(string text, Action onClick)
             {
@@ -473,17 +485,10 @@ namespace Regicide.Unity
                 row.Add(l);
             }
 
-            // "deck" = what is left to DRAW (the Tavern), not the whole conquest —
-            // an all-owned viewer never changes on a draw and reads as a bug.
-            LinkText($"deck {S.Deck.Tavern.Count}", () => OpenViewer(
-                "Cards left to draw (sorted by suit — draw order hidden)",
-                S.Deck.Tavern.OrderBy(id => S.Cards.Get(id).EffectiveFace().Suit)
-                             .ThenBy(id => S.Cards.Get(id).EffectiveFace().Rank).ToList()));
-            LinkText($"· discard {S.Deck.Discard.Count}", () => OpenViewer("Discard pile",
-                S.Deck.Discard.OrderBy(id => S.Cards.Get(id).EffectiveFace().Suit)
-                              .ThenBy(id => S.Cards.Get(id).EffectiveFace().Rank).ToList()));
+            // Deck/discard live in the bottom-right pile icons now — this line
+            // carries only the spell pool.
             if (S.TokenFragments > 0 || S.TokenHalves > 0)
-                LinkText($"· ✦ {S.TokenFragments}" + (S.TokenHalves > 0 ? $" + {S.TokenHalves} half" : ""), null);
+                LinkText($"✦ {S.TokenFragments}" + (S.TokenHalves > 0 ? $" + {S.TokenHalves} half" : ""), null);
             return row;
         }
 
@@ -506,6 +511,180 @@ namespace Regicide.Unity
             open.RegisterCallback<MouseLeaveEvent>(_ => open.style.color = Theme.GoldDim);
             row.Add(open);
             return row;
+        }
+
+        // ── settings gear (top-right): mute · forfeit · quit ────────────────────
+
+        private VisualElement GearButton()
+        {
+            var g = new Label("⚙");
+            g.style.position = Position.Absolute;
+            g.style.top = 8; g.style.right = 14;
+            g.style.fontSize = 22;
+            g.style.color = Theme.GoldDim;
+            Fx.Transition(g, 90);
+            g.RegisterCallback<MouseEnterEvent>(_ =>
+            {
+                g.style.color = Theme.GoldBright;
+                g.style.rotate = new Rotate(30);
+            });
+            g.RegisterCallback<MouseLeaveEvent>(_ =>
+            {
+                g.style.color = Theme.GoldDim;
+                g.style.rotate = new Rotate(0);
+            });
+            g.RegisterCallback<ClickEvent>(_ =>
+            {
+                Sfx.Play(Sfx.Sound.Click, 0.7f);
+                _showSettings = true;
+                _confirmForfeit = false;
+                Render();
+            });
+            return g;
+        }
+
+        private VisualElement BuildSettingsOverlay()
+        {
+            void Close()
+            {
+                _showSettings = false;
+                _confirmForfeit = false;
+                Render();
+            }
+
+            var o = Overlay();
+            var d = Dialog("Settings");
+            d.style.minWidth = 300;
+
+            d.Add(Btn(Sfx.Muted ? "Unmute sounds" : "Mute sounds", () =>
+            {
+                Sfx.Muted = !Sfx.Muted;
+                PlayerPrefs.SetInt("kingfall-muted", Sfx.Muted ? 1 : 0);
+                PlayerPrefs.Save();
+                Render();
+            }));
+
+            bool runLive = _session != null &&
+                           S.Phase != CampaignPhase.CampaignWon && S.Phase != CampaignPhase.CampaignLost;
+            if (runLive)
+            {
+                if (!_confirmForfeit)
+                {
+                    d.Add(Theme.Button("Forfeit this run", () => { _confirmForfeit = true; Render(); },
+                        Theme.ButtonKind.Danger));
+                }
+                else
+                {
+                    var warn = Theme.Subtle("the run ends here — the conquest is lost");
+                    warn.style.color = Theme.RedBright;
+                    d.Add(warn);
+                    var row = Row();
+                    row.Add(Theme.Button("Yes, forfeit", () =>
+                    {
+                        _showSettings = false;
+                        _confirmForfeit = false;
+                        BackToMenu();
+                    }, Theme.ButtonKind.Danger));
+                    row.Add(Btn("No, keep fighting", () => { _confirmForfeit = false; Render(); }));
+                    d.Add(row);
+                }
+            }
+
+            d.Add(Theme.Button("Quit to desktop", () => Application.Quit(), Theme.ButtonKind.Ghost));
+            d.Add(BtnPrimary("Resume", Close));
+
+            o.RegisterCallback<ClickEvent>(evt => { if (evt.target == o) Close(); });
+            o.Add(d);
+            return o;
+        }
+
+        // ── deck & discard piles (bottom-right) ─────────────────────────────────
+
+        private VisualElement PileCorner()
+        {
+            var wrap = new VisualElement();
+            wrap.style.position = Position.Absolute;
+            wrap.style.right = 14; wrap.style.bottom = 12;
+            wrap.style.flexDirection = FlexDirection.Row;
+            wrap.style.alignItems = Align.FlexEnd;
+
+            wrap.Add(Pile("deck", S.Deck.Tavern.Count, Theme.GoldDim, 0f, () => OpenViewer(
+                "Cards left to draw (sorted by suit — draw order hidden)",
+                S.Deck.Tavern.OrderBy(id => S.Cards.Get(id).EffectiveFace().Suit)
+                             .ThenBy(id => S.Cards.Get(id).EffectiveFace().Rank).ToList())));
+            wrap.Add(Pile("discard", S.Deck.Discard.Count, Theme.RedDeep, -8f, () => OpenViewer(
+                "Discard pile",
+                S.Deck.Discard.OrderBy(id => S.Cards.Get(id).EffectiveFace().Suit)
+                              .ThenBy(id => S.Cards.Get(id).EffectiveFace().Rank).ToList())));
+            return wrap;
+        }
+
+        /// <summary>A little card-pile icon: latticed back, count on its face, label under.</summary>
+        private VisualElement Pile(string label, int count, Color tint, float tilt, Action onClick)
+        {
+            var v = new VisualElement();
+            v.style.alignItems = Align.Center;
+            v.style.marginLeft = 12;
+
+            var stack = new VisualElement();
+            stack.style.width = 46; stack.style.height = 62;
+
+            var shadow = new VisualElement();
+            shadow.style.position = Position.Absolute;
+            shadow.style.left = 4; shadow.style.top = 4;
+            shadow.style.width = 40; shadow.style.height = 56;
+            Theme.SetRadius(shadow, 6);
+            shadow.style.backgroundColor = Theme.NightDeep;
+            Theme.SetBorder(shadow, new Color(tint.r, tint.g, tint.b, 0.35f), 1);
+            if (count > 1) stack.Add(shadow); // depth only when there is a pile
+
+            var front = new VisualElement();
+            front.style.position = Position.Absolute;
+            front.style.left = 0; front.style.top = 0;
+            front.style.width = 40; front.style.height = 56;
+            Theme.SetRadius(front, 6);
+            front.style.backgroundColor = count > 0 ? Theme.NightRaised : Theme.NightDeep;
+            if (count > 0)
+            {
+                front.style.backgroundImage = new StyleBackground(Textures.Lattice());
+                front.style.backgroundRepeat = new BackgroundRepeat(Repeat.Repeat, Repeat.Repeat);
+                front.style.backgroundSize = new BackgroundSize(24, 24);
+            }
+            Theme.SetBorder(front, count > 0 ? tint : new Color(tint.r, tint.g, tint.b, 0.35f), 1.5f);
+            front.style.rotate = new Rotate(tilt);
+            front.style.alignItems = Align.Center;
+            front.style.justifyContent = Justify.Center;
+
+            var n = new Label(count.ToString());
+            n.style.fontSize = 15;
+            n.style.unityFontStyleAndWeight = FontStyle.Bold;
+            n.style.color = count > 0 ? Theme.Parchment : Theme.Grey;
+            front.Add(n);
+            stack.Add(front);
+            v.Add(stack);
+
+            var caption = Theme.Subtle(label);
+            caption.style.fontSize = 10;
+            caption.style.marginTop = 2;
+            v.Add(caption);
+
+            Fx.Transition(v, 100);
+            v.RegisterCallback<MouseEnterEvent>(_ =>
+            {
+                v.style.translate = new Translate(0, -4);
+                Theme.SetBorder(front, Theme.GoldBright, 2);
+            });
+            v.RegisterCallback<MouseLeaveEvent>(_ =>
+            {
+                v.style.translate = new Translate(0, 0);
+                Theme.SetBorder(front, tint, 1.5f);
+            });
+            v.RegisterCallback<ClickEvent>(_ =>
+            {
+                Sfx.Play(Sfx.Sound.Tick, 0.7f);
+                onClick();
+            });
+            return v;
         }
 
         private VisualElement BuildLogOverlay()
