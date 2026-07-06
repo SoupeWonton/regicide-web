@@ -1,16 +1,94 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="kingfall">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0b0918" />
+  <meta name="description" content="Kingfall — a single-player roguelike deckbuilder. You don't build a deck, you conquer one. Download the Windows alpha." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=IM+Fell+English+SC&family=Kreon:wght@400;600;700&display=swap" rel="stylesheet" />
-  <title>Kingfall</title>
+  <title>Kingfall — Download</title>
+  <!-- llgames.ca is now a single-purpose download page for the desktop build.
+       The Vue web game is intentionally not loaded (no /src/main.ts) — the Vite
+       build still runs and ships this page; the Express server serves it. -->
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: 'Kreon', serif;
+      color: #f2ead9;
+      background:
+        radial-gradient(ellipse 120% 70% at 50% -10%, rgba(201, 162, 39, 0.07), transparent 60%),
+        radial-gradient(ellipse 100% 100% at 50% 110%, rgba(125, 42, 42, 0.10), transparent 55%),
+        #0b0918;
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px; text-align: center;
+    }
+    .vignette {
+      position: fixed; inset: 0; pointer-events: none;
+      background: radial-gradient(ellipse 105% 105% at 50% 45%, transparent 52%, rgba(5, 3, 12, 0.5) 100%);
+    }
+    .card {
+      position: relative; max-width: 460px; width: 100%;
+      background: rgba(23, 18, 40, 0.9);
+      border: 1px solid rgba(201, 162, 39, 0.25);
+      border-radius: 14px;
+      padding: 44px 36px 32px;
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+    }
+    .flavor { font-family: 'IM Fell English SC', serif; color: rgba(201, 162, 39, 0.65); letter-spacing: 4px; font-size: 14px; }
+    h1 {
+      font-family: 'Cinzel', serif; font-weight: 900; font-size: 52px; margin-top: 6px;
+      background: linear-gradient(180deg, #fff3c4 0%, #e8cd6f 40%, #c9a227 75%, #8a6d1c 100%);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+      letter-spacing: 2px;
+    }
+    .rule { height: 1px; margin: 18px 40px; background: linear-gradient(90deg, transparent, rgba(201, 162, 39, 0.5), transparent); }
+    .suits { font-size: 22px; letter-spacing: 14px; padding-left: 14px; }
+    .suits .r { color: #a8332f; } .suits .b { color: #cfc4a6; }
+    .tag { color: rgba(242, 234, 217, 0.55); font-size: 15px; margin-top: 14px; line-height: 1.5; }
+    .btn {
+      display: block; margin: 26px auto 0; max-width: 330px;
+      font-family: 'Cinzel', serif; font-weight: 700; font-size: 17px; letter-spacing: 1px;
+      color: #1a1406; text-decoration: none;
+      background: linear-gradient(180deg, #dfb83d 0%, #b8901c 55%, #9c7714 100%);
+      border: 1px solid #8a6d1c; border-radius: 10px;
+      padding: 15px 22px;
+      box-shadow: 0 6px 18px rgba(201, 162, 39, 0.25);
+      transition: transform 0.1s ease, box-shadow 0.1s ease, filter 0.1s ease;
+    }
+    .btn:hover { transform: translateY(-2px); filter: brightness(1.07); box-shadow: 0 10px 26px rgba(201, 162, 39, 0.35); }
+    .btn:active { transform: translateY(0) scale(0.98); }
+    .meta { color: rgba(242, 234, 217, 0.4); font-size: 12.5px; margin-top: 14px; line-height: 1.7; }
+    .meta a { color: rgba(201, 162, 39, 0.75); text-decoration: underline; }
+    .meta a:hover { color: #e8cd6f; }
+    .smartscreen { color: rgba(242, 234, 217, 0.35); font-size: 11.5px; margin-top: 18px; line-height: 1.6; }
+    footer { margin-top: 26px; color: rgba(242, 234, 217, 0.25); font-size: 11px; letter-spacing: 2px; }
+  </style>
 </head>
 <body>
-  <div id="app"></div>
-  <script type="module" src="/src/main.ts"></script>
+  <div class="vignette"></div>
+  <main class="card">
+    <p class="flavor">the crown must fall</p>
+    <h1>KINGFALL</h1>
+    <div class="suits"><span class="b">♠</span><span class="r">♥</span><span class="b">♣</span><span class="r">♦</span></div>
+    <p class="tag">A single-player roguelike deckbuilder.<br />You don't build a deck — you conquer one.</p>
+    <div class="rule"></div>
+
+    <a class="btn" href="https://raw.githubusercontent.com/SoupeWonton/regicide-web/desktop-releases/Kingfall-Setup.exe" download>
+      ⬇&nbsp; DOWNLOAD FOR WINDOWS
+    </a>
+    <p class="meta">
+      free alpha · Windows 10/11 (64-bit) · installs without admin<br />
+      prefer no installer? <a href="https://raw.githubusercontent.com/SoupeWonton/regicide-web/desktop-releases/Kingfall-win64.zip" download>portable zip</a>
+    </p>
+
+    <p class="smartscreen">
+      Windows SmartScreen may warn once (the alpha isn't code-signed yet) —<br />
+      click "More info", then "Run anyway".
+    </p>
+    <footer>LL GAMES</footer>
+  </main>
 </body>
 </html>
