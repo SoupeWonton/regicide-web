@@ -220,6 +220,24 @@ namespace Regicide.Unity
             {
                 switch (e)
                 {
+                    case CardsPlayed cp:
+                    {
+                        // A power that produced NOTHING must say why (playtest: a
+                        // fizzled ♦ draw reads as "the game ate my draw").
+                        if (cp.BlockedSuit is Suit blockedSuit)
+                            Fx.Float(_fxLayer, enemy,
+                                PhysicalCard.SuitGlyph(blockedSuit) + " blocked — immune", Theme.Grey, 15, -70);
+                        bool drew = r.Events.OfType<CardsDrawn>().Any();
+                        if (cp.ActiveSuits.Contains(Suit.Diamonds) && cp.BlockedSuit != Suit.Diamonds &&
+                            !drew && S.Deck.Tavern.Count == 0)
+                            Fx.Float(_fxLayer, null, "deck empty — nothing to draw", Theme.Grey, 16);
+                        bool recovered = r.Events.OfType<CardsRecovered>().Any() ||
+                                         r.Events.OfType<RecoverChoiceOffered>().Any();
+                        if (cp.ActiveSuits.Contains(Suit.Hearts) && cp.BlockedSuit != Suit.Hearts &&
+                            !recovered && S.Deck.Discard.Count <= cp.PhysicalIds.Count)
+                            Fx.Float(_fxLayer, null, "no discards to recover", Theme.Grey, 16);
+                        break;
+                    }
                     case DamageDealt d:
                         Sfx.Play(d.Doubled ? Sfx.Sound.DamageBig : Sfx.Sound.Impact);
                         Fx.Float(_fxLayer, enemy, "-" + d.Amount,
@@ -394,6 +412,7 @@ namespace Regicide.Unity
             // Persistent chrome: deck/discard piles bottom-right during a run,
             // the settings gear top-right always.
             if (_session != null && S.Phase != CampaignPhase.ClassSelect &&
+                S.Phase != CampaignPhase.Encounter && // the battle inlines the piles by the fan
                 S.Phase != CampaignPhase.CampaignWon && S.Phase != CampaignPhase.CampaignLost)
                 _root.Add(PileCorner());
             _root.Add(GearButton());
@@ -495,43 +514,6 @@ namespace Regicide.Unity
         {
             var wrap = new VisualElement();
 
-            if (selectable && S.Deck.Hand.Count > 2)
-            {
-                var sortRow = Row();
-                sortRow.style.flexWrap = Wrap.NoWrap;
-                sortRow.style.justifyContent = Justify.Center;
-
-                void SortLink(string text, Comparison<int> by)
-                {
-                    var l = Theme.Subtle(text);
-                    l.style.marginRight = 10;
-                    l.style.color = Theme.GoldDim;
-                    l.RegisterCallback<MouseEnterEvent>(_ => l.style.color = Theme.GoldBright);
-                    l.RegisterCallback<MouseLeaveEvent>(_ => l.style.color = Theme.GoldDim);
-                    l.RegisterCallback<ClickEvent>(_ =>
-                    {
-                        Sfx.Play(Sfx.Sound.Tick, 0.7f);
-                        S.Deck.Hand.Sort(by);
-                        Render();
-                    });
-                    sortRow.Add(l);
-                }
-
-                SortLink("sort ♠♥♦♣", (x, y) =>
-                {
-                    var fx = S.Cards.Get(x).EffectiveFace();
-                    var fy = S.Cards.Get(y).EffectiveFace();
-                    return fx.Suit != fy.Suit ? fx.Suit.CompareTo(fy.Suit) : fx.Rank.CompareTo(fy.Rank);
-                });
-                SortLink("sort 1→10", (x, y) =>
-                {
-                    int vx = S.Cards.Get(x).EffectiveValue(), vy = S.Cards.Get(y).EffectiveValue();
-                    return vx != vy ? vx.CompareTo(vy)
-                        : S.Cards.Get(x).EffectiveFace().Suit.CompareTo(S.Cards.Get(y).EffectiveFace().Suit);
-                });
-                wrap.Add(sortRow);
-            }
-
             var row = new VisualElement();
             row.name = "fx-hand"; // FX hook: counterattacks rattle the hand
             row.style.flexDirection = FlexDirection.Row;
@@ -556,7 +538,12 @@ namespace Regicide.Unity
                 card.name = "card-" + captured; // FX hook: drawn cards pop in by name
                 CardView.Fan(card, i, hand.Count);
 
-                if (selectable) EnableHandDrag(card, captured, row, () => wasDrag = true);
+                // The fan pose this card sits in — the drag composes on top of it.
+                float mid = (hand.Count - 1) / 2f;
+                float off = i - mid;
+                float fanY = hand.Count <= 1 ? 0f : Mathf.Abs(off) * Mathf.Min(6f, 30f / hand.Count);
+
+                if (selectable) EnableHandDrag(card, captured, row, fanY, () => wasDrag = true);
                 row.Add(card);
             }
             if (hand.Count == 0)
@@ -566,14 +553,62 @@ namespace Regicide.Unity
                 row.Add(empty);
             }
             wrap.Add(row);
+
+            // Sort controls: real (if compact) buttons under the fan — obvious, classy.
+            if (selectable && S.Deck.Hand.Count > 2)
+            {
+                var sortRow = Row();
+                sortRow.style.flexWrap = Wrap.NoWrap;
+                sortRow.style.justifyContent = Justify.Center;
+                sortRow.style.marginTop = 2;
+
+                Button SortPill(string text, Comparison<int> by)
+                {
+                    var b = Theme.Button(text, () =>
+                    {
+                        S.Deck.Hand.Sort(by);
+                        Render();
+                    }, Theme.ButtonKind.Ghost);
+                    b.style.fontSize = 10;
+                    b.style.letterSpacing = 2;
+                    Theme.SetPadding(b, 3, 10);
+                    Theme.SetRadius(b, 11);
+                    return b;
+                }
+
+                sortRow.Add(SortPill("SORT ♠♥♦♣", (x, y) =>
+                {
+                    var fx = S.Cards.Get(x).EffectiveFace();
+                    var fy = S.Cards.Get(y).EffectiveFace();
+                    return fx.Suit != fy.Suit ? fx.Suit.CompareTo(fy.Suit) : fx.Rank.CompareTo(fy.Rank);
+                }));
+                sortRow.Add(SortPill("SORT 1→10", (x, y) =>
+                {
+                    int vx = S.Cards.Get(x).EffectiveValue(), vy = S.Cards.Get(y).EffectiveValue();
+                    return vx != vy ? vx.CompareTo(vy)
+                        : S.Cards.Get(x).EffectiveFace().Suit.CompareTo(S.Cards.Get(y).EffectiveFace().Suit);
+                }));
+                wrap.Add(sortRow);
+            }
             return wrap;
         }
 
-        /// <summary>Pointer-drag a hand card horizontally to reorder it in the fan.</summary>
-        private void EnableHandDrag(VisualElement card, int physicalId, VisualElement fanRow, Action markDragged)
+        /// <summary>
+        /// Pointer-drag a hand card horizontally to reorder it. Tracking is RAW:
+        /// on drag start the hover transition is zeroed (it was easing every move —
+        /// the rubber-band bug), the fan rotation is flattened, and the translate
+        /// composes on the fan's baseline so the card doesn't jump on pickup.
+        /// </summary>
+        private void EnableHandDrag(VisualElement card, int physicalId, VisualElement fanRow, float fanY, Action markDragged)
         {
             Vector2 start = default;
             bool held = false, dragging = false;
+
+            void EndDrag()
+            {
+                dragging = false;
+                CardView.DragLock = false;
+            }
 
             card.RegisterCallback<PointerDownEvent>(evt =>
             {
@@ -589,10 +624,13 @@ namespace Regicide.Unity
                 {
                     dragging = true;
                     markDragged();
+                    CardView.DragLock = true;
+                    card.style.transitionDuration = new List<TimeValue> { new TimeValue(0) };
+                    card.style.rotate = new Rotate(0);
                     card.BringToFront();
                 }
                 if (dragging)
-                    card.style.translate = new Translate(delta.x, -24);
+                    card.style.translate = new Translate(delta.x, fanY - 24f + delta.y * 0.25f);
             });
             card.RegisterCallback<PointerUpEvent>(evt =>
             {
@@ -600,7 +638,7 @@ namespace Regicide.Unity
                 if (!held) return;
                 held = false;
                 if (!dragging) return;
-                dragging = false;
+                EndDrag();
 
                 // New index = how many OTHER cards sit left of the dropped centre.
                 float x = card.worldBound.center.x;
@@ -615,6 +653,10 @@ namespace Regicide.Unity
                 handList.Insert(Mathf.Clamp(newIndex, 0, handList.Count), physicalId);
                 Sfx.Play(Sfx.Sound.Whoosh, 0.5f);
                 Render();
+            });
+            card.RegisterCallback<DetachFromPanelEvent>(_ =>
+            {
+                if (dragging) EndDrag(); // never strand the global hover lock
             });
         }
 
@@ -754,11 +796,19 @@ namespace Regicide.Unity
 
         // ── deck & discard piles (bottom-right) ─────────────────────────────────
 
+        /// <summary>Corner-anchored piles (road/recap; the battle inlines them by the fan).</summary>
         private VisualElement PileCorner()
         {
-            var wrap = new VisualElement();
+            var wrap = PileIcons();
             wrap.style.position = Position.Absolute;
             wrap.style.right = 14; wrap.style.bottom = 12;
+            return wrap;
+        }
+
+        /// <summary>The deck + discard pile icons as a plain row (placeable anywhere).</summary>
+        private VisualElement PileIcons()
+        {
+            var wrap = new VisualElement();
             wrap.style.flexDirection = FlexDirection.Row;
             wrap.style.alignItems = Align.FlexEnd;
 

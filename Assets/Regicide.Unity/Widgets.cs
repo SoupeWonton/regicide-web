@@ -371,7 +371,7 @@ namespace Regicide.Unity
                 tier > 0 ? 2.5f : 1);
 
             var glyph = new Label(PhysicalCard.SuitGlyph(suit));
-            glyph.style.fontSize = 20;
+            glyph.style.fontSize = 20 * CardView.GlyphScale(suit);
             glyph.style.color = tier > 0 ? Color.Lerp(suitColor, Color.white, 0.4f) : Theme.Grey;
             socket.Add(glyph);
 

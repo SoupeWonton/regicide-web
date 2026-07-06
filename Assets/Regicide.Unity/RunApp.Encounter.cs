@@ -56,43 +56,18 @@ namespace Regicide.Unity
 
             screen.Add(arena);
 
-            // ── bottom: the player's table ──
+            // ── bottom: the player's table, flanked — player corner | fan | piles ──
             var table = new VisualElement();
             table.style.flexShrink = 0;
 
-            // YOUR block, on YOUR side of the table (it lives per-enemy in the rules,
-            // but pinned to the enemy card it read as the NPC's stat).
-            if (enemy != null && enemy.Shield > 0)
-            {
-                var block = new VisualElement();
-                block.style.position = Position.Absolute;
-                block.style.left = 18;
-                block.style.top = 26;
-                block.style.alignItems = Align.Center;
+            var spread = new VisualElement();
+            spread.style.flexDirection = FlexDirection.Row;
+            spread.style.alignItems = Align.FlexEnd;
 
-                var row = new VisualElement();
-                row.style.flexDirection = FlexDirection.Row;
-                row.style.alignItems = Align.Center;
-                row.Add(Widgets.MiniIcon(Widgets.Icon.Shield, Color.Lerp(Theme.Shield, Color.white, 0.4f), 24));
-                var n = new Label(enemy.Shield.ToString());
-                n.style.fontSize = 24;
-                n.style.unityFontStyleAndWeight = FontStyle.Bold;
-                n.style.color = Color.Lerp(Theme.Shield, Color.white, 0.5f);
-                n.style.marginLeft = 5;
-                row.Add(n);
-                block.Add(row);
+            spread.Add(PlayerCorner(enemy));
 
-                var cap = new Label("BLOCK");
-                cap.style.fontSize = 9;
-                cap.style.letterSpacing = 2;
-                cap.style.color = Theme.ParchmentDim;
-                block.Add(cap);
-
-                Tips.Attach(block, "your block",
-                    "your ♠ plays build block against THIS enemy — it cuts its counterattack " +
-                    "and resets when the next duellist steps up.");
-                table.Add(block);
-            }
+            var center = new VisualElement();
+            center.style.flexGrow = 1;
 
             var pending = S.PendingChoice;
             if (pending != null && pending.Kind == PendingChoiceKind.Defend)
@@ -106,9 +81,9 @@ namespace Regicide.Unity
                 payRow.Add(Theme.Bar(covered / (float)pending.RequiredValue,
                     $"pay {covered} / {pending.RequiredValue}",
                     enough ? Theme.Green : Theme.RedBright, 260, 18));
-                table.Add(payRow);
+                center.Add(payRow);
 
-                table.Add(HandStrip(true));
+                center.Add(HandStrip(true));
 
                 var payActions = Row();
                 payActions.style.justifyContent = Justify.Center;
@@ -122,7 +97,7 @@ namespace Regicide.Unity
                     !enc.CastSuits.Contains(Suit.Spades))
                     payActions.Add(Theme.Button("Cast Brace ♠",
                         () => Dispatch(new CastSpell(Suit.Spades)), Theme.ButtonKind.Danger));
-                table.Add(payActions);
+                center.Add(payActions);
             }
             else if (pending != null && pending.Kind == PendingChoiceKind.DebtDiscard)
             {
@@ -130,16 +105,16 @@ namespace Regicide.Unity
                 var debtRow = Row();
                 debtRow.style.justifyContent = Justify.Center;
                 debtRow.Add(Theme.Subtle("the debt comes due — discard one card"));
-                table.Add(debtRow);
+                center.Add(debtRow);
 
-                table.Add(HandStrip(true));
+                center.Add(HandStrip(true));
 
                 var debtActions = Row();
                 debtActions.style.justifyContent = Justify.Center;
                 debtActions.style.marginTop = 4;
                 debtActions.Add(BtnPrimary("Pay the instalment",
                     () => Dispatch(new DefendDiscard(_sel.ToList())), _sel.Count == 1));
-                table.Add(debtActions);
+                center.Add(debtActions);
             }
             else
             {
@@ -162,9 +137,9 @@ namespace Regicide.Unity
                 {
                     status.Add(Theme.Subtle("1 card · an Ace + one card · a same-rank set up to 10 — or yield"));
                 }
-                table.Add(status);
+                center.Add(status);
 
-                table.Add(HandStrip(true));
+                center.Add(HandStrip(true));
 
                 var actions = Row();
                 actions.style.justifyContent = Justify.Center;
@@ -172,8 +147,27 @@ namespace Regicide.Unity
                 actions.Add(BtnPrimary($"Play selected ({_sel.Count})",
                     () => Dispatch(new PlayCards(_sel.ToList())), _sel.Count > 0 && invalid == null));
                 actions.Add(Btn("Yield", () => Dispatch(new Yield())));
-                table.Add(actions);
+                center.Add(actions);
             }
+
+            spread.Add(center);
+
+            // RIGHT flank: the piles live beside the fan (not the far corner) + the pool.
+            var rightFlank = new VisualElement();
+            rightFlank.style.width = 130;
+            rightFlank.style.flexShrink = 0;
+            rightFlank.style.alignItems = Align.Center;
+            rightFlank.style.paddingBottom = 6;
+            rightFlank.Add(PileIcons());
+            if (S.TokenFragments > 0 || S.TokenHalves > 0)
+            {
+                var pool = Theme.Subtle($"{S.TokenFragments} frags" +
+                    (S.TokenHalves > 0 ? $" · {S.TokenHalves} half" : ""));
+                pool.style.marginTop = 3;
+                rightFlank.Add(pool);
+            }
+            spread.Add(rightFlank);
+            table.Add(spread);
 
             var foot = Row();
             foot.style.flexWrap = Wrap.NoWrap;
@@ -184,6 +178,58 @@ namespace Regicide.Unity
 
             screen.Add(table);
             return screen;
+        }
+
+        /// <summary>
+        /// The LEFT flank of the table — the player's corner: class crest, staff,
+        /// and the BLOCK readout (it lives per-enemy in the rules, but it is YOURS).
+        /// </summary>
+        private VisualElement PlayerCorner(EnemyState enemy)
+        {
+            var left = new VisualElement();
+            left.style.width = 130;
+            left.style.flexShrink = 0;
+            left.style.alignItems = Align.Center;
+            left.style.justifyContent = Justify.FlexEnd;
+            left.style.paddingBottom = 6;
+
+            var homeSuit = ClassTables.Classes[S.Hero.ClassId].HomeSuit;
+            var crest = new Label(PhysicalCard.SuitGlyph(homeSuit));
+            crest.style.fontSize = 40 * CardView.GlyphScale(homeSuit);
+            crest.style.color = Color.Lerp(CardView.SuitColor(homeSuit), Color.white, 0.30f);
+            left.Add(crest);
+
+            var staff = Theme.Subtle(ContentText.StaffName(S.Hero.StaffId));
+            staff.style.unityTextAlign = TextAnchor.MiddleCenter;
+            staff.style.whiteSpace = WhiteSpace.Normal;
+            left.Add(staff);
+
+            if (enemy != null && enemy.Shield > 0)
+            {
+                var row = new VisualElement();
+                row.style.flexDirection = FlexDirection.Row;
+                row.style.alignItems = Align.Center;
+                row.style.marginTop = 6;
+                row.Add(Widgets.MiniIcon(Widgets.Icon.Shield, Color.Lerp(Theme.Shield, Color.white, 0.4f), 22));
+                var n = new Label(enemy.Shield.ToString());
+                n.style.fontSize = 22;
+                n.style.unityFontStyleAndWeight = FontStyle.Bold;
+                n.style.color = Color.Lerp(Theme.Shield, Color.white, 0.5f);
+                n.style.marginLeft = 5;
+                row.Add(n);
+                left.Add(row);
+
+                var cap = new Label("BLOCK");
+                cap.style.fontSize = 9;
+                cap.style.letterSpacing = 2;
+                cap.style.color = Theme.ParchmentDim;
+                left.Add(cap);
+
+                Tips.Attach(left, "your block",
+                    "your ♠ plays build block against THIS enemy — it cuts its counterattack " +
+                    "and resets when the next duellist steps up.");
+            }
+            return left;
         }
 
         // Large-card footprint (CardView.Size.Large) and the queue fan step.

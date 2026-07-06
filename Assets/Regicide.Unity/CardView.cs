@@ -16,6 +16,10 @@ namespace Regicide.Unity
     {
         public enum Size { Small, Hand, Large }
 
+        /// <summary>True while a hand card is being dragged — hover effects stand down
+        /// so they can't fight the drag translate (the rubber-band bug).</summary>
+        public static bool DragLock;
+
         private static (float w, float h, float pip, float corner) Dim(Size s) => s switch
         {
             Size.Small => (72f, 100f, 34f, 13f),
@@ -32,8 +36,9 @@ namespace Regicide.Unity
             _ => Theme.Hex("#26232b"),             // ♠ ink
         };
 
-        /// <summary>The font draws ♥ noticeably larger than the other pips — compensate.</summary>
-        public static float GlyphScale(Suit suit) => suit == Suit.Hearts ? 0.86f : 1f;
+        /// <summary>The font draws ♥ noticeably larger than the other pips — compensate.
+        /// (0.86 wasn't enough per playtest; 0.78 tuned by eye.)</summary>
+        public static float GlyphScale(Suit suit) => suit == Suit.Hearts ? 0.78f : 1f;
 
         // ── faces ───────────────────────────────────────────────────────────────
 
@@ -158,11 +163,13 @@ namespace Regicide.Unity
                 card.RegisterCallback<ClickEvent>(_ => onClick());
                 card.RegisterCallback<MouseEnterEvent>(_ =>
                 {
+                    if (DragLock) return;
                     card.style.translate = new Translate(0, -10);
                     Theme.SetBorder(card, Theme.GoldBright, 2.5f);
                 });
                 card.RegisterCallback<MouseLeaveEvent>(_ =>
                 {
+                    if (DragLock) return;
                     card.style.translate = new Translate(0, 0);
                     // Re-render restores the true border; a light reset is enough here.
                     Theme.SetBorder(card, Theme.Ink, 2);
