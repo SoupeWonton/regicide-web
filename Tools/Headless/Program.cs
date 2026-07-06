@@ -2078,9 +2078,34 @@ namespace Regicide.Headless
             meta.RecordOutcome(won.State);
             Check(meta.Runs == 2 && meta.Wins == 1 && meta.C2Cleared, "the crown banks the milestone");
 
+            // Run history: identities stamped, outcomes recorded, round-tripped.
+            meta.RecordRunClass(won.State);
+            Check(meta.LatestRun.ClassId == "sentinel" && meta.LatestRun.StaffId == "hold_the_line",
+                "class select stamps the run record");
+            Check(meta.History.Count == 2 && meta.History[0].Outcome == "lost" &&
+                  meta.History[1].Outcome == "won", "outcomes land on the right records");
+
             var back = MetaState.FromJson(meta.ToJson());
             Check(back.Runs == 2 && back.Wins == 1 && back.C2Cleared && back.Version == MetaState.CurrentVersion,
                 "JSON round-trip preserves the lineage");
+            Check(back.History.Count == 2 &&
+                  back.History[1].ClassId == "sentinel" && back.History[1].Outcome == "won" &&
+                  back.History[0].Outcome == "lost" && back.History[0].N == 1,
+                "history survives the round-trip");
+
+            // A hostile seed can't break the tiny parser (sanitized on write).
+            var hostile = new MetaState();
+            hostile.RecordRunStart("we\"ird{se[ed]},\\end");
+            var hostileBack = MetaState.FromJson(hostile.ToJson());
+            Check(hostileBack.History.Count == 1 && !hostileBack.History[0].Seed.Contains("\""),
+                "seeds are sanitized before storage");
+
+            // The cap holds.
+            var many = new MetaState();
+            for (int i = 0; i < MetaState.HistoryCap + 10; i++) many.RecordRunStart($"s{i}");
+            Check(many.History.Count == MetaState.HistoryCap &&
+                  MetaState.FromJson(many.ToJson()).History.Count == MetaState.HistoryCap,
+                "history stays capped");
 
             string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "kingfall-meta-test.json");
             try

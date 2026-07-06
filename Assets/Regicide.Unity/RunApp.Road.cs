@@ -65,7 +65,7 @@ namespace Regicide.Unity
             bar.style.flexWrap = Wrap.NoWrap;
             bar.style.justifyContent = Justify.SpaceBetween;
             bar.style.marginBottom = 6;
-            string who = $"{ContentText.ClassName(S.Hero.ClassId)} · {ContentText.StaffName(S.Hero.StaffId)}" +
+            string who = $"run {_runNumber} · {ContentText.ClassName(S.Hero.ClassId)} · {ContentText.StaffName(S.Hero.StaffId)}" +
                          (S.Hero.PathC2 != null ? $" · {S.Hero.PathC2} lit" : "") +
                          $"      chapter {S.Chapter} · province {S.Province}";
             bar.Add(Theme.Subtle(who));

@@ -28,6 +28,7 @@ namespace Regicide.Unity
         private MetaState _meta;
         private string _metaPath;
         private bool _outcomeRecorded;
+        private int _runNumber;
 
         private VisualElement _root;
         private VisualElement _fxLayer;
@@ -88,6 +89,13 @@ namespace Regicide.Unity
             {
                 foreach (var e in r.Events) _log.Add(e.ToString());
                 _sel.Clear();
+                if (action is SelectClass)
+                {
+                    // Stamp the run's identity into the lineage history (playtest
+                    // evidence: which run had which class/staff/seed).
+                    _meta.RecordRunClass(S);
+                    _meta.SaveTo(_metaPath);
+                }
             }
 
             if (!_outcomeRecorded &&
@@ -366,13 +374,14 @@ namespace Regicide.Unity
 
         private void NewRun(string seed)
         {
-            _session = new GameSession(string.IsNullOrWhiteSpace(seed)
-                ? DateTime.Now.Ticks.ToString() : seed.Trim());
+            string used = string.IsNullOrWhiteSpace(seed) ? DateTime.Now.Ticks.ToString() : seed.Trim();
+            _session = new GameSession(used);
             _outcomeRecorded = false;
             _log.Clear();
             _sel.Clear();
             _classPick = null;
-            _meta.RecordRunStart();
+            _meta.RecordRunStart(used);
+            _runNumber = _meta.Runs;
             _meta.SaveTo(_metaPath);
             Render();
         }

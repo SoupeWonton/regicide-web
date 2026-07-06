@@ -13,18 +13,51 @@ namespace Regicide.Core
     /// fields, no dependency. The Unity layer supplies the file path
     /// (Application.persistentDataPath); Core never references UnityEngine.
     /// </summary>
+    /// <summary>One line of run history: enough to tell runs apart, nothing more.</summary>
+    public sealed class RunRecord
+    {
+        public int N;
+        public string ClassId = "";
+        public string StaffId = "";
+        public string Seed = "";
+        /// <summary>"abandoned" (app closed mid-run — no save by design) · "lost" · "won".</summary>
+        public string Outcome = "abandoned";
+        public int Chapter = 1;
+    }
+
     public sealed class MetaState
     {
-        public const int CurrentVersion = 1;
+        public const int CurrentVersion = 2;
+        /// <summary>History is capped — the lineage records identity, not a database.</summary>
+        public const int HistoryCap = 50;
 
         public int Version = CurrentVersion;
         public int Runs;
         public int Wins;
         /// <summary>True once any run has been crowned at the King Gate (§14).</summary>
         public bool C2Cleared;
+        /// <summary>Most recent last. Playtest evidence: which run had which class/staff/seed.</summary>
+        public System.Collections.Generic.List<RunRecord> History =
+            new System.Collections.Generic.List<RunRecord>();
 
-        /// <summary>Call when a new run begins.</summary>
-        public void RecordRunStart() => Runs++;
+        public RunRecord LatestRun => History.Count > 0 ? History[History.Count - 1] : null;
+
+        /// <summary>Call when a new run begins. Class/staff land later via RecordRunClass.</summary>
+        public void RecordRunStart(string seed = "")
+        {
+            Runs++;
+            History.Add(new RunRecord { N = Runs, Seed = Clean(seed) });
+            if (History.Count > HistoryCap) History.RemoveAt(0);
+        }
+
+        /// <summary>Call once class select resolves — stamps the run's identity.</summary>
+        public void RecordRunClass(CampaignState run)
+        {
+            var r = LatestRun;
+            if (r == null) return;
+            r.ClassId = Clean(run.Hero.ClassId);
+            r.StaffId = Clean(run.Hero.StaffId);
+        }
 
         /// <summary>Call when a run ends (won or lost). Milestones stay banked (§14).</summary>
         public void RecordOutcome(CampaignState run)
@@ -34,6 +67,29 @@ namespace Regicide.Core
                 Wins++;
                 C2Cleared = true;
             }
+            var r = LatestRun;
+            if (r != null)
+            {
+                r.Outcome = run.Phase == CampaignPhase.CampaignWon ? "won" : "lost";
+                r.Chapter = run.Chapter;
+            }
+        }
+
+        /// <summary>
+        /// Stored strings are sanitized on WRITE (no quotes/braces/backslashes, capped)
+        /// so the tiny hand-rolled parser below never meets an escape sequence.
+        /// </summary>
+        private static string Clean(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            var sb = new StringBuilder();
+            foreach (char c in s)
+            {
+                if (c == '"' || c == '\\' || c == '{' || c == '}' || c == '[' || c == ']' || c == ',') continue;
+                sb.Append(c);
+                if (sb.Length >= 24) break;
+            }
+            return sb.ToString();
         }
 
         public string ToJson()
@@ -43,7 +99,20 @@ namespace Regicide.Core
             sb.Append(",\"runs\":").Append(Runs.ToString(CultureInfo.InvariantCulture));
             sb.Append(",\"wins\":").Append(Wins.ToString(CultureInfo.InvariantCulture));
             sb.Append(",\"c2Cleared\":").Append(C2Cleared ? "true" : "false");
-            sb.Append('}');
+            sb.Append(",\"history\":[");
+            for (int i = 0; i < History.Count; i++)
+            {
+                var r = History[i];
+                if (i > 0) sb.Append(',');
+                sb.Append("{\"n\":").Append(r.N.ToString(CultureInfo.InvariantCulture));
+                sb.Append(",\"class\":\"").Append(Clean(r.ClassId)).Append('"');
+                sb.Append(",\"staff\":\"").Append(Clean(r.StaffId)).Append('"');
+                sb.Append(",\"seed\":\"").Append(Clean(r.Seed)).Append('"');
+                sb.Append(",\"outcome\":\"").Append(Clean(r.Outcome)).Append('"');
+                sb.Append(",\"chapter\":").Append(r.Chapter.ToString(CultureInfo.InvariantCulture));
+                sb.Append('}');
+            }
+            sb.Append("]}");
             return sb.ToString();
         }
 
@@ -56,7 +125,42 @@ namespace Regicide.Core
             meta.Runs = ReadInt(json, "runs", 0);
             meta.Wins = ReadInt(json, "wins", 0);
             meta.C2Cleared = ReadBool(json, "c2Cleared");
+
+            // History: cleaned strings guarantee no nested braces — object splitting
+            // on '}' is safe. A v1 file simply has no history (empty list).
+            int h = json.IndexOf("\"history\":[", System.StringComparison.Ordinal);
+            if (h >= 0)
+            {
+                int end = json.IndexOf(']', h);
+                if (end > h)
+                {
+                    string body = json.Substring(h + 11, end - h - 11);
+                    foreach (string chunk in body.Split('}'))
+                    {
+                        if (chunk.IndexOf('{') < 0) continue;
+                        string obj = chunk.Substring(chunk.IndexOf('{')) + "}";
+                        meta.History.Add(new RunRecord
+                        {
+                            N = ReadInt(obj, "n", 0),
+                            ClassId = ReadStr(obj, "class"),
+                            StaffId = ReadStr(obj, "staff"),
+                            Seed = ReadStr(obj, "seed"),
+                            Outcome = ReadStr(obj, "outcome") is string o && o.Length > 0 ? o : "abandoned",
+                            Chapter = ReadInt(obj, "chapter", 1),
+                        });
+                    }
+                    if (meta.History.Count > HistoryCap)
+                        meta.History.RemoveRange(0, meta.History.Count - HistoryCap);
+                }
+            }
             return meta;
+        }
+
+        private static string ReadStr(string json, string field)
+        {
+            string raw = ReadRaw(json, field);
+            if (raw == null) return "";
+            return raw.Trim().Trim('"');
         }
 
         /// <summary>Load from disk; a missing or corrupt file yields a fresh lineage.</summary>

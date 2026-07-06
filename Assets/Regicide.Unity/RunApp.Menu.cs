@@ -56,6 +56,28 @@ namespace Regicide.Unity
             if (_meta.C2Cleared) lineage.Add(Theme.Chip("Continent 2 cleared", Theme.Green));
             box.Add(lineage);
 
+            // The last few runs, so a fresh start never blurs into the one before.
+            if (_meta.History.Count > 0)
+            {
+                var recent = new VisualElement();
+                recent.style.alignItems = Align.Center;
+                recent.style.marginBottom = 10;
+                int shown = 0;
+                for (int i = _meta.History.Count - 1; i >= 0 && shown < 3; i--, shown++)
+                {
+                    var run = _meta.History[i];
+                    string who = run.ClassId.Length > 0
+                        ? $"{ContentText.ClassName(run.ClassId)} / {ContentText.StaffName(run.StaffId)}"
+                        : "never left the menu";
+                    string fate = run.Outcome == "won" ? "CROWNED"
+                        : run.Outcome == "lost" ? $"fell ch{run.Chapter}" : "abandoned";
+                    var line = Theme.Subtle($"#{run.N} · {who} — {fate}");
+                    if (run.Outcome == "won") line.style.color = Theme.GoldBright;
+                    recent.Add(line);
+                }
+                box.Add(recent);
+            }
+
             var seed = new TextField("Seed (blank = random)") { value = _menuSeed };
             seed.RegisterValueChangedCallback(e => _menuSeed = e.newValue);
             seed.style.minWidth = 380;
@@ -239,6 +261,13 @@ namespace Regicide.Unity
             box.style.alignItems = Align.Center;
             box.style.maxWidth = 900;
             Theme.SetBorder(box, won ? Theme.GoldBright : Theme.RedDeep, 2.5f);
+
+            // The run's identity, unmistakable — so the NEXT run reads as new.
+            var stamp = Theme.Subtle(
+                $"run #{_runNumber} · {ContentText.ClassName(S.Hero.ClassId)} / {ContentText.StaffName(S.Hero.StaffId)}" +
+                $" · seed {S.Seed} · reached chapter {S.Chapter}");
+            stamp.style.marginBottom = 8;
+            box.Add(stamp);
 
             if (won)
             {
