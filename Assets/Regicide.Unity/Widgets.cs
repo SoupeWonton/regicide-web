@@ -42,7 +42,7 @@ namespace Regicide.Unity
         public static VisualElement NodeDisc(RoadNode node, bool current, bool reachable, Action onClick)
         {
             var (glyph, tint, label) = node.Known ? NodeStyle(node.Kind) : ("?", Theme.Grey, "Unknown");
-            float d = 46;
+            float d = 62;
 
             var wrap = new VisualElement();
             wrap.style.alignItems = Align.Center;
@@ -59,7 +59,7 @@ namespace Regicide.Unity
                 current ? 3 : reachable ? 2.5f : 1.5f);
 
             var g = new Label(glyph);
-            g.style.fontSize = 18;
+            g.style.fontSize = 24;
             g.style.unityFontStyleAndWeight = FontStyle.Bold;
             g.style.color = node.Visited && !current
                 ? Theme.Grey
@@ -83,7 +83,7 @@ namespace Regicide.Unity
 
             wrap.Add(disc);
             var name = new Label(node.Known ? label : "?");
-            name.style.fontSize = 10;
+            name.style.fontSize = 11;
             name.style.color = reachable || current ? Theme.ParchmentDim : Theme.Grey;
             name.style.marginTop = 2;
             wrap.Add(name);
@@ -127,6 +127,99 @@ namespace Regicide.Unity
             return canvas;
         }
 
+        // ── relic paper-doll (§8) ───────────────────────────────────────────────
+
+        /// <summary>
+        /// A Diablo-style equipment socket: a dark inset square with a grey
+        /// silhouette of what belongs there (a ring in the ring slot…), drawn with
+        /// Painter2D. Gold when something is equipped.
+        /// </summary>
+        public static VisualElement RelicSlotIcon(RelicSlot slot, bool filled, float size = 56)
+        {
+            var socket = new VisualElement();
+            socket.style.width = size; socket.style.height = size;
+            socket.style.backgroundColor = Theme.NightDeep;
+            Theme.SetRadius(socket, 8);
+            Theme.SetBorder(socket, filled ? Theme.Gold : new Color(Theme.Grey.r, Theme.Grey.g, Theme.Grey.b, 0.45f),
+                filled ? 2f : 1.5f);
+
+            var canvas = new VisualElement();
+            canvas.pickingMode = PickingMode.Ignore;
+            canvas.style.position = Position.Absolute;
+            canvas.style.left = 0; canvas.style.right = 0; canvas.style.top = 0; canvas.style.bottom = 0;
+            Color line = filled
+                ? Theme.GoldBright
+                : new Color(Theme.Grey.r, Theme.Grey.g, Theme.Grey.b, 0.55f);
+
+            canvas.generateVisualContent += ctx =>
+            {
+                var p = ctx.painter2D;
+                float w = canvas.contentRect.width, h = canvas.contentRect.height;
+                if (w <= 0 || h <= 0) return;
+                var c = new Vector2(w / 2f, h / 2f);
+                p.strokeColor = line;
+                p.lineWidth = 2.2f;
+                p.lineCap = LineCap.Round;
+
+                switch (slot)
+                {
+                    case RelicSlot.Hat:
+                        // Brim + dome.
+                        p.BeginPath();
+                        p.MoveTo(c + new Vector2(-w * 0.32f, h * 0.14f));
+                        p.LineTo(c + new Vector2(w * 0.32f, h * 0.14f));
+                        p.Stroke();
+                        p.BeginPath();
+                        p.Arc(c + new Vector2(0, h * 0.14f), w * 0.18f,
+                            new Angle(180, AngleUnit.Degree), new Angle(360, AngleUnit.Degree));
+                        p.Stroke();
+                        break;
+
+                    case RelicSlot.Amulet:
+                        // Chain V + pendant.
+                        p.BeginPath();
+                        p.MoveTo(c + new Vector2(-w * 0.26f, -h * 0.28f));
+                        p.LineTo(c + new Vector2(0, -h * 0.02f));
+                        p.LineTo(c + new Vector2(w * 0.26f, -h * 0.28f));
+                        p.Stroke();
+                        p.BeginPath();
+                        p.Arc(c + new Vector2(0, h * 0.14f), w * 0.13f,
+                            new Angle(0, AngleUnit.Degree), new Angle(360, AngleUnit.Degree));
+                        p.Stroke();
+                        break;
+
+                    case RelicSlot.Ring:
+                        // The band + a little gem arc on top.
+                        p.BeginPath();
+                        p.Arc(c + new Vector2(0, h * 0.05f), w * 0.19f,
+                            new Angle(0, AngleUnit.Degree), new Angle(360, AngleUnit.Degree));
+                        p.Stroke();
+                        p.BeginPath();
+                        p.Arc(c + new Vector2(0, -h * 0.20f), w * 0.07f,
+                            new Angle(0, AngleUnit.Degree), new Angle(360, AngleUnit.Degree));
+                        p.Stroke();
+                        break;
+
+                    case RelicSlot.Cloak:
+                        // Shoulders draping to a hem.
+                        p.BeginPath();
+                        p.MoveTo(c + new Vector2(-w * 0.10f, -h * 0.30f));
+                        p.LineTo(c + new Vector2(w * 0.10f, -h * 0.30f));
+                        p.LineTo(c + new Vector2(w * 0.28f, h * 0.28f));
+                        p.LineTo(c + new Vector2(-w * 0.28f, h * 0.28f));
+                        p.ClosePath();
+                        p.Stroke();
+                        p.BeginPath();
+                        p.MoveTo(c + new Vector2(0, -h * 0.30f));
+                        p.LineTo(c + new Vector2(0, h * 0.28f));
+                        p.Stroke();
+                        break;
+                }
+            };
+            socket.Add(canvas);
+            return socket;
+        }
+
         // ── battle readouts ─────────────────────────────────────────────────────
 
         /// <summary>Enemy status block: HP bar, attack intent, shield, immunity.</summary>
@@ -156,7 +249,8 @@ namespace Regicide.Unity
         /// <summary>One gauntlet crystal (§7): suit-tinted socket, tier, cast state.</summary>
         public static VisualElement Crystal(Suit suit, int tier, bool castable, bool spent, Action onCast)
         {
-            var suitColor = CardView.SuitColor(suit) == Theme.RedSuit ? Theme.RedSuit : Theme.Blue;
+            // Lift the suit colour toward white so ♠ ink stays visible on the night bg.
+            var suitColor = Color.Lerp(CardView.SuitColor(suit), Color.white, 0.25f);
             var v = new VisualElement();
             v.style.alignItems = Align.Center;
             v.style.marginRight = 8;

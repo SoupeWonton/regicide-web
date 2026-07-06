@@ -23,8 +23,17 @@ namespace Regicide.Unity
             _ => (104f, 146f, 52f, 17f),
         };
 
-        public static Color SuitColor(Suit suit) =>
-            suit == Suit.Hearts || suit == Suit.Diamonds ? Theme.RedSuit : Theme.Hex("#26232b");
+        /// <summary>Four-colour deck: nothing shares a colour (user call).</summary>
+        public static Color SuitColor(Suit suit) => suit switch
+        {
+            Suit.Hearts => Theme.RedSuit,
+            Suit.Diamonds => Theme.Hex("#2e5fa3"), // ♦ blue
+            Suit.Clubs => Theme.Hex("#3d7a34"),    // ♣ green
+            _ => Theme.Hex("#26232b"),             // ♠ ink
+        };
+
+        /// <summary>The font draws ♥ noticeably larger than the other pips — compensate.</summary>
+        public static float GlyphScale(Suit suit) => suit == Suit.Hearts ? 0.86f : 1f;
 
         // ── faces ───────────────────────────────────────────────────────────────
 
@@ -139,42 +148,37 @@ namespace Regicide.Unity
             return card;
         }
 
+        /// <summary>
+        /// The face reads from the centre only (user call — no corner indices):
+        /// the rank big, the suit pip right under it, both in the suit's colour.
+        /// </summary>
         private static void PaintFace(VisualElement card, Suit suit, string rank, Size size)
         {
-            var (w, h, pipSize, cornerSize) = Dim(size);
+            var (w, h, pipSize, _) = Dim(size);
             var color = SuitColor(suit);
-            string glyph = PhysicalCard.SuitGlyph(suit);
 
-            var pip = new Label(glyph);
-            pip.style.position = Position.Absolute;
-            pip.style.left = 0; pip.style.right = 0; pip.style.top = 0; pip.style.bottom = 0;
-            pip.style.unityTextAlign = TextAnchor.MiddleCenter;
-            pip.style.fontSize = pipSize;
-            pip.style.color = new Color(color.r, color.g, color.b, 0.85f);
-            pip.pickingMode = PickingMode.Ignore;
-            card.Add(pip);
+            var col = new VisualElement();
+            col.pickingMode = PickingMode.Ignore;
+            col.style.position = Position.Absolute;
+            col.style.left = 0; col.style.right = 0; col.style.top = 0; col.style.bottom = 0;
+            col.style.alignItems = Align.Center;
+            col.style.justifyContent = Justify.Center;
 
-            card.Add(Corner(rank, glyph, color, cornerSize, false, size));
-            if (size != Size.Small) card.Add(Corner(rank, glyph, color, cornerSize, true, size));
-        }
-
-        private static VisualElement Corner(string rank, string glyph, Color color, float fontSize, bool flipped, Size size)
-        {
-            var v = new VisualElement();
-            v.style.position = Position.Absolute;
-            v.pickingMode = PickingMode.Ignore;
-            if (!flipped) { v.style.left = 5; v.style.top = 2; }
-            else
-            {
-                v.style.right = 5; v.style.bottom = 2;
-                v.style.rotate = new Rotate(180);
-            }
-            var r = new Label(rank + glyph);
-            r.style.fontSize = fontSize;
+            var r = new Label(rank);
+            r.style.fontSize = pipSize * (rank.Length > 1 ? 0.74f : 0.92f); // "10" still fits
             r.style.color = color;
             r.style.unityFontStyleAndWeight = FontStyle.Bold;
-            v.Add(r);
-            return v;
+            r.style.unityTextAlign = TextAnchor.MiddleCenter;
+            col.Add(r);
+
+            var pip = new Label(PhysicalCard.SuitGlyph(suit));
+            pip.style.fontSize = pipSize * 0.55f * GlyphScale(suit);
+            pip.style.color = new Color(color.r, color.g, color.b, 0.9f);
+            pip.style.unityTextAlign = TextAnchor.MiddleCenter;
+            pip.style.marginTop = -pipSize * 0.10f;
+            col.Add(pip);
+
+            card.Add(col);
         }
 
         private static VisualElement Badge(string text, Color tint)
