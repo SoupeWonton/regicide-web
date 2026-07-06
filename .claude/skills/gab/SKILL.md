@@ -1,6 +1,6 @@
 ---
-name: feedback
-description: Playtest-feedback collection mode. The user fires feedback items across multiple messages that must NOT be implemented yet; sort and log them until the user gives the go-ahead ("do it", "ok I'm done", "go ahead", "code it", "ship it"...), then plan and implement the whole batch. Use when the user invokes /feedback.
+name: gab
+description: Playtest-feedback collection mode. The user fires feedback items across multiple messages that must NOT be implemented yet; sort and log them until the user gives the go-ahead ("do it", "ok I'm done", "go ahead", "code it", "ship it"...), then plan and implement the whole batch. Use when the user invokes /gab.
 ---
 
 # Feedback collection mode
