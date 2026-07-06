@@ -32,6 +32,7 @@ namespace Regicide.Unity
         private VisualElement _root;
         private VisualElement _fxLayer;
         private string _lastScreenKey;
+        private bool _showLog;
         private readonly List<string> _log = new List<string>();
 
         // Transient view-side selection state (never rules — just what's highlighted).
@@ -253,9 +254,6 @@ namespace Regicide.Unity
                         Sfx.Play(Sfx.Sound.Coin);
                         Toast($"Relic claimed: {RelicTables.Get(rg.RelicId).Name}", Theme.Gold);
                         break;
-                    case StaffTriggered st:
-                        Toast($"Staff — {st.Note}", Theme.ParchmentDim);
-                        break;
                     case CounterattackIncoming ci:
                         Sfx.Play(Sfx.Sound.Counter);
                         Fx.Float(_fxLayer, null, $"COUNTER {ci.NetAttack}", Theme.RedBright, 30);
@@ -331,8 +329,14 @@ namespace Regicide.Unity
             if (key != _lastScreenKey) Fx.FadeIn(screen);
             _lastScreenKey = key;
 
-            if (S != null && S.PendingChoice != null) _root.Add(BuildPendingOverlay(S.PendingChoice));
+            // Defend and Debt resolve INLINE on the battle screen — the hand fan is
+            // the selector, no popup (the web UX). Everything else overlays.
+            var pending = S?.PendingChoice;
+            bool inlinePending = pending != null && S.Phase == CampaignPhase.Encounter &&
+                (pending.Kind == PendingChoiceKind.Defend || pending.Kind == PendingChoiceKind.DebtDiscard);
+            if (pending != null && !inlinePending) _root.Add(BuildPendingOverlay(pending));
             if (_pickerIds != null) _root.Add(BuildPickerOverlay());
+            if (_showLog) _root.Add(BuildLogOverlay());
 
             // The FX layer sits above everything; floats/toasts/flashes land here.
             _fxLayer = new VisualElement();
@@ -437,42 +441,80 @@ namespace Regicide.Unity
             return row;
         }
 
+        /// <summary>One quiet line of counts; the pile names are the viewers.</summary>
         private VisualElement DeckCounts()
         {
             var row = Row();
-            row.Add(Theme.Chip($"Tavern {S.Deck.Tavern.Count}", Theme.Blue));
-            row.Add(Theme.Chip($"Discard {S.Deck.Discard.Count}", Theme.RedDeep));
-            row.Add(Theme.Chip($"Hand {S.Deck.Hand.Count}/{S.MaxHandSize}"));
-            row.Add(Theme.Chip($"Deck {S.OwnedCards.Count}", Theme.Green));
-            row.Add(Theme.Chip($"Fragments {S.TokenFragments}", Theme.Gold));
-            if (S.TokenHalves > 0) row.Add(Theme.Chip($"Halves {S.TokenHalves}", Theme.GoldBright));
-            row.Add(Btn("Deck", () => OpenViewer("Owned cards (sorted by suit — draw order hidden)",
+            row.style.flexWrap = Wrap.NoWrap;
+
+            void LinkText(string text, Action onClick)
+            {
+                var l = Theme.Subtle(text);
+                l.style.marginRight = 4;
+                if (onClick != null)
+                {
+                    l.RegisterCallback<ClickEvent>(_ => onClick());
+                    l.RegisterCallback<MouseEnterEvent>(_ => l.style.color = Theme.GoldBright);
+                    l.RegisterCallback<MouseLeaveEvent>(_ => l.style.color = Theme.ParchmentDim);
+                }
+                row.Add(l);
+            }
+
+            LinkText($"deck {S.OwnedCards.Count}", () => OpenViewer(
+                "Your deck (sorted by suit — draw order hidden)",
                 S.OwnedCards.OrderBy(id => S.Cards.Get(id).EffectiveFace().Suit)
-                            .ThenBy(id => S.Cards.Get(id).EffectiveFace().Rank).ToList())));
-            row.Add(Btn("Discard", () => OpenViewer("Discard pile",
+                            .ThenBy(id => S.Cards.Get(id).EffectiveFace().Rank).ToList()));
+            LinkText($"· tavern {S.Deck.Tavern.Count}", null);
+            LinkText($"· discard {S.Deck.Discard.Count}", () => OpenViewer("Discard pile",
                 S.Deck.Discard.OrderBy(id => S.Cards.Get(id).EffectiveFace().Suit)
-                              .ThenBy(id => S.Cards.Get(id).EffectiveFace().Rank).ToList())));
+                              .ThenBy(id => S.Cards.Get(id).EffectiveFace().Rank).ToList()));
+            if (S.TokenFragments > 0 || S.TokenHalves > 0)
+                LinkText($"· ✦ {S.TokenFragments}" + (S.TokenHalves > 0 ? $" + {S.TokenHalves} half" : ""), null);
             return row;
         }
 
+        /// <summary>The chronicle, folded to its last line; click "log" for the full story.</summary>
         private VisualElement EventLog()
         {
-            var panel = Panel("Chronicle");
+            var row = Row();
+            row.style.flexWrap = Wrap.NoWrap;
+            string last = _log.Count > 0 ? _log[_log.Count - 1] : "";
+            var line = Theme.Subtle(last.Length > 72 ? last.Substring(0, 72) + "…" : last);
+            line.style.color = last.StartsWith("✗") ? Theme.RedBright : Theme.Grey;
+            line.style.overflow = Overflow.Hidden;
+            line.style.flexShrink = 1;
+            row.Add(line);
+
+            var open = Theme.Subtle(" log ▸");
+            open.style.color = Theme.GoldDim;
+            open.RegisterCallback<ClickEvent>(_ => { _showLog = true; Render(); });
+            open.RegisterCallback<MouseEnterEvent>(_ => open.style.color = Theme.GoldBright);
+            open.RegisterCallback<MouseLeaveEvent>(_ => open.style.color = Theme.GoldDim);
+            row.Add(open);
+            return row;
+        }
+
+        private VisualElement BuildLogOverlay()
+        {
+            var o = Overlay();
+            o.RegisterCallback<ClickEvent>(_ => { _showLog = false; Render(); });
+            var d = Dialog("Chronicle");
             var scroll = new ScrollView();
-            scroll.style.maxHeight = 150;
-            var lines = _log.Skip(Math.Max(0, _log.Count - 60)).ToList();
-            for (int i = 0; i < lines.Count; i++)
+            scroll.style.maxHeight = 460;
+            scroll.style.minWidth = 520;
+            var lines = _log.Skip(Math.Max(0, _log.Count - 120)).ToList();
+            foreach (var lineText in lines)
             {
-                var t = Text(lines[i]);
+                var t = Text(lineText);
                 t.style.fontSize = 11;
-                bool latest = i >= lines.Count - 3;
-                t.style.color = lines[i].StartsWith("✗") ? Theme.RedBright
-                    : latest ? Theme.Parchment : Theme.Grey;
+                t.style.color = lineText.StartsWith("✗") ? Theme.RedBright : Theme.ParchmentDim;
                 scroll.Add(t);
             }
-            panel.Add(scroll);
+            d.Add(scroll);
+            d.Add(Btn("Close", () => { _showLog = false; Render(); }));
             scroll.schedule.Execute(() => scroll.scrollOffset = new Vector2(0, float.MaxValue));
-            return panel;
+            o.Add(d);
+            return o;
         }
 
         // ── generic picker overlay (viewer / target chooser) ────────────────────

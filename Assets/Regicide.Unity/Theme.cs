@@ -111,6 +111,16 @@ namespace Regicide.Unity
             return t;
         }
 
+        /// <summary>Quiet single-line info text — the minimalist alternative to chip rows.</summary>
+        public static Label Subtle(string text)
+        {
+            var l = new Label(text);
+            l.style.fontSize = 11;
+            l.style.color = ParchmentDim;
+            l.style.letterSpacing = 1;
+            return l;
+        }
+
         public static Label Title(string text, int size = 30)
         {
             var l = new Label(text);

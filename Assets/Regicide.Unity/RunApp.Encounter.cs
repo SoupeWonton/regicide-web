@@ -23,17 +23,17 @@ namespace Regicide.Unity
             screen.style.flexGrow = 1;
             Theme.SetPadding(screen, 8, 12);
 
-            // ── top bar ──
+            // ── top strip: one quiet line each side ──
             var top = Row();
-            top.Add(Theme.Chip($"Chapter {S.Chapter}", Theme.Gold));
-            top.Add(Theme.Chip($"Continent {S.Continent} · Province {S.Province}"));
-            if (enc.IsGate)
-                top.Add(Theme.Chip($"♛ {PhysicalCard.RankGlyph(enc.GateRank)} GATE", Theme.GoldBright));
-            top.Add(Theme.Chip($"{enc.Enemies.Count(e => !e.Alive)}/{enc.Enemies.Count} down",
-                enc.Enemies.Count > 1 ? Theme.RedDeep : Theme.Grey));
-            var counts = DeckCounts();
-            counts.style.marginLeft = 12;
-            top.Add(counts);
+            top.style.flexWrap = Wrap.NoWrap;
+            top.style.justifyContent = Justify.SpaceBetween;
+            string where = $"chapter {S.Chapter} · province {S.Province}" +
+                           (enc.IsGate ? $"   ♛ {PhysicalCard.RankGlyph(enc.GateRank)} GATE" : "") +
+                           (enc.Enemies.Count > 1 ? $"   {enc.Enemies.Count(e => !e.Alive)}/{enc.Enemies.Count} down" : "");
+            var whereLabel = Theme.Subtle(where);
+            if (enc.IsGate) whereLabel.style.color = Theme.Gold;
+            top.Add(whereLabel);
+            top.Add(DeckCounts());
             screen.Add(top);
 
             // ── arena ──
@@ -54,51 +54,99 @@ namespace Regicide.Unity
 
             arena.Add(EnemyZone(enc, enemy));
 
-            var rightRail = new VisualElement();
-            rightRail.style.width = 280;
-            rightRail.style.flexShrink = 0;
-            rightRail.Add(EventLog());
-            arena.Add(rightRail);
-
             screen.Add(arena);
 
             // ── bottom: the player's table ──
             var table = new VisualElement();
             table.style.flexShrink = 0;
 
-            // Live legality: Core's ValidatePlay previews EXACTLY what a dispatch
-            // would say, so the player learns why a combo is illegal before clicking.
-            string invalid = _sel.Count > 0 ? _session.ValidatePlay(_sel.ToList()) : null;
-
-            var status = Row();
-            status.style.justifyContent = Justify.Center;
-            int selValue = _sel.Sum(id => S.Cards.Get(id).EffectiveValue());
-            if (_sel.Count > 0)
+            var pending = S.PendingChoice;
+            if (pending != null && pending.Kind == PendingChoiceKind.Defend)
             {
-                status.Add(Theme.Chip($"selected {_sel.Count} card(s) · value {selValue}",
-                    invalid == null ? Theme.GoldBright : Theme.Grey));
-                status.Add(invalid == null
-                    ? Theme.Chip("✓ legal play", Theme.Green)
-                    : Theme.Chip("✗ " + invalid, Theme.RedBright));
+                // ── the pay step, INLINE: the hand fan is the selector, no popup ──
+                int covered = _sel.Sum(id => S.Cards.Get(id).EffectiveValue());
+                bool enough = covered >= pending.RequiredValue;
+
+                var payRow = Row();
+                payRow.style.justifyContent = Justify.Center;
+                payRow.Add(Theme.Bar(covered / (float)pending.RequiredValue,
+                    $"pay {covered} / {pending.RequiredValue}",
+                    enough ? Theme.Green : Theme.RedBright, 260, 18));
+                table.Add(payRow);
+
+                table.Add(HandStrip(true));
+
+                var payActions = Row();
+                payActions.style.justifyContent = Justify.Center;
+                payActions.style.marginTop = 4;
+                payActions.Add(BtnPrimary($"Pay the counterattack ({covered}/{pending.RequiredValue})",
+                    () => Dispatch(new DefendDiscard(_sel.ToList())), enough));
+                if (S.Hero.StaffId == "parry")
+                    payActions.Add(Btn("Parry with selected ♠",
+                        () => Dispatch(new ActivateStaff(_sel.First())), _sel.Count == 1));
+                if (S.GauntletTiers[(int)Suit.Spades] == SpellTables.TierHalf &&
+                    !enc.CastSuits.Contains(Suit.Spades))
+                    payActions.Add(Theme.Button("Cast Brace ♠",
+                        () => Dispatch(new CastSpell(Suit.Spades)), Theme.ButtonKind.Danger));
+                table.Add(payActions);
+            }
+            else if (pending != null && pending.Kind == PendingChoiceKind.DebtDiscard)
+            {
+                // ── the debt instalment, INLINE: pick exactly one card ──
+                var debtRow = Row();
+                debtRow.style.justifyContent = Justify.Center;
+                debtRow.Add(Theme.Subtle("the debt comes due — discard one card"));
+                table.Add(debtRow);
+
+                table.Add(HandStrip(true));
+
+                var debtActions = Row();
+                debtActions.style.justifyContent = Justify.Center;
+                debtActions.style.marginTop = 4;
+                debtActions.Add(BtnPrimary("Pay the instalment",
+                    () => Dispatch(new DefendDiscard(_sel.ToList())), _sel.Count == 1));
+                table.Add(debtActions);
             }
             else
             {
-                var hint = new Label("legal plays: 1 card · an Ace + one card · a same-rank set totalling ≤ 10 — or yield");
-                hint.style.fontSize = 11;
-                hint.style.color = Theme.Grey;
-                status.Add(hint);
+                // ── the normal turn: live legality BEFORE the click (ValidatePlay) ──
+                string invalid = _sel.Count > 0 ? _session.ValidatePlay(_sel.ToList()) : null;
+
+                var status = Row();
+                status.style.justifyContent = Justify.Center;
+                int selValue = _sel.Sum(id => S.Cards.Get(id).EffectiveValue());
+                if (_sel.Count > 0)
+                {
+                    var line = Theme.Subtle(invalid == null
+                        ? $"value {selValue} — legal play"
+                        : "✗ " + invalid);
+                    line.style.color = invalid == null ? Theme.Green : Theme.RedBright;
+                    line.style.fontSize = 12;
+                    status.Add(line);
+                }
+                else
+                {
+                    status.Add(Theme.Subtle("1 card · an Ace + one card · a same-rank set ≤ 10 — or yield"));
+                }
+                table.Add(status);
+
+                table.Add(HandStrip(true));
+
+                var actions = Row();
+                actions.style.justifyContent = Justify.Center;
+                actions.style.marginTop = 4;
+                actions.Add(BtnPrimary($"Play selected ({_sel.Count})",
+                    () => Dispatch(new PlayCards(_sel.ToList())), _sel.Count > 0 && invalid == null));
+                actions.Add(Btn("Yield", () => Dispatch(new Yield())));
+                table.Add(actions);
             }
-            table.Add(status);
 
-            table.Add(HandStrip(true));
-
-            var actions = Row();
-            actions.style.justifyContent = Justify.Center;
-            actions.style.marginTop = 4;
-            actions.Add(BtnPrimary($"Play selected ({_sel.Count})",
-                () => Dispatch(new PlayCards(_sel.ToList())), _sel.Count > 0 && invalid == null));
-            actions.Add(Btn("Yield", () => Dispatch(new Yield())));
-            table.Add(actions);
+            var foot = Row();
+            foot.style.flexWrap = Wrap.NoWrap;
+            foot.style.justifyContent = Justify.Center;
+            foot.style.marginTop = 2;
+            foot.Add(EventLog());
+            table.Add(foot);
 
             screen.Add(table);
             return screen;

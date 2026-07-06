@@ -44,17 +44,15 @@ namespace Regicide.Unity
 
         private VisualElement RoadTopBar()
         {
+            // One quiet line each side — the map is the star, not the chrome.
             var bar = Row();
+            bar.style.flexWrap = Wrap.NoWrap;
+            bar.style.justifyContent = Justify.SpaceBetween;
             bar.style.marginBottom = 6;
-            bar.Add(Theme.Chip($"Continent {S.Continent}", Theme.Gold));
-            bar.Add(Theme.Chip($"Chapter {S.Chapter}", Theme.Gold));
-            bar.Add(Theme.Chip($"Province {S.Province}", Theme.Gold));
-            bar.Add(Theme.Chip(ContentText.ClassName(S.Hero.ClassId)));
-            bar.Add(Theme.Chip($"Staff: {ContentText.StaffName(S.Hero.StaffId)}"));
-            if (S.Hero.PathC2 != null) bar.Add(Theme.Chip($"Rung: {S.Hero.PathC2}", Theme.GoldBright));
-            var spacer = new VisualElement();
-            spacer.style.flexGrow = 1;
-            bar.Add(spacer);
+            string who = $"{ContentText.ClassName(S.Hero.ClassId)} · {ContentText.StaffName(S.Hero.StaffId)}" +
+                         (S.Hero.PathC2 != null ? $" · {S.Hero.PathC2} lit" : "") +
+                         $"      chapter {S.Chapter} · province {S.Province}";
+            bar.Add(Theme.Subtle(who));
             bar.Add(DeckCounts());
             return bar;
         }
