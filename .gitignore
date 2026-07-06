@@ -43,3 +43,6 @@ Tools/**/obj/
 .DS_Store
 Thumbs.db
 crashlytics-build.properties
+
+# Claude Code local session settings (the shared skill in .claude/skills IS committed)
+.claude/settings.local.json
