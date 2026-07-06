@@ -115,7 +115,9 @@ namespace Regicide.Unity
         /// <summary>Scale/opacity entrance for freshly drawn cards etc.</summary>
         public static void PopIn(VisualElement e, int delayMs = 0)
         {
-            if (e == null) return;
+            // Never dim an element whose animation can't run — an invisible card
+            // reads as "the draw never happened".
+            if (e == null || e.panel == null) return;
             e.style.opacity = 0f;
             e.schedule.Execute(() =>
                 e.experimental.animation.Start(0f, 1f, 240, (el, t) =>

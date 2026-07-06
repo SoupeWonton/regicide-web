@@ -96,6 +96,7 @@ namespace Regicide.Headless
             Run("sanctum: move a graft once per visit; shrine blessing", TestSanctumShrine);
             Run("meta/lineage: outcomes banked, JSON round-trip, corrupt-safe", TestMeta);
             Run("ValidatePlay: pure legality preview matches dispatch", TestValidatePlay);
+            Run("killing blow still fires suit powers (draw/recover/shield)", TestKillingBlowEffects);
 
             Console.WriteLine();
             if (_failures.Count == 0)
@@ -2085,6 +2086,60 @@ namespace Regicide.Headless
             Check(s2.ValidatePlay(new List<int> { c3.PhysicalId }) == null &&
                   Must(s2.Dispatch(new PlayCards(c3.PhysicalId))).Ok, "legal preview → legal play");
             Must(s2.Dispatch(new DefendDiscard(s2.State.Deck.Hand.ToList())));
+        }
+
+        // ── killing-blow suit powers (user bug report) ──────────────────────────
+
+        private static void TestKillingBlowEffects()
+        {
+            // ♦ killing blow must still draw.
+            var s = NewRun("lastblow-draw");
+            Fight(s, EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish));
+            s.State.Encounter.Current.Hp = 5; // stage: the 5♦ kills exactly
+            ClearHand(s);
+            var d5 = Give(s, Suit.Diamonds, Rank.Five);
+            var r = Must(s.Dispatch(new PlayCards(d5.PhysicalId)));
+            Check(Get<EnemyKilled>(r).Kind == KillKind.Exact && Has<EncounterWon>(r), "the blow ends the fight");
+            Check(Has<CardsDrawn>(r) && Get<CardsDrawn>(r).PhysicalIds.Count == 5,
+                "♦ still draws 5 on the killing blow");
+            Check(s.State.Deck.Hand.Count == 5, "the drawn cards are really in hand after the fight");
+
+            // ♥ killing blow must still recover.
+            var s2 = NewRun("lastblow-recover");
+            Fight(s2, EnemyState.Number(Suit.Spades, Rank.Six, EnemyTier.Skirmish));
+            for (int i = 0; i < 3; i++) GiveDiscard(s2, Suit.Clubs, Rank.Two);
+            s2.State.Encounter.Current.Hp = 4;
+            ClearHand(s2);
+            var h4 = Give(s2, Suit.Hearts, Rank.Four);
+            var r2 = Must(s2.Dispatch(new PlayCards(h4.PhysicalId)));
+            Check(Has<EncounterWon>(r2) && Get<CardsRecovered>(r2).Count == 3,
+                "♥ still recovers 3 on the killing blow");
+
+            // And a boss killing blow: the seam rest redeals AFTER the draw —
+            // the draw happens, then the seam reshuffles (that is by design, §9).
+            var s3 = NewRun("lastblow-boss");
+            WalkTo(s3, RoadNodeKind.Skirmish, RoadNodeKind.Camp, RoadNodeKind.Veteran,
+                RoadNodeKind.Forge, RoadNodeKind.Camp, RoadNodeKind.Elite);
+            var bossNode = s3.State.Map.Current.Next.Select(id => s3.State.Map.Get(id))
+                            .First(n => n.Kind == RoadNodeKind.Boss);
+            Must(s3.Dispatch(new MoveToNode(bossNode.Id)));
+            while (s3.State.Encounter.Enemies.Count(e => e.Alive) > 1) // leave one boss enemy
+            {
+                var cur = s3.State.Encounter.Current;
+                cur.Hp = 18; ClearHand(s3);
+                var c9 = Give(s3, Suit.Clubs, Rank.Nine);
+                Must(s3.Dispatch(new PlayCards(c9.PhysicalId)));
+            }
+            s3.State.Encounter.Current.Hp = 5;
+            ClearHand(s3);
+            var d5b = Give(s3, Suit.Diamonds, Rank.Five);
+            var r3 = Must(s3.Dispatch(new PlayCards(d5b.PhysicalId)));
+            Check(Has<CardsDrawn>(r3), "♦ draws on the boss killing blow too");
+            // The draw refilled the hand, so a redundant kill may offer a graft
+            // BEFORE the chapter wraps — resolve it, then the seam applies.
+            if (s3.State.PendingChoice?.Kind == PendingChoiceKind.GraftSelect)
+                r3 = Must(s3.Dispatch(new ChooseGraft(s3.State.Deck.Hand[0], GraftBranch.ReplaceRank)));
+            Check(Has<SeamRestApplied>(r3), "then the seam redeals — that wash is intended (§9)");
         }
 
         // ── demo: a full scripted fight, played back like the UI would ─────────

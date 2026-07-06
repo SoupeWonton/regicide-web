@@ -138,7 +138,7 @@ namespace Regicide.Unity
 
         public static Button Button(string text, Action onClick, ButtonKind kind = ButtonKind.Normal, bool enabled = true)
         {
-            var b = new Button(onClick) { text = text };
+            var b = new Button(() => { Sfx.Play(Sfx.Sound.Click, 0.7f); onClick?.Invoke(); }) { text = text };
             b.SetEnabled(enabled);
             SetRadius(b, 6);
             SetPadding(b, 6, 12);

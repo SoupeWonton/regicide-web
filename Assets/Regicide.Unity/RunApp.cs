@@ -200,15 +200,27 @@ namespace Regicide.Unity
                 if (slot < 5) Fx.Toast(_fxLayer, text, tint, slot++);
             }
 
+            // A chapter/crown fanfare outranks the per-fight trumpets (web parity).
+            bool bigWin = r.Events.Any(e => e is ChapterCompleted || e is CampaignWonEvent);
+
             foreach (var e in r.Events)
             {
                 switch (e)
                 {
                     case DamageDealt d:
-                        Sfx.Play(Sfx.Sound.Impact);
+                        Sfx.Play(d.Doubled ? Sfx.Sound.DamageBig : Sfx.Sound.Impact);
                         Fx.Float(_fxLayer, enemy, "-" + d.Amount,
                             d.Doubled ? Theme.GoldBright : Theme.RedBright, d.Doubled ? 34 : 28);
                         Fx.Shake(enemy);
+                        break;
+                    case NextEnemy _:
+                        Sfx.Play(Sfx.Sound.Reveal, 0.8f);
+                        break;
+                    case MovedToNode _:
+                        Sfx.Play(Sfx.Sound.Footsteps, 0.8f);
+                        break;
+                    case EncounterWon _:
+                        if (!bigWin) Sfx.Play(Sfx.Sound.Victory, 0.9f);
                         break;
                     case ShieldGained sg:
                         Sfx.Play(Sfx.Sound.Shield, 0.7f);
@@ -272,6 +284,7 @@ namespace Regicide.Unity
                         Fx.Flash(_fxLayer, Theme.Gold, 1000);
                         break;
                     case ChapterCompleted _:
+                        Sfx.Play(Sfx.Sound.Triumph);
                         Toast("PROVINCE CLEARED", Theme.GoldBright);
                         break;
                 }
@@ -460,11 +473,12 @@ namespace Regicide.Unity
                 row.Add(l);
             }
 
-            LinkText($"deck {S.OwnedCards.Count}", () => OpenViewer(
-                "Your deck (sorted by suit — draw order hidden)",
-                S.OwnedCards.OrderBy(id => S.Cards.Get(id).EffectiveFace().Suit)
-                            .ThenBy(id => S.Cards.Get(id).EffectiveFace().Rank).ToList()));
-            LinkText($"· tavern {S.Deck.Tavern.Count}", null);
+            // "deck" = what is left to DRAW (the Tavern), not the whole conquest —
+            // an all-owned viewer never changes on a draw and reads as a bug.
+            LinkText($"deck {S.Deck.Tavern.Count}", () => OpenViewer(
+                "Cards left to draw (sorted by suit — draw order hidden)",
+                S.Deck.Tavern.OrderBy(id => S.Cards.Get(id).EffectiveFace().Suit)
+                             .ThenBy(id => S.Cards.Get(id).EffectiveFace().Rank).ToList()));
             LinkText($"· discard {S.Deck.Discard.Count}", () => OpenViewer("Discard pile",
                 S.Deck.Discard.OrderBy(id => S.Cards.Get(id).EffectiveFace().Suit)
                               .ThenBy(id => S.Cards.Get(id).EffectiveFace().Rank).ToList()));
