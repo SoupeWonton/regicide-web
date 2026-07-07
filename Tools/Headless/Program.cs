@@ -87,7 +87,7 @@ namespace Regicide.Headless
             Run("relics: hoard and interest (ring passives)", TestHoardInterest);
             Run("relics: debt instalments and last coin", TestDebtLastCoin);
             Run("relics: requisition writ, liquidate, double or nothing", TestRingActives);
-            Run("relics: forked road and forced march", TestForkedRoadForcedMarch);
+            Run("relics: forked road shelved (no fog) and forced march", TestForkedRoadForcedMarch);
             Run("relics: bedroll, slip away, vanguard", TestCloakActives);
             Run("relics: press-gang, promotion, black standard, apprentice, rallying cry", TestHatRecruits);
             Run("relics: conscription, plunder, muster", TestHatEdgeCases);
@@ -611,19 +611,20 @@ namespace Regicide.Headless
             var s = NewRun("mapshape");
             var map = s.State.Map;
             Check(map != null && map.Chapter == 1, "chapter-1 map generated at run start");
-            Check(map.Nodes.Count == 12, $"C1 template should have 12 nodes, got {map.Nodes.Count}");
+            Check(map.Nodes.Count == 20, $"C1 template should have 20 nodes, got {map.Nodes.Count}");
             Check(map.Nodes.Any(n => n.Kind == RoadNodeKind.Forge) &&
-                  map.Nodes.Any(n => n.Kind == RoadNodeKind.Caravan), "economy fork present");
+                  map.Nodes.Any(n => n.Kind == RoadNodeKind.Caravan), "economy band present");
             Check(map.Current.Kind == RoadNodeKind.Start && map.Current.Visited, "run starts at the start node");
             Check(map.Nodes.Count(n => n.Kind == RoadNodeKind.Boss) == 1, "exactly one boss");
             Check(map.Nodes.Any(n => n.Kind == RoadNodeKind.Hunt), "C1 province guarantees a Hunt");
-            Check(map.Nodes.Count(n => n.Kind == RoadNodeKind.Camp) == 2, "two camps (bonus fork + safe fork)");
-            Check(map.Nodes.Any(n => n.Kind == RoadNodeKind.Lair), "lair-vs-safe fork present");
+            Check(map.Nodes.Count(n => n.Kind == RoadNodeKind.Camp) >= 2, "camps seeded through the province");
+            Check(map.Nodes.Any(n => n.Kind == RoadNodeKind.Lair), "a lair to risk somewhere on the road");
 
-            foreach (int id in map.Current.Next)
-                Check(map.Get(id).Known, "neighbors of the start are known");
-            var boss = map.Nodes.First(n => n.Kind == RoadNodeKind.Boss);
-            Check(!boss.Known, "the boss is a '?' until approached");
+            var widths = map.Nodes.GroupBy(n => n.Layer).OrderBy(g => g.Key)
+                                  .Select(g => g.Count()).ToList();
+            Check(widths.Max() == 4 && widths.Count(w => w >= 3) >= 4,
+                "wide bands of 3–4 columns between the anchor stops");
+            Check(map.Nodes.All(n => n.Known), "no fog — the whole road reads from turn one");
             int lastLayer = map.Nodes.Max(n => n.Layer);
             Check(map.Nodes.Where(n => n.Layer < lastLayer).All(n => n.Next.Count > 0),
                 "no dead ends before the boss");
@@ -637,8 +638,9 @@ namespace Regicide.Headless
             MustFail(s.Dispatch(new MoveToNode(boss.Id)), "cannot jump to a non-adjacent node");
             MustFail(s.Dispatch(new MoveToNode(map.CurrentNodeId)), "cannot re-enter the current node");
 
-            int skirmishId = map.Current.Next[0];
-            Check(map.Get(skirmishId).Kind == RoadNodeKind.Skirmish, "layer 1 is the guaranteed fight");
+            Check(map.Current.Next.Any(id => map.Get(id).Kind == RoadNodeKind.Skirmish),
+                "a skirmish opens from the start");
+            int skirmishId = map.Current.Next.First(id => map.Get(id).Kind == RoadNodeKind.Skirmish);
             var r = Must(s.Dispatch(new MoveToNode(skirmishId)));
             Check(Has<EncounterStarted>(r), "fight node starts an encounter");
             Check(s.State.Encounter.Current.Rank == Rank.Six, "ch1 skirmish fields a 6");
@@ -654,22 +656,24 @@ namespace Regicide.Headless
         private static void TestCamp()
         {
             var s = NewRun("camptest");
-            Must(s.Dispatch(new MoveToNode(s.State.Map.Current.Next[0])));
+            Must(s.Dispatch(new MoveToNode(s.State.Map.Current.Next
+                .First(id => s.State.Map.Get(id).Kind == RoadNodeKind.Skirmish))));
             WinFight(s); // leaves staged cards in the discard
-            Check(s.State.Deck.Discard.Count > 0, "discard non-empty before camping");
 
-            var camp = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
-                        .First(n => n.Kind == RoadNodeKind.Camp);
-            var r = Must(s.Dispatch(new MoveToNode(camp.Id)));
+            int campId = WalkUpTo(s, RoadNodeKind.Camp);
+            Check(s.State.Deck.Discard.Count > 0, "discard non-empty before camping");
+            var r = Must(s.Dispatch(new MoveToNode(campId)));
             Check(Has<CampRested>(r), "camp fires");
             Check(s.State.Deck.Discard.Count == 0, "camp reshuffles discard into the Tavern");
             Check(s.State.Deck.Hand.Count == 5, "camp draws the hand to full");
             Check(s.State.NextFightFirstAttackDouble && s.State.NextFightStartShield == 10,
                 "double-first-attack and 10 block armed");
 
-            var fight = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
-                         .First(n => n.Kind == RoadNodeKind.Veteran);
-            Must(s.Dispatch(new MoveToNode(fight.Id)));
+            // The NEAREST fight of any kind: intermediates are landmarks by
+            // construction, so nothing consumes the camp bonuses on the way.
+            int fightId = WalkUpToAny(s, RoadNodeKind.Skirmish, RoadNodeKind.Veteran,
+                RoadNodeKind.Recruit, RoadNodeKind.Elite, RoadNodeKind.Lair);
+            Must(s.Dispatch(new MoveToNode(fightId)));
             Check(s.State.Encounter.Current.Shield == 10, "first enemy starts with 10 shield");
             Check(!s.State.NextFightFirstAttackDouble && s.State.NextFightStartShield == 0,
                 "camp bonuses consumed at fight start");
@@ -685,15 +689,8 @@ namespace Regicide.Headless
         private static void TestHunt()
         {
             var s = NewRun("hunttest");
-            Must(s.Dispatch(new MoveToNode(s.State.Map.Current.Next[0])));
-            WinFight(s);
-            var safe = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
-                        .First(n => n.Kind == RoadNodeKind.Camp);
-            Must(s.Dispatch(new MoveToNode(safe.Id)));
-
-            var hunt = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
-                        .First(n => n.Kind == RoadNodeKind.Hunt);
-            var r = Must(s.Dispatch(new MoveToNode(hunt.Id)));
+            int huntId = WalkUpTo(s, RoadNodeKind.Hunt);
+            var r = Must(s.Dispatch(new MoveToNode(huntId)));
             Check(Has<HuntOffered>(r), "hunt offers quarry");
             Check(s.State.PendingChoice?.Kind == PendingChoiceKind.HuntSelect, "hunt choice pending");
             var options = s.State.PendingChoice.HuntOptions;
@@ -728,7 +725,8 @@ namespace Regicide.Headless
                 "advanced to chapter 2 / province 2");
             Check(s.State.Phase == CampaignPhase.Road, "back on the road");
 
-            Must(s.Dispatch(new MoveToNode(s.State.Map.Current.Next[0])));
+            Must(s.Dispatch(new MoveToNode(s.State.Map.Current.Next
+                .First(id => s.State.Map.Get(id).Kind == RoadNodeKind.Skirmish))));
             Check(s.State.Encounter.Current.Rank == Rank.Eight, "ch2 skirmish fields an 8");
         }
 
@@ -749,13 +747,8 @@ namespace Regicide.Headless
             Check(s.State.Map.Nodes.Any(n => n.Kind == RoadNodeKind.Gate), "C2 road ends in a royal gate");
 
             // Walk ch4 to the royal duel and confirm it fields a Jack.
-            Must(s.Dispatch(new MoveToNode(s.State.Map.Current.Next[0])));
-            WinFight(s);
-            var l2 = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id)).ToList();
-            Must(s.Dispatch(new MoveToNode(l2.First(n => n.Kind == RoadNodeKind.Camp).Id)));
-            var duel = s.State.Map.Current.Next.Select(id => s.State.Map.Get(id))
-                        .First(n => n.Kind == RoadNodeKind.Elite);
-            Must(s.Dispatch(new MoveToNode(duel.Id)));
+            int duelId = WalkUpTo(s, RoadNodeKind.Elite);
+            Must(s.Dispatch(new MoveToNode(duelId)));
             Check(s.State.Encounter.Current.Rank == Rank.Jack, "ch4 road duel is a Jack");
             Check(s.State.Encounter.Current.MaxHp == 20 && s.State.Encounter.Current.Attack == 10,
                 "royal stats 20/10");
@@ -1414,7 +1407,11 @@ namespace Regicide.Headless
         }
 
         /// <summary>BFS route (one-way road) from the current node to the nearest node of a kind.</summary>
-        private static List<int> PathTo(GameSession s, RoadNodeKind want)
+        private static List<int> PathTo(GameSession s, RoadNodeKind want) => PathToAny(s, want);
+
+        /// <summary>Nearest node of ANY of the given kinds — the route's intermediate
+        /// stops are guaranteed to be none of them (BFS stops at the first hit).</summary>
+        private static List<int> PathToAny(GameSession s, params RoadNodeKind[] wants)
         {
             var map = s.State.Map;
             var prev = new Dictionary<int, int>();
@@ -1429,12 +1426,12 @@ namespace Regicide.Headless
                 {
                     if (!seen.Add(nx)) continue;
                     prev[nx] = cur;
-                    if (map.Get(nx).Kind == want) { goal = nx; break; }
+                    if (wants.Contains(map.Get(nx).Kind)) { goal = nx; break; }
                     queue.Enqueue(nx);
                 }
             }
             if (goal < 0)
-                throw new Exception($"{want} is lane-locked away from here on this seed");
+                throw new Exception($"{string.Join("/", wants)} is lane-locked away from here on this seed");
 
             var path = new List<int>();
             for (int at = goal; at != map.CurrentNodeId; at = prev[at]) path.Add(at);
@@ -1457,9 +1454,12 @@ namespace Regicide.Headless
         }
 
         /// <summary>Walk to the node JUST BEFORE the nearest wanted node; returns the wanted node's id.</summary>
-        private static int WalkUpTo(GameSession s, RoadNodeKind want)
+        private static int WalkUpTo(GameSession s, RoadNodeKind want) => WalkUpToAny(s, want);
+
+        /// <summary>WalkUpTo over several acceptable kinds (nearest wins).</summary>
+        private static int WalkUpToAny(GameSession s, params RoadNodeKind[] wants)
         {
-            var path = PathTo(s, want);
+            var path = PathToAny(s, wants);
             for (int i = 0; i < path.Count - 1; i++)
             {
                 Must(s.Dispatch(new MoveToNode(path[i])));
@@ -1787,28 +1787,25 @@ namespace Regicide.Headless
 
         private static void TestForkedRoadForcedMarch()
         {
+            // Forked Road is SHELVED while maps generate fully revealed — its whole
+            // effect was lifting fog. It stays defined (old saves, future rework)
+            // but must be inert and out of the offer pools.
             var s = NewRun("forkedroad");
+            Check(s.State.Map.Nodes.All(n => n.Known), "no fog — forked road has nothing to reveal");
             Wear(s, "forked_road");
-            Must(s.Dispatch(new MoveToNode(s.State.Map.Current.Next[0]))); // onto the skirmish
-            var twoAhead = s.State.Map.Current.Next
-                .SelectMany(id => s.State.Map.Get(id).Next)
-                .Select(id => s.State.Map.Get(id)).ToList();
-            Check(twoAhead.All(n => n.Known), "forked road reveals a layer further");
-            WinFight(s);
+            MustFail(s.Dispatch(new UseRelic("forked_road")), "still a passive, still refuses activation");
 
             var s2 = NewRun("march");
             Wear(s2, "forced_march");
-            Must(s2.Dispatch(new MoveToNode(s2.State.Map.Current.Next[0]))); // skirmish fight
+            Must(s2.Dispatch(new MoveToNode(s2.State.Map.Current.Next[0]))); // L1 is all fights
             int owned = s2.State.OwnedCards.Count;
             var r = Must(s2.Dispatch(new UseRelic("forced_march")));
             Check(s2.State.Phase == CampaignPhase.Road && s2.State.Encounter == null,
                 "marched straight past the fight");
             Check(s2.State.OwnedCards.Count == owned, "no recruit from a skipped fight");
             // Only ordinary fights: the lair raid refuses the march.
-            WalkTo(s2, RoadNodeKind.Camp, RoadNodeKind.Veteran, RoadNodeKind.Forge);
-            var lair = s2.State.Map.Current.Next.Select(id => s2.State.Map.Get(id))
-                         .First(n => n.Kind == RoadNodeKind.Lair);
-            Must(s2.Dispatch(new MoveToNode(lair.Id)));
+            int lairId = WalkUpTo(s2, RoadNodeKind.Lair);
+            Must(s2.Dispatch(new MoveToNode(lairId)));
             MustFail(s2.Dispatch(new UseRelic("forced_march")), "elites cannot be marched past");
         }
 
@@ -2292,7 +2289,7 @@ namespace Regicide.Headless
 
         private static void TestSparseLanes()
         {
-            int crossroads = 0, forkPairs = 0, laneCommits = 0;
+            int forkPairs = 0, laneNodes = 0, secondExits = 0;
             for (int seedI = 0; seedI < 20; seedI++)
             {
                 var rng = new Rng($"lanes-{seedI}");
@@ -2313,23 +2310,42 @@ namespace Regicide.Headless
                     if (seen.Count != map.Nodes.Count)
                         throw new Exception($"unreachable stop (seed {seedI} ch{ch})");
 
-                    // Census of 2-wide → 2-wide layer pairs.
+                    // The whole road must read from turn one (no fog).
+                    if (map.Nodes.Any(n => !n.Known))
+                        throw new Exception($"fog found (seed {seedI} ch{ch})");
+
+                    // Census of wide→wide transitions: lanes must stay ADJACENT
+                    // (no long crossings), never sprout a third exit, and roughly
+                    // a third of nodes get a second exit.
                     var layers = map.Nodes.GroupBy(n => n.Layer).OrderBy(g => g.Key)
                                           .Select(g => g.ToList()).ToList();
                     for (int i = 0; i + 1 < layers.Count; i++)
                     {
-                        if (layers[i].Count != 2 || layers[i + 1].Count != 2) continue;
+                        var from = layers[i];
+                        var to = layers[i + 1];
+                        if (from.Count == 1 || to.Count == 1) continue; // anchors spread/merge freely
                         forkPairs++;
-                        int edges = layers[i].Sum(n => n.Next.Count);
-                        if (edges == 4) crossroads++;
-                        if (edges == 2) laneCommits++;
+                        for (int fi = 0; fi < from.Count; fi++)
+                        {
+                            laneNodes++;
+                            if (from[fi].Next.Count > 2)
+                                throw new Exception($"3+ exits from a lane node (seed {seedI} ch{ch})");
+                            if (from[fi].Next.Count == 2) secondExits++;
+                            float c = fi * (to.Count - 1) / (float)(from.Count - 1);
+                            foreach (int nxId in from[fi].Next)
+                            {
+                                int j = to.FindIndex(t => t.Id == nxId);
+                                if (Math.Abs(j - c) > 1.01f)
+                                    throw new Exception($"edge crosses columns (seed {seedI} ch{ch}: {fi}→{j})");
+                            }
+                        }
                     }
                 }
             }
-            _passed += 2; // the throw-checks above
-            Check(forkPairs > 100, $"census populated ({forkPairs} fork pairs)");
-            Check(crossroads < forkPairs / 4, $"full crossroads are rare ({crossroads}/{forkPairs})");
-            Check(laneCommits > forkPairs / 4, $"committed lanes are common ({laneCommits}/{forkPairs})");
+            _passed += 4; // the throw-checks above
+            Check(forkPairs > 100, $"census populated ({forkPairs} wide transitions)");
+            Check(secondExits > laneNodes / 10 && secondExits < laneNodes * 6 / 10,
+                $"second exits land near the 35% roll ({secondExits}/{laneNodes})");
         }
 
         // ── demo: a full scripted fight, played back like the UI would ─────────
@@ -2341,7 +2357,7 @@ namespace Regicide.Headless
             Play(s, new SelectClass("sentinel", "hold_the_line"));
 
             Console.WriteLine($"  Hand: {string.Join("  ", s.State.Deck.Hand.Select(id => s.State.Cards.Get(id)))}");
-            Console.WriteLine("  Road (? = not yet scouted):");
+            Console.WriteLine("  Road (fully revealed):");
             foreach (var layer in s.State.Map.Nodes.GroupBy(n => n.Layer).OrderBy(g => g.Key))
                 Console.WriteLine($"    L{layer.Key}: {string.Join(" | ", layer.Select(n => n.Known ? n.Kind.ToString() : "?"))}");
             Play(s, new StartEncounter(EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish)));

@@ -964,7 +964,10 @@ namespace Regicide.Core
             var owned = new HashSet<string>(State.RelicBag);
             foreach (var e in State.EquippedRelics) if (e != null) owned.Add(e);
 
-            var pool = RelicTables.All.Select(r => r.Id).Where(id => !owned.Contains(id)).ToList();
+            // forked_road is shelved while maps generate fully revealed — its whole
+            // effect was lifting fog. Reinstate (or rework) if fog returns.
+            var pool = RelicTables.All.Select(r => r.Id)
+                .Where(id => !owned.Contains(id) && id != "forked_road").ToList();
             var options = new List<string>();
             for (int i = 0; i < Tuning.LairOffers && pool.Count > 0; i++)
             {
@@ -1161,12 +1164,7 @@ namespace Regicide.Core
             State.CaravanOffer = null; // likewise the caravan's stall (§8)
             State.SanctumCharge = false; // and the sanctum's single rearrange (§9)
             State.Map.CurrentNodeId = node.Id;
-            node.Known = node.Visited = true;
-            foreach (int next in node.Next) State.Map.Get(next).Known = true;
-            if (State.HasRelic("forked_road"))
-                foreach (int next in node.Next)             // Forked Road (§8): see one
-                    foreach (int nn in State.Map.Get(next).Next) // layer further ahead
-                        State.Map.Get(nn).Known = true;
+            node.Visited = true; // maps generate fully Known now — no fog to lift
             events.Add(new MovedToNode { NodeId = node.Id, Kind = node.Kind });
 
             switch (node.Kind)
@@ -1195,7 +1193,8 @@ namespace Regicide.Core
                     // The caravan (§8): one unowned relic, pay-from-hand while standing here.
                     var owned = new HashSet<string>(State.RelicBag);
                     foreach (var e in State.EquippedRelics) if (e != null) owned.Add(e);
-                    var pool = RelicTables.All.Select(rl => rl.Id).Where(id => !owned.Contains(id)).ToList();
+                    var pool = RelicTables.All.Select(rl => rl.Id)
+                        .Where(id => !owned.Contains(id) && id != "forked_road").ToList(); // shelved with the fog
                     if (pool.Count == 0)
                     {
                         events.Add(new LandmarkVisited { Kind = node.Kind, Note = "the caravan has nothing you lack" });

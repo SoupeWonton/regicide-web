@@ -101,7 +101,7 @@ namespace Regicide.Unity
             header.style.flexWrap = Wrap.NoWrap;
             header.style.justifyContent = Justify.SpaceBetween;
             header.style.marginBottom = 6;
-            var hint = new Label("one-way — ? until scouted");
+            var hint = new Label("one-way — pick your road, forks commit");
             hint.style.fontSize = 10;
             hint.style.color = Theme.Grey;
             header.Add(hint);

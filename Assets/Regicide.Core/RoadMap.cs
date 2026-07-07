@@ -35,41 +35,42 @@ namespace Regicide.Core
     }
 
     /// <summary>
-    /// Deterministic per-chapter map generation (§12): a fixed template shape per
-    /// continent, with the seeded RNG deciding which side of each fork holds what.
-    /// Every C1 province guarantees a fight, a bonus fork and a lair-vs-safe fork,
-    /// ramping skirmish → veteran → elite into the boss; C2 mirrors the shape with
-    /// the royal gate as the boss. Template shapes are plain-C# content tables for
-    /// now — RoadTemplate ScriptableObjects can replace them later (§12).
+    /// Deterministic per-chapter map generation (§12): singleton anchor stops
+    /// (start, elite, boss, gate) with WIDE bands of 3–4 nodes between them, so a
+    /// province reads as 3–4 distinct winding roads instead of a woven pair. The
+    /// seeded RNG shuffles which column holds what inside each band. Guarantees per
+    /// C1 province: a skirmish ramp, a Recruit, a Hunt, ≥2 camps, a Lair, a Forge
+    /// and a Caravan somewhere on the map; C2 mirrors with royal duels, Sanctum and
+    /// Shrine (Fallen Heroes replaces Shrine on ch5, §10). The whole map is KNOWN
+    /// from the first step — with sparse lanes the player plans a route, no fog.
     /// </summary>
     public static class RoadGen
     {
         public static RoadMapState Generate(int chapter, Rng rng)
         {
-            // Each entry is one layer; a layer is 1–2 slots of node kinds.
-            // Two-slot layers are forks — the rng may swap which side is which.
+            // Each entry is one layer of node kinds; wide layers are shuffled in
+            // place by the seeded rng, singletons are the anchors lanes merge into.
             var layers = chapter <= 3
                 ? new[]
                 {
                     new[] { RoadNodeKind.Start },
-                    new[] { RoadNodeKind.Skirmish },
-                    new[] { RoadNodeKind.Recruit, RoadNodeKind.Camp },     // bonus fork
-                    new[] { RoadNodeKind.Veteran, RoadNodeKind.Hunt },
-                    new[] { RoadNodeKind.Forge, RoadNodeKind.Caravan },    // economy fork (§7, §8)
-                    new[] { RoadNodeKind.Lair, RoadNodeKind.Camp },        // lair vs safe
+                    new[] { RoadNodeKind.Skirmish, RoadNodeKind.Skirmish, RoadNodeKind.Recruit },
+                    new[] { RoadNodeKind.Camp, RoadNodeKind.Veteran, RoadNodeKind.Hunt, RoadNodeKind.Recruit },
+                    new[] { RoadNodeKind.Forge, RoadNodeKind.Caravan, RoadNodeKind.Camp },   // economy band (§7, §8)
+                    new[] { RoadNodeKind.Lair, RoadNodeKind.Veteran, RoadNodeKind.Camp, RoadNodeKind.Skirmish },
+                    new[] { RoadNodeKind.Veteran, RoadNodeKind.Veteran, RoadNodeKind.Recruit },
                     new[] { RoadNodeKind.Elite },
                     new[] { RoadNodeKind.Boss },
                 }
                 : new[]
                 {
                     new[] { RoadNodeKind.Start },
-                    new[] { RoadNodeKind.Skirmish },
-                    new[] { RoadNodeKind.Veteran, RoadNodeKind.Camp },
+                    new[] { RoadNodeKind.Skirmish, RoadNodeKind.Veteran, RoadNodeKind.Camp },
                     // Elite on a C2 road is a royal duel; ch5 P2 opens with Fallen Heroes (§10).
-                    new[] { RoadNodeKind.Elite, chapter == 5 ? RoadNodeKind.Heroes : RoadNodeKind.Shrine },
-                    new[] { RoadNodeKind.Forge, RoadNodeKind.Sanctum },    // utility fork (§7, §9)
-                    new[] { RoadNodeKind.Lair, RoadNodeKind.Camp },
-                    new[] { RoadNodeKind.Veteran },
+                    new[] { RoadNodeKind.Elite, chapter == 5 ? RoadNodeKind.Heroes : RoadNodeKind.Shrine, RoadNodeKind.Veteran, RoadNodeKind.Camp },
+                    new[] { RoadNodeKind.Forge, RoadNodeKind.Sanctum, RoadNodeKind.Caravan },// utility band (§7, §9)
+                    new[] { RoadNodeKind.Lair, RoadNodeKind.Camp, RoadNodeKind.Veteran, RoadNodeKind.Skirmish },
+                    new[] { RoadNodeKind.Veteran, RoadNodeKind.Elite, RoadNodeKind.Camp },
                     new[] { RoadNodeKind.Gate },
                 };
 
@@ -79,20 +80,18 @@ namespace Regicide.Core
 
             for (int layer = 0; layer < layers.Length; layer++)
             {
-                var kinds = layers[layer].ToArray();
-                if (kinds.Length == 2 && rng.Int(2) == 1)
-                    (kinds[0], kinds[1]) = (kinds[1], kinds[0]);
-
+                var kinds = layers[layer].ToList();
+                if (kinds.Count > 1) rng.Shuffle(kinds);
                 var row = kinds.Select(k => new RoadNode { Id = id++, Kind = k, Layer = layer }).ToList();
                 built.Add(row);
                 map.Nodes.AddRange(row);
             }
 
-            // Sparse lanes, not a mesh: picking a fork COMMITS you to a path, and
-            // crossings between lanes are the exception. Invariants (pillar 6, no
-            // soft-locks): every node keeps ≥1 exit and every next-layer node ≥1
-            // entrance, so nothing dead-ends and nothing is unreachable — singleton
-            // layers (start, elite, boss, gate) are the natural merge points.
+            // Proportional-adjacency edges: each node exits to the next layer's
+            // NEAREST column (by relative position), sometimes also one neighbour —
+            // never further, so lanes wind but don't weave. Anchors spread to /
+            // merge from a whole band. Invariants (pillar 6, no soft-locks): every
+            // node keeps ≥1 exit and every next-layer node gains ≥1 entrance.
             for (int layer = 0; layer + 1 < built.Count; layer++)
             {
                 var from = built[layer];
@@ -100,32 +99,54 @@ namespace Regicide.Core
 
                 if (from.Count == 1)
                 {
-                    from[0].Next.AddRange(to.Select(n => n.Id)); // a fork opens: both offered
+                    from[0].Next.AddRange(to.Select(n => n.Id)); // the band opens
+                    continue;
                 }
-                else if (to.Count == 1)
+                if (to.Count == 1)
                 {
                     foreach (var node in from) node.Next.Add(to[0].Id); // lanes merge
+                    continue;
                 }
-                else
+
+                // Pass 1 — every node exits to its nearest column.
+                var lane = new int[from.Count];
+                for (int i = 0; i < from.Count; i++)
                 {
-                    // 2 → 2: weighted lane patterns. Mostly committed lanes
-                    // (straight or crossed); sometimes ONE side gets a choice;
-                    // a full mesh is rare.
-                    var (a, b) = (from[0], from[1]);
-                    var (c, d) = (to[0], to[1]);
-                    int roll = rng.Int(100);
-                    if (roll < 35) { a.Next.Add(c.Id); b.Next.Add(d.Id); }                    // ║ straight lanes
-                    else if (roll < 50) { a.Next.Add(d.Id); b.Next.Add(c.Id); }               // ╳ crossed lanes
-                    else if (roll < 70) { a.Next.Add(c.Id); a.Next.Add(d.Id); b.Next.Add(d.Id); } // top side chooses
-                    else if (roll < 90) { a.Next.Add(c.Id); b.Next.Add(c.Id); b.Next.Add(d.Id); } // bottom side chooses
-                    else { a.Next.Add(c.Id); a.Next.Add(d.Id); b.Next.Add(c.Id); b.Next.Add(d.Id); } // rare crossroads
+                    float c = i * (to.Count - 1) / (float)(from.Count - 1);
+                    lane[i] = (int)System.Math.Round(c, System.MidpointRounding.AwayFromZero);
+                    from[i].Next.Add(to[lane[i]].Id);
+                }
+
+                // Pass 2 — orphan patch: an uncovered column gets an edge from its
+                // own nearest source (for these band widths that's at most one
+                // rescue per source, so nothing ever exceeds two exits).
+                for (int j = 0; j < to.Count; j++)
+                {
+                    if (from.Any(n => n.Next.Contains(to[j].Id))) continue;
+                    int i0 = (int)System.Math.Round(j * (from.Count - 1) / (float)(to.Count - 1),
+                        System.MidpointRounding.AwayFromZero);
+                    from[i0].Next.Add(to[j].Id);
+                }
+
+                // Pass 3 — a 35% second exit to the adjacent column keeps some
+                // choice alive without weaving the lanes back into a mesh.
+                for (int i = 0; i < from.Count; i++)
+                {
+                    if (from[i].Next.Count >= 2 || rng.Int(100) >= 35) continue;
+                    float c = i * (to.Count - 1) / (float)(from.Count - 1);
+                    int side = c > lane[i] ? 1 : c < lane[i] ? -1 : (rng.Int(2) == 0 ? -1 : 1);
+                    int j1 = lane[i] + side;
+                    if (j1 >= 0 && j1 < to.Count && !from[i].Next.Contains(to[j1].Id))
+                        from[i].Next.Add(to[j1].Id);
                 }
             }
 
+            // No fog: the road is a plan, not a reveal — every node reads from turn one.
+            foreach (var n in map.Nodes) n.Known = true;
+
             var start = built[0][0];
-            start.Known = start.Visited = true;
+            start.Visited = true;
             map.CurrentNodeId = start.Id;
-            foreach (int next in start.Next) map.Get(next).Known = true;
 
             return map;
         }
