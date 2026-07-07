@@ -77,7 +77,7 @@ namespace Regicide.Unity
             ["bedroll"] = "Once per province, reshuffle the discard into the Tavern without a Camp.",
             ["vanguard"] = "The first enemy of each new road can't counterattack on its first turn.",
             ["slip_away"] = "Discard 5 card-value to retreat from a fight: keep your hand, enemy not defeated.",
-            ["scout_ahead"] = "See the next enemy's immunity before you fight it.",
+            ["scout_ahead"] = "Fights start with the whole enemy lineup revealed — faces and immunities.",
             ["hoard"] = "Max hand size +2.",
             ["interest"] = "If you paid no discards in the previous fight, start the next fight +1 card.",
             ["debt"] = "Once per fight, draw 2 now, then discard 1 at the start of each of your next two turns.",
@@ -143,6 +143,19 @@ namespace Regicide.Unity
                     : "Refit — return 3 discards to the Tavern, draw 1.";
             }
         }
+
+        /// <summary>
+        /// The class's NEAR-TERM identity (chapter 1 playstyle) — the C2 rung text
+        /// is hours away and reads as jargon at class select.
+        /// </summary>
+        public static string Playstyle(string classId) => classId switch
+        {
+            "sentinel" => "turtle and counter — bank ♠ block until the counterattack blanks, then grind them down",
+            "executioner" => "hunt exact kills — ♣ doubles make huge numbers; land them precisely for the recruit",
+            "quartermaster" => "tempo and card flow — ♦ draws keep the hand full and the combos coming",
+            "surgeon" => "outlast everyone — ♥ recovery recycles your deck faster than fights can burn it",
+            _ => "",
+        };
 
         /// <summary>Hover explainer per node kind — what committing to this stop does.</summary>
         public static string NodeTip(RoadNodeKind kind) => kind switch

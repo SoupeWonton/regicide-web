@@ -233,6 +233,25 @@ namespace Regicide.Unity
             card.style.backgroundColor = Theme.GoldPale;
         }
 
+        /// <summary>
+        /// Kill forecast on a hand card: gold pulse = playing it is an EXACT kill,
+        /// dim red = it would overkill (reward lost). Purely presentational.
+        /// </summary>
+        public static void MarkKillGlow(VisualElement card, bool exact)
+        {
+            var color = exact ? Theme.GoldBright : new Color(Theme.RedDeep.r, Theme.RedDeep.g, Theme.RedDeep.b, 0.9f);
+            Theme.SetBorder(card, color, 3);
+            if (exact)
+            {
+                // A soft breathing pulse — the invitation, not a alarm.
+                card.experimental.animation.Start(0f, 1f, 1200, (el, t) =>
+                {
+                    float breathe = 0.5f + 0.5f * Mathf.Sin(t * Mathf.PI * 2f);
+                    Theme.SetBorder(el, Color.Lerp(Theme.Gold, Theme.GoldPale, breathe), 3);
+                });
+            }
+        }
+
         /// <summary>Slay-the-Spire hand fan: overlap + slight rotation, centred.</summary>
         public static void Fan(VisualElement handRow, int index, int count)
         {

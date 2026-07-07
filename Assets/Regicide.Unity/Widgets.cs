@@ -31,7 +31,7 @@ namespace Regicide.Unity
             RoadNodeKind.Lair => ("L", Theme.RedDeep, "Lair"),
             RoadNodeKind.Sanctum => ("S", Theme.Blue, "Sanctum"),
             RoadNodeKind.Shrine => ("+", Theme.Blue, "Shrine"),
-            RoadNodeKind.Heroes => ("F", Theme.GoldBright, "Fallen Heroes"),
+            RoadNodeKind.Heroes => ("V", Theme.GoldPale, "Fallen Heroes"), // V for valor — "F" was the Forge's
             _ => ("?", Theme.Grey, kind.ToString()),
         };
 
@@ -329,30 +329,8 @@ namespace Regicide.Unity
         }
 
         // ── battle readouts ─────────────────────────────────────────────────────
-
-        /// <summary>Enemy status block: HP bar, attack intent, shield, immunity.</summary>
-        public static VisualElement EnemyStatus(EnemyState enemy)
-        {
-            var v = new VisualElement();
-            v.style.alignItems = Align.Center;
-
-            v.Add(Theme.Bar(enemy.Hp / (float)enemy.MaxHp, $"{enemy.Hp} / {enemy.MaxHp}", Theme.RedBright, 200, 22));
-
-            var row = new VisualElement();
-            row.style.flexDirection = FlexDirection.Row;
-            row.style.marginTop = 6;
-            int net = Math.Max(0, enemy.Attack - enemy.Shield);
-            row.Add(Theme.Chip($"atk {enemy.Attack}", Theme.RedBright));
-            if (enemy.Shield > 0)
-            {
-                row.Add(Theme.Chip($"shield {enemy.Shield}", Theme.Shield));
-                row.Add(Theme.Chip(net == 0 ? "counter blanked" : $"net {net}", net == 0 ? Theme.Green : Theme.RedDeep));
-            }
-            if (enemy.ImmuneSuit is Suit imm)
-                row.Add(Theme.Chip($"immune {PhysicalCard.SuitGlyph(imm)}", Theme.Grey));
-            v.Add(row);
-            return v;
-        }
+        // (EnemyStatus was deleted — the encounter's diegetic readouts in
+        // RunApp.Encounter.cs AttachReadouts are the canonical enemy display.)
 
         /// <summary>One gauntlet crystal (§7): suit-tinted socket, tier, cast state.</summary>
         public static VisualElement Crystal(Suit suit, int tier, bool castable, bool spent, Action onCast)

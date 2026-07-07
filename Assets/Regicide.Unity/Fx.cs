@@ -33,7 +33,7 @@ namespace Regicide.Unity
         }
 
         /// <summary>A number/word that rises from an anchor and fades (damage, shield…).</summary>
-        public static void Float(VisualElement layer, VisualElement anchor, string text, Color color, int fontSize = 26, float dx = 0)
+        public static void Float(VisualElement layer, VisualElement anchor, string text, Color color, int fontSize = 26, float dx = 0, float dy = 0)
         {
             if (layer == null || layer.panel == null) return;
             var l = new Label(text);
@@ -50,7 +50,7 @@ namespace Regicide.Unity
                 ? layer.WorldToLocal(anchor.worldBound.center)
                 : layer.WorldToLocal(layer.worldBound.center);
             l.style.left = p.x - 40 + dx;
-            l.style.top = p.y - fontSize;
+            l.style.top = p.y - fontSize + dy;
             l.style.minWidth = 80;
             l.style.unityTextAlign = TextAnchor.MiddleCenter;
 

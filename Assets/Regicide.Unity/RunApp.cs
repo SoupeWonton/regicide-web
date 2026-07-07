@@ -218,7 +218,19 @@ namespace Regicide.Unity
             int slot = 0;
             void Toast(string text, Color tint)
             {
-                if (slot < 5) Fx.Toast(_fxLayer, text, tint, slot++);
+                // Big turns overflow into later waves instead of being eaten (audit F9).
+                int n = slot++;
+                int visual = n % 5;
+                int wave = n / 5;
+                if (wave == 0)
+                {
+                    Fx.Toast(_fxLayer, text, tint, visual);
+                }
+                else
+                {
+                    _fxLayer.schedule.Execute(() => Fx.Toast(_fxLayer, text, tint, visual))
+                        .ExecuteLater(wave * 1500);
+                }
             }
 
             // A chapter/crown fanfare outranks the per-fight trumpets (web parity).
@@ -231,7 +243,12 @@ namespace Regicide.Unity
                     case CardsPlayed cp:
                     {
                         // A power that produced NOTHING must say why (playtest: a
-                        // fizzled ♦ draw reads as "the game ate my draw").
+                        // fizzled ♦ draw reads as "the game ate my draw"). Multiple
+                        // reasons stack in rows instead of colliding (audit F10).
+                        int fizzleRow = 0;
+                        void Fizzle(string text) =>
+                            Fx.Float(_fxLayer, null, text, Theme.Grey, 16, 0, fizzleRow++ * 26f);
+
                         if (cp.BlockedSuit is Suit blockedSuit)
                             Fx.Float(_fxLayer, enemy,
                                 PhysicalCard.SuitGlyph(blockedSuit) + " blocked — immune", Theme.Grey, 15, -70);
@@ -239,19 +256,58 @@ namespace Regicide.Unity
                         int drawnCount = drawnEvt != null ? drawnEvt.PhysicalIds.Count : 0;
                         if (cp.ActiveSuits.Contains(Suit.Diamonds) && cp.BlockedSuit != Suit.Diamonds &&
                             drawnCount == 0 && S.Deck.Tavern.Count == 0)
-                            Fx.Float(_fxLayer, null, "deck empty — nothing to draw", Theme.Grey, 16);
+                            Fizzle("deck empty — nothing to draw");
                         else if (cp.ActiveSuits.Contains(Suit.Diamonds) && cp.BlockedSuit != Suit.Diamonds &&
                                  drawnCount < cp.BaseAttack && S.Deck.Hand.Count >= S.MaxHandSize)
-                            Fx.Float(_fxLayer, null,
-                                drawnCount == 0 ? "hand full — no room to draw" : "hand full — draw capped",
-                                Theme.Grey, 16);
+                            Fizzle(drawnCount == 0 ? "hand full — no room to draw" : "hand full — draw capped");
                         bool recovered = r.Events.OfType<CardsRecovered>().Any() ||
                                          r.Events.OfType<RecoverChoiceOffered>().Any();
                         if (cp.ActiveSuits.Contains(Suit.Hearts) && cp.BlockedSuit != Suit.Hearts &&
                             !recovered && S.Deck.Discard.Count <= cp.PhysicalIds.Count)
-                            Fx.Float(_fxLayer, null, "no discards to recover", Theme.Grey, 16);
+                            Fizzle("no discards to recover");
                         break;
                     }
+                    case StaffTriggered st:
+                        // The staff just bent the math — say so where it happened (audit C4).
+                        Sfx.Play(Sfx.Sound.Coin, 0.45f);
+                        Fx.Float(_fxLayer, enemy, st.Note, Theme.ParchmentDim, 14, 0, -30f);
+                        break;
+                    case Defended dd:
+                        // Surviving the counter deserves its release beat (audit C15).
+                        Sfx.Play(Sfx.Sound.Shield, 0.6f);
+                        Fx.Float(_fxLayer, null, $"SURVIVED — paid {dd.Paid}", Theme.Green, 20);
+                        break;
+                    case ContinentEntered ce:
+                        // The run's biggest structural beat gets its fanfare (audit F4).
+                        Sfx.Play(Sfx.Sound.Victory);
+                        Fx.Flash(_fxLayer, Theme.Gold, 900);
+                        Toast($"CONTINENT {ce.Continent} — your {ce.LitRungId} rung lights", Theme.GoldBright);
+                        break;
+                    case CrystalArmed ca:
+                        Sfx.Play(Sfx.Sound.Coin, 0.7f);
+                        Toast($"{PhysicalCard.SuitGlyph(ca.Suit)} armed — {SpellTables.Name(ca.Suit, ca.Tier)}", Theme.Gold);
+                        break;
+                    case StaffSwapped ss:
+                        Sfx.Play(Sfx.Sound.Coin);
+                        Toast($"Staff swapped: {ContentText.StaffName(ss.To)}", Theme.GoldBright);
+                        break;
+                    case RelicEquipped re:
+                        Sfx.Play(Sfx.Sound.Coin, 0.6f);
+                        Toast($"Equipped {RelicTables.Get(re.RelicId).Name}" +
+                              (re.SwappedOut != null ? $" — {RelicTables.Get(re.SwappedOut).Name} to the bag" : ""),
+                            Theme.Gold);
+                        break;
+                    case ShrineBlessing _:
+                        Sfx.Play(Sfx.Sound.Coin);
+                        Toast("Shrine blessing: +1 fragment", Theme.Gold);
+                        break;
+                    case GraftMoved gm:
+                        Toast($"Graft moved to card #{gm.ToPhysicalId}", Theme.Gold);
+                        break;
+                    case RecoveredToHand rth:
+                        Sfx.Play(Sfx.Sound.Draw, 0.6f);
+                        Fx.PopIn(_root.Q<VisualElement>("card-" + rth.PhysicalId));
+                        break;
                     case DamageDealt d:
                         Sfx.Play(d.Doubled ? Sfx.Sound.DamageBig : Sfx.Sound.Impact);
                         Fx.Float(_fxLayer, enemy, "-" + d.Amount,
@@ -284,9 +340,11 @@ namespace Regicide.Unity
                             k.Kind == KillKind.Exact ? Theme.GoldBright : Theme.Grey);
                         break;
                     case Recruited rec:
+                        Sfx.Play(Sfx.Sound.Coin, 0.7f);
                         Toast($"Recruited {PhysicalCard.Pretty(rec.Face)}" + (rec.ToHand ? " → hand" : ""), Theme.Green);
                         break;
                     case GraftApplied g:
+                        Sfx.Play(Sfx.Sound.Reveal, 0.6f);
                         Toast($"Grafted — now {PhysicalCard.Pretty(g.NewEffective)}", Theme.Gold);
                         break;
                     case RoyalKept rk:
@@ -362,11 +420,31 @@ namespace Regicide.Unity
                         }
                         break;
                     }
-                    case RelicUsed ru when ru.RelicId == "bedroll" || ru.RelicId == "sainted_scalpel":
-                        ShuffleFx();
+                    case RelicUsed ru:
+                        // Every activated relic answers audibly (audit C5/F8); the
+                        // suppressed-counterattack ones announce it loudly.
+                        if (ru.RelicId == "bedroll" || ru.RelicId == "sainted_scalpel") ShuffleFx();
+                        if (ru.RelicId == "vanguard" || ru.RelicId == "second_wind")
+                        {
+                            Sfx.Play(Sfx.Sound.Shield);
+                            Fx.Float(_fxLayer, enemy, "NO COUNTER", Theme.Shield, 24);
+                        }
+                        else
+                        {
+                            Sfx.Play(Sfx.Sound.Coin, 0.5f);
+                        }
+                        Toast($"{RelicTables.Get(ru.RelicId).Name}: {ru.Note}", Theme.Gold);
                         break;
-                    case CardsRecovered cr when cr.Count > 2:
-                        ShuffleFx(); // Full Recycle / big recoveries visibly re-feed the deck
+                    case CardsRecovered cr:
+                        if (cr.Count > 2)
+                        {
+                            ShuffleFx(); // Full Recycle / big recoveries visibly re-feed the deck
+                        }
+                        else
+                        {
+                            Sfx.Play(Sfx.Sound.Draw, 0.5f); // small ♥ recoveries tick too (audit F12)
+                            Fx.Float(_fxLayer, null, $"+{cr.Count} back to the deck", Theme.Grey, 14, 0, 30f);
+                        }
                         break;
                 }
             }
@@ -577,7 +655,7 @@ namespace Regicide.Unity
                 sortRow.style.justifyContent = Justify.Center;
                 sortRow.style.marginTop = 2;
 
-                Button SortPill(string text, Comparison<int> by)
+                Button SortPill(string text, string tip, Comparison<int> by)
                 {
                     var b = Theme.Button(text, () =>
                     {
@@ -588,16 +666,17 @@ namespace Regicide.Unity
                     b.style.letterSpacing = 2;
                     Theme.SetPadding(b, 3, 10);
                     Theme.SetRadius(b, 11);
+                    Tips.Attach(b, "sort the hand", tip);
                     return b;
                 }
 
-                sortRow.Add(SortPill("SORT ♠♥♦♣", (x, y) =>
+                sortRow.Add(SortPill("SORT ♠♥♦♣", "group by suit, then rank", (x, y) =>
                 {
                     var fx = S.Cards.Get(x).EffectiveFace();
                     var fy = S.Cards.Get(y).EffectiveFace();
                     return fx.Suit != fy.Suit ? fx.Suit.CompareTo(fy.Suit) : fx.Rank.CompareTo(fy.Rank);
                 }));
-                sortRow.Add(SortPill("SORT 1→10", (x, y) =>
+                sortRow.Add(SortPill("SORT 1→10", "lowest value first", (x, y) =>
                 {
                     int vx = S.Cards.Get(x).EffectiveValue(), vy = S.Cards.Get(y).EffectiveValue();
                     return vx != vy ? vx.CompareTo(vy)
@@ -715,6 +794,7 @@ namespace Regicide.Unity
             row.Add(line);
 
             var open = Theme.Subtle(" log >");
+            Tips.Attach(open, "chronicle", "the full log of everything this run has done");
             open.style.color = Theme.GoldDim;
             open.RegisterCallback<ClickEvent>(_ => { _showLog = true; Render(); });
             open.RegisterCallback<MouseEnterEvent>(_ => open.style.color = Theme.GoldBright);
@@ -751,6 +831,7 @@ namespace Regicide.Unity
                 _confirmForfeit = false;
                 Render();
             });
+            Tips.Attach(g, "settings", "mute · forfeit the run · quit to desktop");
             return g;
         }
 
