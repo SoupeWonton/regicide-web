@@ -259,10 +259,16 @@ namespace Regicide.Unity
                 actions.style.justifyContent = Justify.Center;
                 actions.style.marginTop = 4;
 
-                // The number that decides survival, always on the table (C1).
+                // The survival number only speaks when it bites — a comfortable margin
+                // is noise the player asked us to drop (playtest: "17 vs 3 is useless").
                 if (yp.net > 0)
-                    actions.Add(Theme.Chip($"hand {S.HandTotalValue()} vs counter {yp.net}",
-                        S.HandTotalValue() < yp.net ? Theme.RedBright : Theme.Grey));
+                {
+                    int margin = S.HandTotalValue() - yp.net;
+                    if (margin < 0)
+                        actions.Add(Theme.Chip($"counter {yp.net} — your hand covers {S.HandTotalValue()}", Theme.RedBright));
+                    else if (margin <= 2)
+                        actions.Add(Theme.Chip($"counter {yp.net} — only {margin} to spare", Theme.Gold));
+                }
 
                 if (playLethal)
                     actions.Add(Theme.Button(

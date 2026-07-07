@@ -20,6 +20,28 @@ namespace Regicide.Unity
         /// so they can't fight the drag translate (the rubber-band bug).</summary>
         public static bool DragLock;
 
+        /// <summary>
+        /// A card's border when nothing transient (hover) is touching it. Hover leave
+        /// restores THIS instead of a hard-coded ink reset — otherwise selection gold,
+        /// graft trim and the kill glow all die the first time the pointer passes over.
+        /// Kept in card.userData (unused elsewhere by convention — grep before reusing).
+        /// </summary>
+        private sealed class Resting { public Color Border; public float Width; }
+
+        private static Resting Rest(VisualElement card)
+        {
+            if (card.userData is not Resting r)
+                card.userData = r = new Resting { Border = Theme.Ink, Width = 2f };
+            return r;
+        }
+
+        private static void SetResting(VisualElement card, Color color, float width)
+        {
+            var r = Rest(card);
+            r.Border = color; r.Width = width;
+            Theme.SetBorder(card, color, width);
+        }
+
         private static (float w, float h, float pip, float corner) Dim(Size s) => s switch
         {
             Size.Small => (72f, 100f, 34f, 13f),
@@ -83,7 +105,7 @@ namespace Regicide.Unity
 
             if (rewritten)
             {
-                Theme.SetBorder(card, Theme.Gold, size == Size.Small ? 1.5f : 2f);
+                SetResting(card, Theme.Gold, size == Size.Small ? 1.5f : 2f);
                 if (size != Size.Small && !eff.Equals(c.Printed))
                 {
                     var printed = new Label($"printed {PhysicalCard.Pretty(c.Printed)}");
@@ -151,7 +173,7 @@ namespace Regicide.Unity
             card.style.backgroundImage = new StyleBackground(Textures.Parchment());
             card.style.backgroundRepeat = new BackgroundRepeat(Repeat.Repeat, Repeat.Repeat);
             card.style.backgroundSize = new BackgroundSize(96, 96);
-            Theme.SetBorder(card, Theme.Ink, size == Size.Small ? 1.5f : 2f);
+            SetResting(card, Theme.Ink, size == Size.Small ? 1.5f : 2f);
             Theme.SetRadius(card, size == Size.Large ? 12 : 8);
             card.style.marginRight = 4;
             card.style.marginBottom = 4;
@@ -171,8 +193,8 @@ namespace Regicide.Unity
                 {
                     if (DragLock) return;
                     card.style.translate = new Translate(0, 0);
-                    // Re-render restores the true border; a light reset is enough here.
-                    Theme.SetBorder(card, Theme.Ink, 2);
+                    var r = Rest(card);
+                    Theme.SetBorder(card, r.Border, r.Width);
                 });
             }
             return card;
@@ -229,27 +251,36 @@ namespace Regicide.Unity
         public static void MarkSelected(VisualElement card)
         {
             card.style.translate = new Translate(0, -16);
-            Theme.SetBorder(card, Theme.GoldBright, 3);
+            SetResting(card, Theme.GoldBright, 3);
             card.style.backgroundColor = Theme.GoldPale;
         }
 
         /// <summary>
         /// Kill forecast on a hand card: gold pulse = playing it is an EXACT kill,
         /// dim red = it would overkill (reward lost). Purely presentational.
+        /// The pulse rides the element scheduler so it breathes for the card's whole
+        /// life (a one-shot animation froze after a second) and survives hover because
+        /// the resting border is kept in step with it.
         /// </summary>
         public static void MarkKillGlow(VisualElement card, bool exact)
         {
-            var color = exact ? Theme.GoldBright : new Color(Theme.RedDeep.r, Theme.RedDeep.g, Theme.RedDeep.b, 0.9f);
-            Theme.SetBorder(card, color, 3);
-            if (exact)
+            if (!exact)
             {
-                // A soft breathing pulse — the invitation, not a alarm.
-                card.experimental.animation.Start(0f, 1f, 1200, (el, t) =>
-                {
-                    float breathe = 0.5f + 0.5f * Mathf.Sin(t * Mathf.PI * 2f);
-                    Theme.SetBorder(el, Color.Lerp(Theme.Gold, Theme.GoldPale, breathe), 3);
-                });
+                SetResting(card, new Color(Theme.RedDeep.r, Theme.RedDeep.g, Theme.RedDeep.b, 0.9f), 3);
+                return;
             }
+
+            SetResting(card, Theme.GoldBright, 4);
+            var peak = Color.Lerp(Theme.GoldPale, Color.white, 0.4f);
+            var baseFace = card.style.backgroundColor.value; // parchment, or gold-pale when selected
+            card.schedule.Execute(ts =>
+            {
+                float breathe = 0.5f + 0.5f * Mathf.Sin(ts.now / 1200f * Mathf.PI * 2f);
+                var c = Color.Lerp(Theme.Gold, peak, breathe);
+                SetResting(card, c, 4);
+                // A faint warm wash over the face sells the halo without a new element.
+                card.style.backgroundColor = Color.Lerp(baseFace, Theme.GoldPale, 0.18f + 0.22f * breathe);
+            }).Every(50);
         }
 
         /// <summary>Slay-the-Spire hand fan: overlap + slight rotation, centred.</summary>

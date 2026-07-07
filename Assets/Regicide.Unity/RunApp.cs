@@ -236,6 +236,14 @@ namespace Regicide.Unity
             // A chapter/crown fanfare outranks the per-fight trumpets (web parity).
             bool bigWin = r.Events.Any(e => e is ChapterCompleted || e is CampaignWonEvent);
 
+            int ceremonies = 0; // recruit ceremonies in one dispatch stagger, not stack
+            void Ceremony(CardFace face, bool toHand, string caption, Color tint)
+            {
+                var dest = _root.Q<VisualElement>(toHand ? "fx-hand" : "fx-pile-deck");
+                Fx.RecruitCeremony(_fxLayer, CardView.Face(face, CardView.Size.Large),
+                    dest, caption, tint, ceremonies++ * 550);
+            }
+
             foreach (var e in r.Events)
             {
                 switch (e)
@@ -341,14 +349,18 @@ namespace Regicide.Unity
                         break;
                     case Recruited rec:
                         Sfx.Play(Sfx.Sound.Coin, 0.7f);
-                        Toast($"Recruited {PhysicalCard.Pretty(rec.Face)}" + (rec.ToHand ? " → hand" : ""), Theme.Green);
+                        Ceremony(rec.Face, rec.ToHand,
+                            rec.ToHand ? "RECRUITED — TO YOUR HAND" : "RECRUITED", Theme.Green);
                         break;
                     case GraftApplied g:
                         Sfx.Play(Sfx.Sound.Reveal, 0.6f);
                         Toast($"Grafted — now {PhysicalCard.Pretty(g.NewEffective)}", Theme.Gold);
                         break;
                     case RoyalKept rk:
-                        Toast($"{PhysicalCard.Pretty(rk.Face)} joins your court", Theme.GoldBright);
+                        Sfx.Play(Sfx.Sound.Crown, 0.8f);
+                        Ceremony(rk.Face, false,
+                            rk.Face.Rank == Rank.King ? "THE CROWN JOINS YOUR COURT" : "JOINS YOUR COURT",
+                            Theme.GoldBright);
                         break;
                     case RoyalLeft rl:
                         Toast($"{PhysicalCard.Pretty(rl.Face)} is left behind", Theme.Grey);

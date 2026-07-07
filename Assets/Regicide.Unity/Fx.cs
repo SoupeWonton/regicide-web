@@ -192,6 +192,78 @@ namespace Regicide.Unity
             }
         }
 
+        /// <summary>
+        /// The recruit ceremony: the card materializes LARGE at screen centre under a
+        /// caption, breathes gold for a beat, then arcs shrinking into its destination
+        /// pile (or the hand). Replaces the old "Recruited X" toast — the moment IS the
+        /// announcement. Non-blocking: everything rides the FX layer, picking ignored.
+        /// </summary>
+        public static void RecruitCeremony(VisualElement layer, VisualElement card, VisualElement target,
+                                           string caption, Color tint, int delayMs = 0)
+        {
+            if (layer == null || layer.panel == null || card == null) return;
+
+            var wrap = new VisualElement();
+            wrap.pickingMode = PickingMode.Ignore;
+            card.pickingMode = PickingMode.Ignore;
+            wrap.style.position = Position.Absolute;
+            wrap.style.alignItems = Align.Center;
+            wrap.style.opacity = 0f;
+
+            var cap = new Label(caption);
+            cap.pickingMode = PickingMode.Ignore;
+            cap.style.color = Color.Lerp(tint, Color.white, 0.35f);
+            cap.style.fontSize = 24;
+            cap.style.unityFontStyleAndWeight = FontStyle.Bold;
+            cap.style.letterSpacing = 3;
+            cap.style.marginBottom = 10;
+            cap.style.textShadow = new TextShadow { offset = new Vector2(1.5f, 1.5f), blurRadius = 3f, color = new Color(0, 0, 0, 0.9f) };
+            wrap.Add(cap);
+            wrap.Add(card);
+            layer.Add(wrap);
+
+            Vector2 c = layer.WorldToLocal(layer.worldBound.center);
+            wrap.style.left = c.x - 77;       // Large card is 150 wide (+margins)
+            wrap.style.top = c.y - 105 - 38;  // card centred; caption rides above
+
+            layer.schedule.Execute(() =>
+            {
+                Flash(layer, tint, 420);
+                CardView.MarkKillGlow(card, true); // the same breathing gold — one glow language
+                wrap.experimental.animation.Start(0f, 1f, 300, (el, t) =>
+                {
+                    el.style.opacity = t;
+                    float over = 1f + 0.35f * Mathf.Sin(Mathf.PI * t); // swell past 1, settle back
+                    el.style.scale = new Scale(Vector3.one * (0.6f + 0.4f * EaseOut(t)) * over);
+                });
+            }).ExecuteLater(delayMs);
+
+            // After the hold, arc into the destination — shrink, lift, land.
+            layer.schedule.Execute(() =>
+            {
+                if (wrap.panel == null) return;
+                Vector2 dest = target != null && target.panel != null
+                    ? layer.WorldToLocal(target.worldBound.center)
+                    : c + new Vector2(0, 220);
+                Vector2 from = new Vector2(c.x, c.y);
+                Vector2 delta = dest - from;
+                wrap.experimental.animation.Start(0f, 1f, 460, (el, t) =>
+                {
+                    float e = 1f - (1f - t) * (1f - t);
+                    el.style.translate = new Translate(delta.x * e, delta.y * e - 60f * Mathf.Sin(Mathf.PI * e));
+                    el.style.scale = new Scale(Vector3.one * (1f - 0.68f * e));
+                    el.style.opacity = t > 0.82f ? 1f - (t - 0.82f) / 0.18f : 1f;
+                });
+                if (target != null && target.panel != null)
+                    layer.schedule.Execute(() =>
+                        target.experimental.animation.Start(0f, 1f, 300, (el, t) =>
+                            el.style.scale = new Scale(Vector3.one * (1f + 0.2f * Mathf.Sin(t * Mathf.PI))))
+                        ).ExecuteLater(380);
+            }).ExecuteLater(delayMs + 1000);
+
+            layer.schedule.Execute(() => wrap.RemoveFromHierarchy()).ExecuteLater(delayMs + 1550);
+        }
+
         /// <summary>Fade a whole screen in on phase changes.</summary>
         public static void FadeIn(VisualElement screen, int ms = 240)
         {
