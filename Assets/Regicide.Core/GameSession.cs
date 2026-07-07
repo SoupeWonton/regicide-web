@@ -81,6 +81,7 @@ namespace Regicide.Core
                 ActivateStaff a => HandleActivateStaff(a),
                 SwapStaff a => HandleSwapStaff(a),
                 ChooseRecover a => HandleChooseRecover(a),
+                ChooseOverdraw a => HandleChooseOverdraw(a),
                 ArmCrystal a => HandleArmCrystal(a),
                 ForgeConvert _ => HandleForgeConvert(),
                 CastSpell a => HandleCastSpell(a),
@@ -92,11 +93,19 @@ namespace Regicide.Core
                 ContinueRun _ => HandleContinueRun(),
                 _ => Result.Fail($"Unknown action {action?.GetType().Name ?? "null"}"),
             };
+            // Draw() may queue an OverdrawPick from deep inside any handler — surface
+            // the offer as an event without threading a list through every call site.
+            if (result.Ok && _overdrawOffer != null)
+                result.Events.Add(_overdrawOffer);
+            _overdrawOffer = null;
             State.RngState = _rng.State;
             if (result.Ok)
                 foreach (var e in result.Events) State.Log.Add(e.ToString());
             return result;
         }
+
+        /// <summary>Set by Draw() when an overdraw pick is queued; drained by Dispatch.</summary>
+        private OverdrawOffered _overdrawOffer;
 
         // ── class select ────────────────────────────────────────────────────────
 
@@ -163,20 +172,79 @@ namespace Regicide.Core
             events.Add(dealt);
         }
 
-        /// <summary>Draw up to <paramref name="count"/> cards, capped by hand size and the Tavern.</summary>
+        /// <summary>
+        /// Draw up to <paramref name="count"/> cards, capped by hand size and the Tavern.
+        /// Overdraw (house rule, 2026-07): when draws are still owed as the LAST hand
+        /// slot comes up, that slot isn't drawn blind — the owed cards are revealed
+        /// (they stay on the Tavern top) and an OverdrawPick lets the player take one;
+        /// the rest shuffle back into the Tavern on resolution.
+        /// </summary>
         private CardsDrawn Draw(int count)
         {
             var drawn = new CardsDrawn();
-            for (int i = 0; i < count &&
-                 State.Deck.Hand.Count < State.MaxHandSize &&
-                 State.Deck.Tavern.Count > 0; i++)
+            // While a pick owns the Tavern top, further draws would corrupt the
+            // revealed set — they stay lost, exactly like the old full-hand fizzle.
+            if (State.PendingChoices.Any(p => p.Kind == PendingChoiceKind.OverdrawPick))
+                return drawn;
+
+            while (drawn.PhysicalIds.Count < count &&
+                   State.Deck.Hand.Count < State.MaxHandSize &&
+                   State.Deck.Tavern.Count > 0)
             {
+                int owed = count - drawn.PhysicalIds.Count;
+                if (State.Deck.Hand.Count == State.MaxHandSize - 1 &&
+                    owed >= 2 && State.Deck.Tavern.Count >= 2)
+                {
+                    var options = State.Deck.Tavern
+                        .Take(System.Math.Min(owed, State.Deck.Tavern.Count)).ToList();
+                    State.PendingChoices.Add(new PendingChoice
+                    {
+                        Kind = PendingChoiceKind.OverdrawPick,
+                        OverdrawIds = options,
+                    });
+                    _overdrawOffer = new OverdrawOffered { Options = new List<int>(options) };
+                    break;
+                }
+
                 int id = State.Deck.Tavern[0];
                 State.Deck.Tavern.RemoveAt(0);
                 State.Deck.Hand.Add(id);
                 drawn.PhysicalIds.Add(id);
             }
             return drawn;
+        }
+
+        private Result HandleChooseOverdraw(ChooseOverdraw a)
+        {
+            var pending = State.PendingChoice;
+            if (pending == null || pending.Kind != PendingChoiceKind.OverdrawPick)
+                return Result.Fail("No overdraw pick pending");
+            if (!pending.OverdrawIds.Contains(a.PhysicalId))
+                return Result.Fail($"Card #{a.PhysicalId} is not on offer");
+
+            // ── validated; mutate ── the pick fills the last slot; the Tavern
+            // shuffles so the revealed leftovers can't be tracked.
+            State.Deck.Tavern.Remove(a.PhysicalId);
+            State.Deck.Hand.Add(a.PhysicalId);
+            _rng.Shuffle(State.Deck.Tavern);
+            State.PendingChoices.RemoveAt(0);
+            var events = new List<GameEvent>
+            {
+                new CardsDrawn { PhysicalIds = { a.PhysicalId } },
+                new OverdrawPicked { PhysicalId = a.PhysicalId, ShuffledBack = pending.OverdrawIds.Count - 1 },
+            };
+
+            // The counter's death test was deferred past this pick — the hand is
+            // final now, so an unpayable Defend resolves the only way it can.
+            var head = State.PendingChoice;
+            if (head != null && head.Kind == PendingChoiceKind.Defend &&
+                State.HandTotalValue() < head.RequiredValue)
+            {
+                events.Add(new PlayerDied { Unpayable = head.RequiredValue });
+                State.Hero.Alive = false;
+                State.Phase = CampaignPhase.CampaignLost;
+            }
+            return Result.Success(events);
         }
 
         // ── encounter entry ─────────────────────────────────────────────────────
@@ -522,16 +590,7 @@ namespace Regicide.Core
             }
             if (SuitActive(Suit.Diamonds))
             {
-                var drawn = new CardsDrawn();
-                for (int i = 0; i < baseAttack &&
-                     State.Deck.Hand.Count < State.MaxHandSize &&
-                     State.Deck.Tavern.Count > 0; i++)
-                {
-                    int id = State.Deck.Tavern[0];
-                    State.Deck.Tavern.RemoveAt(0);
-                    State.Deck.Hand.Add(id);
-                    drawn.PhysicalIds.Add(id);
-                }
+                var drawn = Draw(baseAttack); // may queue an OverdrawPick for the last slot
                 if (drawn.PhysicalIds.Count > 0) events.Add(drawn);
             }
 
@@ -871,7 +930,10 @@ namespace Regicide.Core
                 if (drawn.PhysicalIds.Count > 0) events.Add(drawn);
             }
 
-            if (State.HandTotalValue() < net)
+            // An overdraw pick still owed means the hand isn't final — the picked card
+            // pays too, so the death test waits (HandleChooseOverdraw re-runs it).
+            bool pickOwed = State.PendingChoices.Any(p => p.Kind == PendingChoiceKind.OverdrawPick);
+            if (!pickOwed && State.HandTotalValue() < net)
             {
                 events.Add(new PlayerDied { Unpayable = net });
                 State.Hero.Alive = false;

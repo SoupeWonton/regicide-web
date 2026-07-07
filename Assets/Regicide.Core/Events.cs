@@ -65,6 +65,20 @@ namespace Regicide.Core
         public override string ToString() => $"♦ drew {PhysicalIds.Count} card(s)";
     }
 
+    public sealed class OverdrawOffered : GameEvent
+    {
+        public List<int> Options = new List<int>();
+        public override string ToString() =>
+            $"Overdraw — pick 1 of {Options.Count} for the last hand slot";
+    }
+
+    public sealed class OverdrawPicked : GameEvent
+    {
+        public int PhysicalId; public int ShuffledBack;
+        public override string ToString() =>
+            $"Overdraw pick #{PhysicalId} — {ShuffledBack} shuffled back into the Tavern";
+    }
+
     public enum KillKind { Exact, Overkill }
 
     public sealed class EnemyKilled : GameEvent

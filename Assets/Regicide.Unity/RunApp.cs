@@ -262,10 +262,12 @@ namespace Regicide.Unity
                                 PhysicalCard.SuitGlyph(blockedSuit) + " blocked — immune", Theme.Grey, 15, -70);
                         var drawnEvt = r.Events.OfType<CardsDrawn>().FirstOrDefault();
                         int drawnCount = drawnEvt != null ? drawnEvt.PhysicalIds.Count : 0;
+                        bool overdrawPick = r.Events.OfType<OverdrawOffered>().Any();
                         if (cp.ActiveSuits.Contains(Suit.Diamonds) && cp.BlockedSuit != Suit.Diamonds &&
                             drawnCount == 0 && S.Deck.Tavern.Count == 0)
                             Fizzle("deck empty — nothing to draw");
                         else if (cp.ActiveSuits.Contains(Suit.Diamonds) && cp.BlockedSuit != Suit.Diamonds &&
+                                 !overdrawPick && // the pick IS the compensation — no fizzle
                                  drawnCount < cp.BaseAttack && S.Deck.Hand.Count >= S.MaxHandSize)
                             Fizzle(drawnCount == 0 ? "hand full — no room to draw" : "hand full — draw capped");
                         bool recovered = r.Events.OfType<CardsRecovered>().Any() ||
@@ -339,6 +341,13 @@ namespace Regicide.Unity
                         Sfx.Play(Sfx.Sound.Draw, 0.7f);
                         for (int i = 0; i < cd.PhysicalIds.Count; i++)
                             Fx.PopIn(_root.Q<VisualElement>("card-" + cd.PhysicalIds[i]), i * 60);
+                        break;
+                    case OverdrawOffered oo:
+                        Sfx.Play(Sfx.Sound.Reveal, 0.7f);
+                        Toast($"OVERDRAW — pick 1 of {oo.Options.Count}", Theme.Gold);
+                        break;
+                    case OverdrawPicked op:
+                        if (op.ShuffledBack > 0) ShuffleFx(); // the leftovers re-feed the deck
                         break;
                     case EnemyKilled k:
                         Sfx.Play(k.Kind == KillKind.Exact ? Sfx.Sound.Exact : Sfx.Sound.Overkill);

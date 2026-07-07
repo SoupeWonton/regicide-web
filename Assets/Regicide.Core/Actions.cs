@@ -198,4 +198,11 @@ namespace Regicide.Core
         public ChooseRecover(List<int> physicalIds) { PhysicalIds = physicalIds; }
         public ChooseRecover(params int[] physicalIds) { PhysicalIds = new List<int>(physicalIds); }
     }
+
+    /// <summary>Answer an OverdrawPick pending choice: the card taking the last hand slot.</summary>
+    public sealed class ChooseOverdraw : IAction
+    {
+        public int PhysicalId;
+        public ChooseOverdraw(int physicalId) { PhysicalId = physicalId; }
+    }
 }

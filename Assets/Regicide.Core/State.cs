@@ -161,6 +161,9 @@ namespace Regicide.Core
         RelicSelect,
         /// <summary>Debt relic (§8): a start-of-turn discard of exactly one card is owed.</summary>
         DebtDiscard,
+        /// <summary>Overdraw (house rule): draws overflowed the hand — the last slot is
+        /// filled by PICKING one of the owed cards; the rest shuffle back into the Tavern.</summary>
+        OverdrawPick,
     }
 
     /// <summary>A decision blocking the game until the player answers (§4).</summary>
@@ -187,6 +190,9 @@ namespace Regicide.Core
         public int RecoverMax;
         /// <summary>RelicSelect: the relic ids on offer (§8 Lair).</summary>
         public List<string> RelicOptions;
+        /// <summary>OverdrawPick: the owed Tavern cards revealed for the last hand slot.
+        /// They stay on top of the Tavern until the pick resolves.</summary>
+        public List<int> OverdrawIds;
     }
 
     /// <summary>The root state. Core owns it; the UI is a pure view of it (§4).</summary>

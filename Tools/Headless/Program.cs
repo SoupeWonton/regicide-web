@@ -68,6 +68,7 @@ namespace Regicide.Headless
             Run("staff: dovetail (same-rank set + one adjacent card)", TestDovetail);
             Run("staff: ace in the hole (Ace at partner value)", TestAceInHole);
             Run("staff: stockpile (hand cap +1 this enemy)", TestStockpile);
+            Run("overdraw: the last slot is a pick, the rest shuffle back", TestOverdrawPick);
             Run("staff: provisioner (discard 1, draw 1)", TestProvisioner);
             Run("staff: triage (player-chosen recovery)", TestTriage);
             Run("staff: last rites (one recovered card to hand, once/enemy)", TestLastRites);
@@ -563,12 +564,20 @@ namespace Regicide.Headless
 
         // ── step-4 tests: roads, camps, hunts, chapters ─────────────────────────
 
+        /// <summary>Answer a pending overdraw pick (the new last-slot rule) with its first option.</summary>
+        private static void ResolveOverdraw(GameSession s)
+        {
+            if (s.State.PendingChoice?.Kind == PendingChoiceKind.OverdrawPick)
+                Must(s.Dispatch(new ChooseOverdraw(s.State.PendingChoice.OverdrawIds[0])));
+        }
+
         /// <summary>Win the current fight by staging exact kills (fight math is tested elsewhere).</summary>
         private static void WinFight(GameSession s)
         {
             int guard = 0;
             while (s.State.Phase == CampaignPhase.Encounter && guard++ < 20)
             {
+                ResolveOverdraw(s);
                 if (s.State.PendingChoice != null) throw new Exception($"unexpected pending {s.State.PendingChoice.Kind}");
                 var enemy = s.State.Encounter.Current;
                 bool clubOk = enemy.Suit != Suit.Clubs;
@@ -1218,6 +1227,7 @@ namespace Regicide.Headless
                 "two odd cards out");
             var r = Must(s.Dispatch(new PlayCards(c3.PhysicalId, h3.PhysicalId, d4.PhysicalId)));
             Check(Get<CardsPlayed>(r).BaseAttack == 10, "3+3+4 dovetails at exactly the cap");
+            ResolveOverdraw(s); // the ♦ draw filled the hand — pick precedes the pay
             Must(s.Dispatch(new DefendDiscard(s.State.Deck.Hand.ToList())));
         }
 
@@ -1249,7 +1259,75 @@ namespace Regicide.Headless
             var d5 = Give(s, Suit.Diamonds, Rank.Five);
             for (int i = 0; i < 5; i++) Give(s, Suit.Clubs, Rank.Two); // hand of 6 incl. the ♦
             var r = Must(s.Dispatch(new PlayCards(d5.PhysicalId)));    // hand 5 → draw up to 6
+            Check(s.State.PendingChoice?.Kind == PendingChoiceKind.OverdrawPick,
+                "the last raised-cap slot becomes an overdraw pick");
+            Must(s.Dispatch(new ChooseOverdraw(s.State.PendingChoice.OverdrawIds[0])));
             Check(s.State.Deck.Hand.Count == 6, "hand filled to the raised cap");
+        }
+
+        private static void TestOverdrawPick()
+        {
+            // Overdraw (house rule): draws stay blind until ONE hand slot remains;
+            // the owed remainder is revealed, the player picks 1, the rest shuffle back.
+            var s = NewRun("overdraw");
+            Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            ClearHand(s);
+            var d9 = Give(s, Suit.Diamonds, Rank.Nine);
+            for (int i = 0; i < 3; i++) Give(s, Suit.Clubs, Rank.Two); // hand 4 → play leaves 3, space 2
+            int tavernBefore = s.State.Deck.Tavern.Count;
+            int expectedBlind = s.State.Deck.Tavern[0];
+
+            var r = Must(s.Dispatch(new PlayCards(d9.PhysicalId))); // ♦9: 9 draws owed
+            Check(Get<CardsDrawn>(r).PhysicalIds.Count == 1 &&
+                  Get<CardsDrawn>(r).PhysicalIds[0] == expectedBlind,
+                "draws stay blind until the last slot");
+            var offer = Get<OverdrawOffered>(r);
+            Check(s.State.PendingChoice?.Kind == PendingChoiceKind.OverdrawPick, "pick pending");
+            int k = Math.Min(8, s.State.Deck.Tavern.Count); // 8 still owed after the blind draw
+            Check(offer.Options.Count == k && offer.Options.SequenceEqual(s.State.Deck.Tavern.Take(k)),
+                "the owed remainder is revealed off the Tavern top");
+
+            MustFail(s.Dispatch(new ChooseOverdraw(-5)), "not on offer");
+            MustFail(s.Dispatch(new DefendDiscard(s.State.Deck.Hand.ToList())),
+                "the pick resolves BEFORE the counter pay");
+
+            int pick = offer.Options[k - 1]; // deliberately not the top card
+            var r2 = Must(s.Dispatch(new ChooseOverdraw(pick)));
+            Check(s.State.Deck.Hand.Contains(pick) && s.State.Deck.Hand.Count == s.State.MaxHandSize,
+                "the pick fills the last slot");
+            Check(!s.State.Deck.Tavern.Contains(pick) &&
+                  s.State.Deck.Tavern.Count == tavernBefore - 2,
+                "leftovers stay in the Tavern (shuffled)");
+            Check(Get<OverdrawPicked>(r2).ShuffledBack == k - 1, "the rest shuffled back");
+            Check(s.State.PendingChoice?.Kind == PendingChoiceKind.Defend,
+                "the counter pay steps up after the pick");
+
+            // Exactly one owed card → no ceremony, a plain blind draw.
+            var s2 = NewRun("overdraw1");
+            Fight(s2, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            ClearHand(s2);
+            var dA = Give(s2, Suit.Diamonds, Rank.Ace);
+            for (int i = 0; i < 4; i++) Give(s2, Suit.Clubs, Rank.Two); // hand 5 (cap)
+            var rA = Must(s2.Dispatch(new PlayCards(dA.PhysicalId))); // ♦A: 1 draw, space 1
+            Check(Has<CardsDrawn>(rA) && Get<CardsDrawn>(rA).PhysicalIds.Count == 1 &&
+                  s2.State.PendingChoice?.Kind != PendingChoiceKind.OverdrawPick,
+                "a single owed draw stays blind");
+
+            // Tavern down to its last card → nothing to pick among, blind draw.
+            var s3 = NewRun("overdraw2");
+            Fight(s3, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+            ClearHand(s3);
+            var d9b = Give(s3, Suit.Diamonds, Rank.Nine);
+            for (int i = 0; i < 4; i++) Give(s3, Suit.Clubs, Rank.Two); // hand 5 (cap)
+            while (s3.State.Deck.Tavern.Count > 1)
+            {
+                int id = s3.State.Deck.Tavern[0];
+                s3.State.Deck.Tavern.RemoveAt(0);
+                s3.State.Deck.Discard.Add(id);
+            }
+            var rB = Must(s3.Dispatch(new PlayCards(d9b.PhysicalId))); // space 1, tavern 1
+            Check(Has<CardsDrawn>(rB) && s3.State.PendingChoice?.Kind != PendingChoiceKind.OverdrawPick,
+                "no pick when the Tavern can't offer a choice");
         }
 
         private static void TestProvisioner()
@@ -1551,6 +1629,7 @@ namespace Regicide.Headless
             var r = Must(s.Dispatch(new PlayCards(c3.PhysicalId, h3.PhysicalId, d4.PhysicalId)));
             Check(Get<CardsPlayed>(r).BaseAttack == 10, "3+3 plus the committed 4");
             Check(!s.State.Encounter.CommitArmed, "commit consumed by the extra card");
+            ResolveOverdraw(s); // the ♦ draw filled the hand — pick precedes the pay
             Must(s.Dispatch(new DefendDiscard(s.State.Deck.Hand.ToList())));
         }
 
@@ -1770,8 +1849,14 @@ namespace Regicide.Headless
             Fight(s2, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
             int target = s2.State.Deck.Hand[0];
             var r = Must(s2.Dispatch(new UseRelic("liquidate", target)));
+            // Discard 1 (5 → 4), draw 2 into a hand one below cap: the last slot is
+            // an overdraw pick of the 2 owed cards (the new overdraw rule).
+            Check(s2.State.PendingChoice?.Kind == PendingChoiceKind.OverdrawPick &&
+                  s2.State.PendingChoice.OverdrawIds.Count == 2,
+                "liquidate's second draw becomes a pick of 2");
+            Must(s2.Dispatch(new ChooseOverdraw(s2.State.PendingChoice.OverdrawIds[1])));
             Check(s2.State.Deck.Discard.Contains(target) && s2.State.Deck.Hand.Count == 5,
-                "discarded 1, drew 2 (4 → 5 with a hand of 5-cap)");
+                "discarded 1, ended at the 5-cap");
             MustFail(s2.Dispatch(new UseRelic("liquidate", s2.State.Deck.Hand[0])), "once per fight");
 
             var s3 = NewRun("doubleornothing");

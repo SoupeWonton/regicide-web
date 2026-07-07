@@ -20,6 +20,7 @@ namespace Regicide.Unity
                 case PendingChoiceKind.HuntSelect: return HuntDialog(pending);
                 case PendingChoiceKind.RoyalKeep: return RoyalKeepDialog(pending);
                 case PendingChoiceKind.RecoverSelect: return RecoverSelectDialog(pending);
+                case PendingChoiceKind.OverdrawPick: return OverdrawDialog(pending);
                 case PendingChoiceKind.RecoverToHand: return RecoverToHandDialog(pending);
                 case PendingChoiceKind.RelicSelect: return RelicSelectDialog(pending);
                 default: return Overlay();
@@ -108,6 +109,43 @@ namespace Regicide.Unity
                 var captured = face;
                 row.Add(PickableFace(face, CardView.Size.Hand,
                     () => Dispatch(new ChooseHunt(captured.Suit, captured.Rank))));
+            }
+            scroll.Add(row);
+            d.Add(scroll);
+            o.Add(d);
+            return o;
+        }
+
+        private VisualElement OverdrawDialog(PendingChoice pending)
+        {
+            var o = Overlay();
+            var d = Dialog("OVERDRAW — THE LAST SLOT");
+            var sub = new Label("your hand holds ONE more — take your pick; the rest shuffle back into the deck");
+            sub.style.color = Theme.ParchmentDim;
+            sub.style.marginBottom = 8;
+            d.Add(sub);
+
+            // A counter waits behind this pick — the picked card is pay too.
+            var next = S.PendingChoices.Count > 1 ? S.PendingChoices[1] : null;
+            if (next != null && next.Kind == PendingChoiceKind.Defend)
+            {
+                var warn = new Label($"a counterattack of {next.RequiredValue} follows — your pick helps pay it");
+                warn.style.color = Theme.RedBright;
+                warn.style.fontSize = 12;
+                warn.style.marginBottom = 6;
+                d.Add(warn);
+            }
+
+            var scroll = new ScrollView();
+            scroll.style.maxHeight = 400;
+            var row = Row();
+            row.style.justifyContent = Justify.Center;
+            row.style.paddingTop = 14;
+            foreach (int id in pending.OverdrawIds)
+            {
+                int captured = id;
+                row.Add(CardView.Card(S.Cards.Get(captured), CardView.Size.Hand,
+                    onClick: () => Dispatch(new ChooseOverdraw(captured))));
             }
             scroll.Add(row);
             d.Add(scroll);
