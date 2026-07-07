@@ -96,6 +96,7 @@ namespace Regicide.Headless
             Run("sanctum: move a graft once per visit; shrine blessing", TestSanctumShrine);
             Run("meta/lineage: outcomes banked, JSON round-trip, corrupt-safe", TestMeta);
             Run("ValidatePlay: pure legality preview matches dispatch", TestValidatePlay);
+            Run("PreviewPlay/YieldPreview/CanX: read-only queries match dispatch", TestCoreQueries);
             Run("killing blow still fires suit powers (draw/recover/shield)", TestKillingBlowEffects);
             Run("roads: sparse committed lanes, everything reachable, no dead ends", TestSparseLanes);
 
@@ -2155,6 +2156,83 @@ namespace Regicide.Headless
             Check(s2.ValidatePlay(new List<int> { c3.PhysicalId }) == null &&
                   Must(s2.Dispatch(new PlayCards(c3.PhysicalId))).Ok, "legal preview → legal play");
             Must(s2.Dispatch(new DefendDiscard(s2.State.Deck.Hand.ToList())));
+        }
+
+        // ── the read-only query family (UI truth source) ────────────────────────
+
+        private static void TestCoreQueries()
+        {
+            // PreviewPlay mirrors dispatch: damage, double, exact.
+            var s = NewRun("preview-parity");
+            Fight(s, EnemyState.Number(Suit.Hearts, Rank.Six, EnemyTier.Skirmish)); // 18 hp
+            ClearHand(s);
+            var c9 = Give(s, Suit.Clubs, Rank.Nine);
+            var pv = s.PreviewPlay(new List<int> { c9.PhysicalId });
+            Check(pv.Legal && pv.Doubled && pv.Damage == 18 && pv.Outcome == KillKind.Exact,
+                "9♣ preview: doubled to 18, exact kill");
+            var r = Must(s.Dispatch(new PlayCards(c9.PhysicalId)));
+            Check(Get<DamageDealt>(r).Amount == pv.Damage &&
+                  Get<EnemyKilled>(r).Kind == KillKind.Exact, "dispatch matches the preview");
+
+            // Survive + draw + net-counter parity.
+            Fight(s, EnemyState.Number(Suit.Hearts, Rank.Ten, EnemyTier.Veteran)); // 30 hp, atk 6
+            ClearHand(s);
+            var d4 = Give(s, Suit.Diamonds, Rank.Four);
+            var h9 = Give(s, Suit.Hearts, Rank.Nine); // guaranteed pay cover
+            var pv2 = s.PreviewPlay(new List<int> { d4.PhysicalId });
+            Check(pv2.Outcome == null && pv2.Draw == 4 && pv2.NetCounter == 6 && !pv2.LethalCounter,
+                "4♦ preview: survives, draws 4, net 6, payable");
+            var r2 = Must(s.Dispatch(new PlayCards(d4.PhysicalId)));
+            Check(Get<CardsDrawn>(r2).PhysicalIds.Count == pv2.Draw, "draw count matches");
+            Check(Get<CounterattackIncoming>(r2).NetAttack == pv2.NetCounter, "net counter matches");
+            Must(s.Dispatch(new DefendDiscard(s.State.Deck.Hand.ToList())));
+
+            // Immunity flows into the preview.
+            var s2 = NewRun("preview-immune");
+            Fight(s2, EnemyState.Number(Suit.Clubs, Rank.Six, EnemyTier.Skirmish));
+            ClearHand(s2);
+            var c9b = Give(s2, Suit.Clubs, Rank.Nine);
+            Give(s2, Suit.Hearts, Rank.Five);
+            var pv3 = s2.PreviewPlay(new List<int> { c9b.PhysicalId });
+            Check(pv3.BlockedSuit == Suit.Clubs && !pv3.Doubled && pv3.Damage == 9,
+                "♣ power blocked in the preview, value still counts");
+
+            // Certain-death detection, play and yield.
+            var s3 = NewRun("preview-lethal");
+            Fight(s3, EnemyState.Royal(Suit.Spades, Rank.King, EnemyTier.Gate)); // atk 20
+            ClearHand(s3);
+            var h2 = Give(s3, Suit.Hearts, Rank.Two);
+            var pv4 = s3.PreviewPlay(new List<int> { h2.PhysicalId });
+            Check(pv4.LethalCounter, "a 2♥ chip into a King with nothing left = certain death");
+            var yp = s3.YieldPreview();
+            Check(yp.net == 20 && yp.lethal, "yield preview agrees");
+            var r4 = Must(s3.Dispatch(new Yield()));
+            Check(Has<PlayerDied>(r4), "and dispatch confirms it");
+
+            // CanX ↔ dispatch agreement battery.
+            var s4 = NewRun("canx");
+            Check(s4.CanCastSpell(Suit.Diamonds) != null, "no casting outside combat (query)");
+            Check(!s4.Dispatch(new CastSpell(Suit.Diamonds)).Ok, "dispatch agrees");
+            s4.State.GauntletTiers[(int)Suit.Diamonds] = SpellTables.TierFragment;
+            Wear(s4, "liquidate");
+            Fight(s4, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
+
+            Check(s4.CanCastSpell(Suit.Diamonds) == null, "castable in the fight");
+            Must(s4.Dispatch(new CastSpell(Suit.Diamonds)));
+            Check(s4.CanCastSpell(Suit.Diamonds) != null, "spent slot reads unusable");
+
+            Check((s4.CanActivateStaff() == null) == s4.Dispatch(new ActivateStaff()).Ok,
+                "staff query agrees with dispatch (no ♠ in discard)");
+            GiveDiscard(s4, Suit.Spades, Rank.Five);
+            Check(s4.CanActivateStaff() == null, "hold the line ready with a ♠ banked");
+            Must(s4.Dispatch(new ActivateStaff()));
+            Check(s4.CanActivateStaff() != null, "and reads spent for this enemy");
+
+            Check(s4.CanUseRelic("liquidate") == null, "liquidate ready");
+            Must(s4.Dispatch(new UseRelic("liquidate", s4.State.Deck.Hand[0])));
+            Check(s4.CanUseRelic("liquidate") != null, "liquidate reads once-per-fight spent");
+            Check(s4.CanUseRelic("bedroll") != null, "unequipped relic reads unusable");
+            Check(s4.CanUseRelic("scout_ahead") != null, "passive relics read as passive");
         }
 
         // ── killing-blow suit powers (user bug report) ──────────────────────────

@@ -15,6 +15,36 @@ namespace Regicide.Core
     }
 
     /// <summary>
+    /// A read-only forecast of a play (see <see cref="GameSession.PreviewPlay"/>).
+    /// Everything the UI needs to tell the truth before the click.
+    /// </summary>
+    public struct PlayPreview
+    {
+        public bool Legal;
+        /// <summary>ValidatePlay's rejection when not legal; null otherwise.</summary>
+        public string Illegal;
+        public int Damage;
+        /// <summary>Block added by ♠ (or an armed Transfuse).</summary>
+        public int ShieldGain;
+        /// <summary>♦ cards that would actually be drawn (caps applied).</summary>
+        public int Draw;
+        /// <summary>♥ discards that would return (or the pick ceiling under Triage).</summary>
+        public int Recover;
+        public bool RecoverIsChoice;
+        /// <summary>Exact / Overkill, or null when the enemy survives.</summary>
+        public KillKind? Outcome;
+        public Suit? BlockedSuit;
+        public bool Doubled;
+        public bool WhetstoneShaved;
+        /// <summary>Counterattack after this play's shield, when the enemy survives.</summary>
+        public int NetCounter;
+        /// <summary>Known post-play hand value available to pay that counter.</summary>
+        public int CounterCoverage;
+        /// <summary>True only when death is CERTAIN (even best-case draws can't pay).</summary>
+        public bool LethalCounter;
+    }
+
+    /// <summary>
     /// The single Core entry point (§2). Holds CampaignState; the UI submits IActions
     /// and re-renders from State, playing back the returned events. Validate-then-mutate:
     /// an invalid action returns an error and mutates nothing. Synchronous, no time.
@@ -257,6 +287,110 @@ namespace Regicide.Core
 
             var cards = physicalIds.Select(id => State.Cards.Get(id)).ToList();
             return ValidateCombo(cards, out _);
+        }
+
+        /// <summary>
+        /// What a play would ACTUALLY do — the full pipeline (ace-in-hole, immunity/
+        /// unbinding, ♣ double/steady hand, camp double, keen edge, bank, whetstone
+        /// charge, draw/recover caps) computed read-only. The UI's single source of
+        /// pre-play truth (§16); mutates nothing, mirrors HandlePlayCards exactly.
+        /// </summary>
+        public PlayPreview PreviewPlay(List<int> ids)
+        {
+            var p = new PlayPreview { Illegal = ValidatePlay(ids) };
+            if (p.Illegal != null) return p;
+            p.Legal = true;
+
+            var enc = State.Encounter;
+            var enemy = enc.Current;
+            var cards = ids.Select(id => State.Cards.Get(id)).ToList();
+
+            int baseAttack = cards.Sum(c => c.EffectiveValue());
+            if (enc.AceInHoleArmed && cards.Count == 2 &&
+                cards.Count(c => c.EffectiveFace().Rank == Rank.Ace) == 1)
+                baseAttack = cards.First(c => c.EffectiveFace().Rank != Rank.Ace).EffectiveValue() * 2;
+
+            var activeSuits = cards.SelectMany(c => c.EffectiveSuits()).Distinct().ToList();
+            Suit? blocked = enemy.ImmuneSuit is Suit imm && activeSuits.Contains(imm) ? (Suit?)imm : null;
+            if (blocked != null && enc.UnbindingArmed) blocked = null;
+            p.BlockedSuit = blocked;
+            bool Active(Suit s) => activeSuits.Contains(s) && blocked != s;
+
+            if (Active(Suit.Spades)) p.ShieldGain += baseAttack;
+
+            if (Active(Suit.Hearts))
+            {
+                if (enc.TransfuseArmed)
+                {
+                    p.ShieldGain += baseAttack;
+                }
+                else
+                {
+                    int bonus = State.Hero.StaffId == "field_dressing" &&
+                                !enc.UsedThisEnemy.Contains("field_dressing")
+                        ? Tuning.FieldDressingBonus : 0;
+                    p.Recover = System.Math.Min(baseAttack + bonus, State.Deck.Discard.Count);
+                    p.RecoverIsChoice = State.Hero.StaffId == "triage" && p.Recover > 0;
+                }
+            }
+
+            if (Active(Suit.Diamonds))
+            {
+                int space = System.Math.Max(0, State.MaxHandSize - (State.Deck.Hand.Count - ids.Count));
+                p.Draw = System.Math.Min(baseAttack, System.Math.Min(space, State.Deck.Tavern.Count));
+            }
+
+            p.Doubled = Active(Suit.Clubs) && !enc.SteadyHandArmed;
+            int damage = p.Doubled ? baseAttack * 2 : baseAttack;
+            if (enc.FirstAttackDouble) damage *= 2;
+            if (enc.KeenEdgeArmed) damage *= 2;
+            damage += enc.AttackBank;
+            if (State.Hero.StaffId == "whetstone" && !enc.UsedThisEnemy.Contains("whetstone") &&
+                damage > enemy.Hp && damage - enemy.Hp <= Tuning.WhetstoneShaveMax)
+            {
+                p.WhetstoneShaved = true;
+                damage = enemy.Hp;
+            }
+            p.Damage = damage;
+
+            int hpAfter = enemy.Hp - damage;
+            p.Outcome = hpAfter == 0 ? KillKind.Exact : hpAfter < 0 ? (KillKind?)KillKind.Overkill : null;
+
+            if (p.Outcome == null)
+            {
+                int net = System.Math.Max(0, enemy.Attack - (enemy.Shield + p.ShieldGain));
+                if (net > 0 && enc.AegisArmed) net = System.Math.Max(0, net - Tuning.AegisReduction);
+                if (enc.SecondWindArmed || enc.VanguardArmed) net = 0;
+                p.NetCounter = net;
+
+                // CERTAIN death only: the known post-play hand can't pay even if
+                // every unknown draw (♦ and Rally) came up a King.
+                int known = 0;
+                foreach (int id in State.Deck.Hand)
+                    if (!ids.Contains(id)) known += State.Cards.Get(id).EffectiveValue();
+                p.CounterCoverage = known;
+                int optimism = p.Draw * CardRules.AttackValue(Rank.King) +
+                               (enc.RallyArmed ? System.Math.Min(net, Tuning.RallyDrawCap) * CardRules.AttackValue(Rank.King) : 0);
+                p.LethalCounter = net > 0 && known + optimism < net;
+            }
+            return p;
+        }
+
+        /// <summary>What yielding right now costs — and whether it is certain death.</summary>
+        public (int net, bool lethal) YieldPreview()
+        {
+            var enc = State.Encounter;
+            var enemy = enc?.Current;
+            if (enemy == null || State.Phase != CampaignPhase.Encounter) return (0, false);
+
+            int net = System.Math.Max(0, enemy.Attack - enemy.Shield);
+            if (net > 0 && enc.AegisArmed) net = System.Math.Max(0, net - Tuning.AegisReduction);
+            if (enc.SecondWindArmed || enc.VanguardArmed) net = 0;
+
+            bool rescue = enc.RallyArmed ||
+                          (State.Deck.Hand.Count == 0 && State.HasRelic("last_coin") &&
+                           !enc.UsedThisFight.Contains("last_coin"));
+            return (net, net > 0 && !rescue && State.HandTotalValue() < net);
         }
 
         private Result HandlePlayCards(PlayCards a)
@@ -861,7 +995,7 @@ namespace Regicide.Core
         // ── royal gates: the 3/2/1 keep pyramid (§4, §6) ────────────────────────
 
         /// <summary>How many royals a gate lets you keep (Jack 3 · Queen 2 · King 1).</summary>
-        private static int KeepTarget(Rank rank) => rank switch
+        public static int KeepTarget(Rank rank) => rank switch
         {
             Rank.Jack => 3,
             Rank.Queen => 2,
@@ -1296,8 +1430,69 @@ namespace Regicide.Core
 
         // ── staffs (§10) ────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Would ActivateStaff succeed right now? Read-only twin of the handler's
+        /// guards (the UI drives disabled states from this — §16 truthful buttons).
+        /// Target validity included when a target id is supplied.
+        /// </summary>
+        public string CanActivateStaff(int targetPhysicalId = 0)
+        {
+            if (State.Phase != CampaignPhase.Encounter || State.Encounter?.Current == null)
+                return "Staffs activate in combat";
+
+            string staff = State.Hero.StaffId;
+            var enc = State.Encounter;
+            var pending = State.PendingChoice;
+            if (pending != null && !(pending.Kind == PendingChoiceKind.Defend && staff == "parry"))
+                return $"Resolve the pending {pending.Kind} first";
+            if (staff == "parry" && pending == null)
+                return "Parry works during the pay step — no counterattack to parry";
+
+            PhysicalCard Target() =>
+                targetPhysicalId != 0 && State.Deck.Hand.Contains(targetPhysicalId)
+                    ? State.Cards.Get(targetPhysicalId) : null;
+
+            switch (staff)
+            {
+                case "hold_the_line":
+                    if (enc.UsedThisEnemy.Contains(staff)) return "Hold the Line already used vs this enemy";
+                    if (!State.Deck.Discard.Any(id => State.Cards.Get(id).FiresSuit(Suit.Spades)))
+                        return "No ♠ in the discard to hold with";
+                    return null;
+                case "footwork":
+                {
+                    var t = Target();
+                    if (t == null) return "Footwork needs a hand card target";
+                    return t.FiresSuit(Suit.Spades) ? null : "Footwork buries a ♠";
+                }
+                case "parry":
+                {
+                    var t = Target();
+                    if (t == null) return "Parry needs a hand card target";
+                    return t.FiresSuit(Suit.Spades) ? null : "Parry spends a ♠";
+                }
+                case "steady_hand":
+                case "ace_in_the_hole":
+                    return null;
+                case "bloodletting":
+                    return Target() == null ? "Bloodletting needs a hand card target" : null;
+                case "provisioner":
+                    return Target() == null ? "Provisioner needs a hand card target" : null;
+                case "stockpile":
+                    return enc.UsedThisEnemy.Contains(staff) ? "Stockpile already used vs this enemy" : null;
+                case "transfuse":
+                    return enc.UsedThisEnemy.Contains(staff) ? "Transfuse already used vs this enemy" : null;
+                default:
+                    return $"{staff} is passive — it works on its own";
+            }
+        }
+
         private Result HandleActivateStaff(ActivateStaff a)
         {
+            // The public query IS the guard — buttons and dispatch agree by construction.
+            string blockedWhy = CanActivateStaff(a.TargetPhysicalId);
+            if (blockedWhy != null) return Result.Fail(blockedWhy);
+
             if (State.Phase != CampaignPhase.Encounter || State.Encounter?.Current == null)
                 return Result.Fail("Staffs activate in combat");
 
@@ -1590,9 +1785,81 @@ namespace Regicide.Core
             });
         }
 
+        /// <summary>
+        /// Would UseRelic succeed right now, ignoring target picks? Read-only twin
+        /// of the handler's per-relic guards (drives truthful button states).
+        /// Target-specific checks (which card, cost totals) stay at dispatch.
+        /// </summary>
+        public string CanUseRelic(string id)
+        {
+            if (!State.HasRelic(id)) return $"'{id}' is not equipped";
+            if (State.PendingChoice != null) return $"Resolve the pending {State.PendingChoice.Kind} first";
+            var enc = State.Encounter;
+            bool inFight = State.Phase == CampaignPhase.Encounter && enc?.Current != null;
+
+            switch (id)
+            {
+                case "forced_march":
+                {
+                    if (!inFight) return "Forced March skips a fight you are in";
+                    if (State.UsedThisProvince.Contains(id)) return "Already marched this province";
+                    var node = State.EncounterNodeId != null ? State.Map?.Get(State.EncounterNodeId.Value) : null;
+                    if (node == null || (node.Kind != RoadNodeKind.Skirmish && node.Kind != RoadNodeKind.Veteran))
+                        return "Only ordinary fights (skirmish/veteran) can be marched past";
+                    return null;
+                }
+                case "bedroll":
+                    if (inFight) return "No unrolling mid-fight";
+                    if (State.Phase != CampaignPhase.Road) return "Bedrolls open on the road";
+                    return State.UsedThisProvince.Contains(id) ? "Already rested this province" : null;
+                case "slip_away":
+                    return inFight ? null : "Nothing to slip away from";
+                case "debt":
+                    if (!inFight) return "Debt is taken in combat";
+                    return enc.UsedThisFight.Contains(id) ? "Once per fight" : null;
+                case "requisition_writ":
+                    if (State.UsedThisProvince.Contains(id)) return "Once per province";
+                    return State.Deck.Hand.Count < Tuning.RequisitionCards
+                        ? $"The writ takes {Tuning.RequisitionCards} hand cards" : null;
+                case "liquidate":
+                    if (!inFight) return "Liquidate works in combat";
+                    return enc.UsedThisFight.Contains(id) ? "Once per fight" : null;
+                case "double_or_nothing":
+                    if (!inFight) return "Double or Nothing is a combat gamble";
+                    if (enc.UsedThisFight.Contains(id)) return "Once per fight";
+                    return State.Deck.Hand.Count == 0 ? "Nothing to gamble" : null;
+                case "sainted_scalpel":
+                    if (!inFight) return "The scalpel works in combat";
+                    return enc.UsedThisFight.Contains(id) ? "Once per fight" : null;
+                case "unbinding":
+                    if (!inFight) return "Unbinding works in combat";
+                    return enc.UsedThisEnemy.Contains(id) ? "Once per enemy" : null;
+                case "second_wind":
+                    if (!inFight) return "Second Wind works in combat";
+                    return enc.UsedThisFight.Contains(id) ? "Once per fight" : null;
+                case "aegis":
+                    if (!inFight) return "Aegis works in combat";
+                    return enc.UsedThisEnemy.Contains(id) ? "Once per enemy" : null;
+                case "bloodlust":
+                    if (!inFight) return "Bloodlust works in combat";
+                    return enc.UsedThisEnemy.Contains(id) ? "Once per enemy" : null;
+                case "echo":
+                    if (!inFight) return "Echo works in combat";
+                    return enc.UsedThisFight.Contains(id) ? "Once per fight" : null;
+                case "lodestone":
+                    if (!inFight) return "Lodestone works in combat";
+                    if (enc.UsedThisFight.Contains(id)) return "Once per fight";
+                    return State.Deck.Hand.Count >= State.MaxHandSize ? "Hand is full" : null;
+                default:
+                    return $"{RelicTables.Get(id).Name} is passive — it works on its own";
+            }
+        }
+
         private Result HandleUseRelic(UseRelic a)
         {
             string id = a.RelicId;
+            string blockedWhy = CanUseRelic(id);
+            if (blockedWhy != null) return Result.Fail(blockedWhy);
             if (!State.HasRelic(id))
                 return Result.Fail($"'{id}' is not equipped");
 
@@ -1861,27 +2128,37 @@ namespace Regicide.Core
             });
         }
 
-        private Result HandleCastSpell(CastSpell a)
+        /// <summary>Read-only twin of HandleCastSpell's guards (truthful cast buttons).</summary>
+        public string CanCastSpell(Suit suit)
         {
             if (State.Phase != CampaignPhase.Encounter || State.Encounter?.Current == null)
-                return Result.Fail("Spells cast in combat");
+                return "Spells cast in combat";
+            int tier = State.GauntletTiers[(int)suit];
+            bool isBrace = suit == Suit.Spades && tier == SpellTables.TierHalf;
+            var pending = State.PendingChoice;
+            if (tier == SpellTables.TierEmpty)
+                return $"The {PhysicalCard.SuitGlyph(suit)} slot is empty";
+            if (State.Encounter.CastSuits.Contains(suit))
+                return $"Already cast {PhysicalCard.SuitGlyph(suit)} this combat";
+            if (pending != null && !(pending.Kind == PendingChoiceKind.Defend && isBrace))
+                return $"Resolve the pending {pending.Kind} first";
+            if (isBrace && pending == null)
+                return "Brace casts during the pay step";
+            if (isBrace && State.Deck.Hand.Count == 0)
+                return "Brace spends a hand card — hand is empty";
+            return null;
+        }
+
+        private Result HandleCastSpell(CastSpell a)
+        {
+            string blockedWhy = CanCastSpell(a.Suit);
+            if (blockedWhy != null) return Result.Fail(blockedWhy);
 
             var enc = State.Encounter;
             var enemy = enc.Current;
             int tier = State.GauntletTiers[(int)a.Suit];
             bool isBrace = a.Suit == Suit.Spades && tier == SpellTables.TierHalf;
             var pending = State.PendingChoice;
-
-            if (tier == SpellTables.TierEmpty)
-                return Result.Fail($"The {PhysicalCard.SuitGlyph(a.Suit)} slot is empty");
-            if (enc.CastSuits.Contains(a.Suit))
-                return Result.Fail($"Already cast {PhysicalCard.SuitGlyph(a.Suit)} this combat");
-            if (pending != null && !(pending.Kind == PendingChoiceKind.Defend && isBrace))
-                return Result.Fail($"Resolve the pending {pending.Kind} first");
-            if (isBrace && pending == null)
-                return Result.Fail("Brace casts during the pay step");
-            if (isBrace && State.Deck.Hand.Count == 0)
-                return Result.Fail("Brace spends a hand card — hand is empty");
 
             // ── validated; mutate ── Casting consumes the whole slot (§7); spells
             // sit above suit immunity, so the enemy's suit is never consulted.
