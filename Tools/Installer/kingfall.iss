@@ -12,7 +12,7 @@
 [Setup]
 AppId={{8C2D7A11-9C41-4E1B-A57D-3B1E20F6B7D9}
 AppName=Kingfall
-AppVersion=0.1.0-alpha
+AppVersion=0.1.6-alpha
 AppPublisher=LL Games
 DefaultDirName={autopf}\Kingfall
 DefaultGroupName=Kingfall
