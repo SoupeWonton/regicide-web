@@ -139,7 +139,26 @@ namespace Regicide.Unity
                 panel.style.width = 215;
                 panel.style.marginRight = 10;
                 Theme.SetBorder(panel, picked ? Theme.GoldBright : Theme.GoldDim, picked ? 2.5f : 1);
-                panel.RegisterCallback<ClickEvent>(_ => { _classPick = captured; Render(); });
+                panel.RegisterCallback<ClickEvent>(_ =>
+                {
+                    Sfx.Play(Sfx.Sound.Tick, 0.6f);
+                    _classPick = captured;
+                    Render();
+                });
+
+                // The panels are buttons — let them feel like it (audit F11).
+                Fx.Transition(panel, 100);
+                bool pickedNow = picked; // capture for the hover restore
+                panel.RegisterCallback<MouseEnterEvent>(_ =>
+                {
+                    panel.style.translate = new Translate(0, -3);
+                    Theme.SetBorder(panel, Theme.GoldBright, 2.5f);
+                });
+                panel.RegisterCallback<MouseLeaveEvent>(_ =>
+                {
+                    panel.style.translate = new Translate(0, 0);
+                    Theme.SetBorder(panel, pickedNow ? Theme.GoldBright : Theme.GoldDim, pickedNow ? 2.5f : 1);
+                });
 
                 // The class crest: one big home-suit glyph, the name in a uniform
                 // slot under it — identical position and size on all four panels.
@@ -163,6 +182,15 @@ namespace Regicide.Unity
                 crest.Add(name);
                 panel.Add(crest);
 
+                // The near-term identity FIRST — how this class plays from
+                // chapter 1; the C2 rung below is hours away (audit J6).
+                var playstyle = new Label(ContentText.Playstyle(classId));
+                playstyle.style.whiteSpace = WhiteSpace.Normal;
+                playstyle.style.fontSize = 12;
+                playstyle.style.color = Theme.Parchment;
+                playstyle.style.marginTop = 8;
+                panel.Add(playstyle);
+
                 var rules = new Label(ContentText.Classes[classId].Rules);
                 rules.style.whiteSpace = WhiteSpace.Normal;
                 rules.style.fontSize = 11;
@@ -175,20 +203,28 @@ namespace Regicide.Unity
             v.Add(classRow);
             if (_classPick == null) return v;
 
-            // Staff choice for the picked class.
+            // Staff choice for the picked class. Picking IS the commitment —
+            // the button says so, loudly (audit J1: the exploration trap).
             var pickInfo = ClassTables.Classes[_classPick];
             var staffPanel = Theme.Frame($"{ContentText.ClassName(_classPick)} — pick a Staff");
             staffPanel.style.maxWidth = 1040;
             staffPanel.style.alignSelf = Align.Center;
             staffPanel.style.marginTop = 12;
+
+            var commitWarn = Theme.Subtle("picking a staff STARTS the run — read them first");
+            commitWarn.style.color = Theme.Gold;
+            commitWarn.style.marginBottom = 6;
+            staffPanel.Add(commitWarn);
+
             foreach (string staffId in pickInfo.StaffIds)
             {
                 string captured = staffId;
                 var row = Row();
                 row.style.marginBottom = 4;
-                var take = BtnPrimary($"{ContentText.StaffName(staffId)}",
+                var take = BtnPrimary($"BEGIN AS {ContentText.StaffName(staffId).ToUpperInvariant()}",
                     () => Dispatch(new SelectClass(_classPick, captured)));
-                take.style.minWidth = 170;
+                take.style.minWidth = 240;
+                take.style.letterSpacing = 1;
                 row.Add(take);
                 var rules = new Label(ContentText.Staffs[staffId].Rules);
                 rules.style.whiteSpace = WhiteSpace.Normal;
@@ -229,6 +265,34 @@ namespace Regicide.Unity
             chips.Add(Theme.Chip("seam rest applied — hand redrawn", Theme.Green));
             v.Add(chips);
 
+            // What's NEXT — the recap looks forward, and the Continent-2 crossing
+            // (the run's biggest structural beat) gets announced (audit J9).
+            int nextChapter = S.Chapter + 1;
+            if (nextChapter <= Tuning.FinalChapter)
+            {
+                if (S.Chapter == Tuning.ChaptersPerContinent)
+                {
+                    var crossing = new Label(
+                        $"CONTINENT 2 AWAITS — your {ClassTables.HomeRungId(S.Hero.ClassId)} rung will light");
+                    crossing.style.color = Theme.GoldBright;
+                    crossing.style.unityFontStyleAndWeight = FontStyle.Bold;
+                    crossing.style.letterSpacing = 1;
+                    crossing.style.unityTextAlign = TextAnchor.MiddleCenter;
+                    crossing.style.marginTop = 8;
+                    v.Add(crossing);
+                }
+                else
+                {
+                    int nextContinent = nextChapter <= Tuning.ChaptersPerContinent ? 1 : 2;
+                    int nextProvince = (nextChapter - 1) % Tuning.ChaptersPerContinent + 1;
+                    var next = Theme.Subtle(
+                        $"next: chapter {nextChapter} — continent {nextContinent}, province {nextProvince}");
+                    next.style.alignSelf = Align.Center;
+                    next.style.marginTop = 8;
+                    v.Add(next);
+                }
+            }
+
             var center = Theme.Frame();
             center.style.maxWidth = 900;
             center.style.alignSelf = Align.Center;
@@ -239,12 +303,16 @@ namespace Regicide.Unity
             v.Add(BraceletPanel());
             v.Add(RelicPanel());
 
-            var go = BtnPrimary(S.Chapter >= Tuning.FinalChapter ? "…" : "CONTINUE THE CONQUEST  →",
-                () => Dispatch(new ContinueRun()));
-            go.style.alignSelf = Align.Center;
-            go.style.fontSize = 16;
-            Theme.SetPadding(go, 10, 26);
-            v.Add(go);
+            // The final chapter ends in victory, never a recap — no dead "…" button
+            // (audit J14); guard anyway in case a future flow lands here.
+            if (S.Chapter < Tuning.FinalChapter)
+            {
+                var go = BtnPrimary("CONTINUE THE CONQUEST  →", () => Dispatch(new ContinueRun()));
+                go.style.alignSelf = Align.Center;
+                go.style.fontSize = 16;
+                Theme.SetPadding(go, 10, 26);
+                v.Add(go);
+            }
             v.Add(EventLog());
             return v;
         }

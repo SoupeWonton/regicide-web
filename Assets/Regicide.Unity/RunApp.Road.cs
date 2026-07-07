@@ -12,10 +12,22 @@ namespace Regicide.Unity
 
         /// <summary>Caravan overlay dismissed by "Walk away" — resets when the offer clears.</summary>
         private bool _caravanDismissed;
+        /// <summary>Leave-confirm (audit J10): the node awaiting a second click, -1 = none.</summary>
+        private int _confirmLeaveNodeId = -1;
+        /// <summary>Sanctum rearrange dialog state (audit J11).</summary>
+        private bool _sanctumOpen;
+        private int _sanctumFrom = -1;
+        private int _sanctumSeq = -1;
+
+        /// <summary>An unresolved one-way offer stands here (leaving forfeits it).</summary>
+        private bool OpenOfferHere =>
+            S.CaravanOffer != null || S.StaffOffer != null || S.SanctumCharge;
 
         private VisualElement BuildRoad()
         {
             if (S.CaravanOffer == null) _caravanDismissed = false;
+            if (!OpenOfferHere) _confirmLeaveNodeId = -1;
+            if (!S.SanctumCharge) { _sanctumOpen = false; _sanctumFrom = -1; _sanctumSeq = -1; }
             bool caravanOpen = S.CaravanOffer != null && !_caravanDismissed;
 
             var v = new VisualElement();
@@ -55,6 +67,7 @@ namespace Regicide.Unity
 
             // The merchant draws over everything — a stop, not a side note.
             if (caravanOpen) v.Add(CaravanOverlay());
+            if (S.SanctumCharge && _sanctumOpen) v.Add(SanctumOverlay());
             return v;
         }
 
@@ -104,6 +117,22 @@ namespace Regicide.Unity
             header.Add(toggle);
             frame.Add(header);
 
+            // Leave-confirm warning (audit J10): a second click commits.
+            if (_confirmLeaveNodeId != -1 && OpenOfferHere)
+            {
+                var forfeits = new List<string>();
+                if (S.CaravanOffer != null)
+                    forfeits.Add($"the caravan's {RelicTables.Get(S.CaravanOffer).Name}");
+                if (S.StaffOffer != null) forfeits.Add("the staff swap");
+                if (S.SanctumCharge) forfeits.Add("the sanctum rearrange");
+                var warn = Theme.Subtle(
+                    $"leaving forfeits {string.Join(" · ", forfeits)} — click the node again to go");
+                warn.style.color = Theme.RedBright;
+                warn.style.fontSize = 11;
+                warn.style.marginBottom = 4;
+                frame.Add(warn);
+            }
+
             // The body holds the layer columns AND the edge canvas drawn over them.
             // No scroll view: the columns spread across whatever width the window
             // gives, so the map fills the screen and scales with resizes.
@@ -135,11 +164,39 @@ namespace Regicide.Unity
                     int captured = node.Id;
                     bool isCurrent = node.Id == current.Id;
                     bool reachable = current.Next.Contains(node.Id);
-                    var disc = Widgets.NodeDisc(node, isCurrent, reachable,
-                        () => Dispatch(new MoveToNode(captured)));
+                    var disc = Widgets.NodeDisc(node, isCurrent, reachable, () =>
+                    {
+                        // Leaving an unresolved offer takes a second click (audit J10).
+                        if (OpenOfferHere && _confirmLeaveNodeId != captured)
+                        {
+                            _confirmLeaveNodeId = captured;
+                            Render();
+                            return;
+                        }
+                        _confirmLeaveNodeId = -1;
+                        Dispatch(new MoveToNode(captured));
+                    });
                     // Show-paths: stops your lane can no longer reach fade out.
                     if (_showPaths && !open.Contains(node.Id) && !node.Visited)
                         disc.style.opacity = 0.3f;
+
+                    if (isCurrent)
+                    {
+                        // You-are-here (audit J7): a breathing pulse + an explicit tag.
+                        var here = new Label("HERE");
+                        here.style.fontSize = 9;
+                        here.style.letterSpacing = 2;
+                        here.style.unityFontStyleAndWeight = FontStyle.Bold;
+                        here.style.color = Theme.GoldBright;
+                        disc.Add(here);
+                        disc.schedule.Execute(() =>
+                            disc.experimental.animation.Start(0f, 1f, 1600, (el, t) =>
+                            {
+                                float breathe = 1f + 0.06f * Mathf.Sin(t * Mathf.PI * 2f);
+                                el.style.scale = new Scale(Vector3.one * breathe);
+                            })).Every(1600);
+                    }
+
                     discs[node.Id] = disc;
                     column.Add(disc);
                 }
@@ -209,20 +266,38 @@ namespace Regicide.Unity
                 col.Add(Widgets.Crystal(suit, tier, false, false, null));
                 if (tier == SpellTables.TierEmpty)
                 {
+                    // What each token would BECOME, before it is spent (audit J4).
                     var frag = Theme.Button("Frag",
                         () => Dispatch(new ArmCrystal(captured, SpellTables.TierFragment)),
                         Theme.ButtonKind.Ghost, S.TokenFragments > 0);
                     frag.style.fontSize = 10;
+                    Tips.Attach(frag,
+                        $"{PhysicalCard.SuitGlyph(suit)} {SpellTables.Name(suit, SpellTables.TierFragment)}",
+                        ContentText.SpellRules(suit, SpellTables.TierFragment) +
+                        "\n\narming spends the token; casting empties the slot");
                     col.Add(frag);
                     var half = Theme.Button("Half",
                         () => Dispatch(new ArmCrystal(captured, SpellTables.TierHalf)),
                         Theme.ButtonKind.Ghost, S.TokenHalves > 0);
                     half.style.fontSize = 10;
+                    Tips.Attach(half,
+                        $"{PhysicalCard.SuitGlyph(suit)} {SpellTables.Name(suit, SpellTables.TierHalf)}",
+                        ContentText.SpellRules(suit, SpellTables.TierHalf) +
+                        "\n\narming spends the token; casting empties the slot");
                     col.Add(half);
                 }
                 sockets.Add(col);
             }
             panel.Add(sockets);
+
+            // The path to Halves, visible away from any Forge (audit J5).
+            if (S.TokenHalves == 0)
+            {
+                var forgeHint = Theme.Subtle($"Halves are forged from {Tuning.FragmentsPerHalf} fragments — at a Forge stop");
+                forgeHint.style.fontSize = 10;
+                forgeHint.style.marginTop = 4;
+                panel.Add(forgeHint);
+            }
 
             // Rules of whatever is armed, so the next fight can be planned here.
             foreach (Suit suit in new[] { Suit.Clubs, Suit.Diamonds, Suit.Hearts, Suit.Spades })
@@ -260,7 +335,7 @@ namespace Regicide.Unity
                 col.style.marginLeft = 3;
                 col.style.marginRight = 3;
 
-                col.Add(Widgets.RelicSlotIcon(slot, filled));
+                col.Add(Widgets.RelicSlotIcon(slot, filled, 56, id)); // id → real tooltip (audit J13)
 
                 var slotLabel = new Label(slot.ToString().ToUpperInvariant());
                 slotLabel.style.fontSize = 9;
@@ -304,7 +379,12 @@ namespace Regicide.Unity
                 {
                     string captured = id;
                     var row = Row();
-                    row.Add(Btn($"Equip {RelicTables.Get(id).Name}",
+                    // Say what the equip DISPLACES (audit J12) — swaps are free but not silent.
+                    string occupant = S.EquippedRelics[(int)RelicTables.Get(id).Slot];
+                    string label = occupant != null
+                        ? $"Equip {RelicTables.Get(id).Name} (replaces {RelicTables.Get(occupant).Name})"
+                        : $"Equip {RelicTables.Get(id).Name}";
+                    row.Add(Btn(label,
                         () => Dispatch(new EquipRelic(captured)),
                         S.Phase != CampaignPhase.Encounter));
                     row.Add(Theme.Chip(RelicTables.Get(id).Slot.ToString()));
@@ -455,26 +535,92 @@ namespace Regicide.Unity
                 return panel;
             }
             panel.Add(BtnPrimary("Rearrange a graft…", () =>
-                OpenPicker("Move a graft FROM which card?", grafted, CardLabel, fromId =>
-                {
-                    var from = S.Cards.Get(fromId);
-                    var seqs = from.Grafts.Select(g => g.Seq).ToList();
-                    OpenPicker("Which graft?", seqs,
-                        seq =>
-                        {
-                            var g = from.Grafts.First(x => x.Seq == seq);
-                            return g.Kind == GraftKind.Rank
-                                ? $"rank → {PhysicalCard.RankGlyph(g.ToRank)} ({g.Source})"
-                                : $"{g.Kind} → {PhysicalCard.SuitGlyph(g.ToSuit)} ({g.Source})";
-                        },
-                        seq =>
-                        {
-                            var targets = S.OwnedCards.Where(id => id != fromId).ToList();
-                            OpenPicker("Move it TO which card?", targets, CardLabel,
-                                toId => Dispatch(new RearrangeGraft(fromId, seq, toId)));
-                        });
-                })));
+            {
+                _sanctumOpen = true;
+                _sanctumFrom = -1;
+                _sanctumSeq = -1;
+                Render();
+            }));
             return panel;
+        }
+
+        /// <summary>
+        /// The Sanctum's whole rearrange in ONE dialog (audit J11): pick the grafted
+        /// source card, the graft, and the destination — all visible at once. The
+        /// charge is only spent when the final pick dispatches.
+        /// </summary>
+        private VisualElement SanctumOverlay()
+        {
+            var o = Overlay();
+            var d = Dialog("THE SANCTUM — MOVE A GRAFT");
+            d.style.minWidth = 700;
+
+            void Step(string text, bool active)
+            {
+                var l = Theme.Subtle(text);
+                l.style.color = active ? Theme.GoldBright : Theme.Grey;
+                l.style.marginTop = 6;
+                d.Add(l);
+            }
+
+            // 1 — the grafted source cards.
+            Step("1 · take a graft from:", _sanctumFrom == -1);
+            var sources = Row();
+            foreach (int id in S.OwnedCards.Where(cid => S.Cards.Get(cid).Grafts.Count > 0))
+            {
+                int captured = id;
+                sources.Add(CardView.Card(S.Cards.Get(id), CardView.Size.Small,
+                    onClick: () => { _sanctumFrom = captured; _sanctumSeq = -1; Render(); },
+                    selected: _sanctumFrom == captured));
+            }
+            d.Add(sources);
+
+            // 2 — which graft on it.
+            if (_sanctumFrom != -1)
+            {
+                Step("2 · which graft:", _sanctumSeq == -1);
+                var graftRow = Row();
+                foreach (var g in S.Cards.Get(_sanctumFrom).Grafts)
+                {
+                    int seq = g.Seq;
+                    string label = g.Kind == GraftKind.Rank
+                        ? $"rank → {PhysicalCard.RankGlyph(g.ToRank)}"
+                        : $"{g.Kind} → {PhysicalCard.SuitGlyph(g.ToSuit)}";
+                    graftRow.Add(Theme.Button(label,
+                        () => { _sanctumSeq = seq; Render(); },
+                        _sanctumSeq == seq ? Theme.ButtonKind.Primary : Theme.ButtonKind.Normal));
+                }
+                d.Add(graftRow);
+            }
+
+            // 3 — the destination.
+            if (_sanctumFrom != -1 && _sanctumSeq != -1)
+            {
+                Step("3 · move it to:", true);
+                var scroll = new ScrollView();
+                scroll.style.maxHeight = 260;
+                var targets = Row();
+                foreach (int id in S.OwnedCards.Where(cid => cid != _sanctumFrom))
+                {
+                    int captured = id;
+                    targets.Add(CardView.Card(S.Cards.Get(id), CardView.Size.Small,
+                        onClick: () =>
+                        {
+                            _sanctumOpen = false;
+                            Dispatch(new RearrangeGraft(_sanctumFrom, _sanctumSeq, captured));
+                        }));
+                }
+                scroll.Add(targets);
+                d.Add(scroll);
+            }
+
+            var actions = Row();
+            actions.style.marginTop = 8;
+            actions.Add(Theme.Button("Not now", () => { _sanctumOpen = false; Render(); }, Theme.ButtonKind.Ghost));
+            d.Add(actions);
+
+            o.Add(d);
+            return o;
         }
     }
 }

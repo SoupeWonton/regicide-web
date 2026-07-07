@@ -12,16 +12,16 @@ namespace Regicide.Unity
 
         private VisualElement BuildPendingOverlay(PendingChoice pending)
         {
+            // Defend and DebtDiscard resolve INLINE on the battle screen (the hand
+            // fan is the selector) — they never reach this overlay.
             switch (pending.Kind)
             {
-                case PendingChoiceKind.Defend: return DefendDialog(pending);
                 case PendingChoiceKind.GraftSelect: return GraftDialog(pending);
                 case PendingChoiceKind.HuntSelect: return HuntDialog(pending);
                 case PendingChoiceKind.RoyalKeep: return RoyalKeepDialog(pending);
                 case PendingChoiceKind.RecoverSelect: return RecoverSelectDialog(pending);
                 case PendingChoiceKind.RecoverToHand: return RecoverToHandDialog(pending);
                 case PendingChoiceKind.RelicSelect: return RelicSelectDialog(pending);
-                case PendingChoiceKind.DebtDiscard: return DebtDialog();
                 default: return Overlay();
             }
         }
@@ -55,46 +55,6 @@ namespace Regicide.Unity
             wrap.style.paddingTop = 14;
             wrap.Add(CardView.Face(face, size, onPick));
             return wrap;
-        }
-
-        private VisualElement DefendDialog(PendingChoice pending)
-        {
-            var o = Overlay();
-            int covered = _sel.Sum(id => S.Cards.Get(id).EffectiveValue());
-            bool enough = covered >= pending.RequiredValue;
-
-            var d = Dialog("COUNTERATTACK");
-            var sub = new Label($"discard cards worth {pending.RequiredValue} to survive");
-            sub.style.color = Theme.ParchmentDim;
-            sub.style.marginBottom = 8;
-            d.Add(sub);
-
-            var bar = Theme.Bar(
-                pending.RequiredValue <= 0 ? 1f : Mathf.Min(1f, covered / (float)pending.RequiredValue),
-                $"paid {covered} / need {pending.RequiredValue}",
-                enough ? Theme.Green : Theme.RedBright, 320, 22);
-            bar.style.alignSelf = Align.Center;
-            bar.style.marginBottom = 8;
-            d.Add(bar);
-
-            d.Add(SelectableCards(S.Deck.Hand.ToList()));
-
-            var actions = Row();
-            actions.style.justifyContent = Justify.Center;
-            actions.Add(BtnPrimary($"PAY ({covered})",
-                () => Dispatch(new DefendDiscard(_sel.ToList())), enough));
-
-            // Pay-step outs: Parry (staff) and Brace (♠ Half) live here too (§7, §10).
-            if (S.Hero.StaffId == "parry")
-                actions.Add(Btn("⚚ Parry with selected ♠",
-                    () => Dispatch(new ActivateStaff(_sel.First())), _sel.Count == 1));
-            if (S.GauntletTiers[(int)Suit.Spades] == SpellTables.TierHalf &&
-                !S.Encounter.CastSuits.Contains(Suit.Spades))
-                actions.Add(Theme.Button("Cast Brace ♠ (spend your highest card)",
-                    () => Dispatch(new CastSpell(Suit.Spades)), Theme.ButtonKind.Danger));
-            d.Add(actions);
-            o.Add(d);
-            return o;
         }
 
         private VisualElement GraftDialog(PendingChoice pending)
@@ -183,13 +143,61 @@ namespace Regicide.Unity
                 d.Add(warn);
             }
 
+            // Leave-mode is the ONE dialog where clicking a royal is a rejection —
+            // it must be impossible to misread (audit J2: same click, opposite
+            // stakes at different gates).
+            if (pending.PickIsLeave)
+            {
+                var strip = new VisualElement();
+                strip.style.backgroundColor = new Color(Theme.RedDeep.r, Theme.RedDeep.g, Theme.RedDeep.b, 0.35f);
+                Theme.SetBorder(strip, Theme.RedBright, 1);
+                Theme.SetRadius(strip, 6);
+                Theme.SetPadding(strip, 6, 12);
+                strip.style.marginBottom = 8;
+                var stripText = new Label("you are choosing who is LEFT BEHIND — the click BANISHES");
+                stripText.style.color = Theme.RedBright;
+                stripText.style.unityFontStyleAndWeight = FontStyle.Bold;
+                stripText.style.unityTextAlign = TextAnchor.MiddleCenter;
+                strip.Add(stripText);
+                d.Add(strip);
+            }
+
             var row = Row();
             row.style.justifyContent = Justify.Center;
             foreach (Suit suit in pending.Eligible)
             {
                 Suit captured = suit;
-                row.Add(PickableFace(new CardFace(suit, pending.RoyalRank), CardView.Size.Large,
+                bool leaveMode = pending.PickIsLeave;
+
+                var wrap = new VisualElement();
+                wrap.style.alignItems = Align.Center;
+                wrap.style.marginRight = 8;
+                wrap.style.paddingTop = 14;
+                Theme.SetPadding(wrap, 6, 6);
+                Theme.SetRadius(wrap, 10);
+                Theme.SetBorder(wrap, Color.clear, 2);
+
+                wrap.Add(CardView.Face(new CardFace(suit, pending.RoyalRank), CardView.Size.Large,
                     () => Dispatch(new ChooseRoyal(captured))));
+
+                // The click's ACTION, written under every face.
+                var action = new Label(leaveMode ? "LEAVE THIS ONE"
+                    : pending.RoyalRank == Rank.King ? "CLAIM AS CROWN" : "KEEPS THIS ONE");
+                action.style.fontSize = 11;
+                action.style.letterSpacing = 2;
+                action.style.unityFontStyleAndWeight = FontStyle.Bold;
+                action.style.color = leaveMode ? Theme.RedBright : Theme.GoldBright;
+                action.style.marginTop = 4;
+                wrap.Add(action);
+
+                // Leave-mode hover frames the whole face in red — the wrapper owns
+                // the tint so CardView stays untouched.
+                wrap.RegisterCallback<MouseEnterEvent>(_ =>
+                    Theme.SetBorder(wrap, leaveMode ? Theme.RedBright : Theme.GoldBright, 2));
+                wrap.RegisterCallback<MouseLeaveEvent>(_ =>
+                    Theme.SetBorder(wrap, Color.clear, 2));
+
+                row.Add(wrap);
             }
             d.Add(row);
             o.Add(d);
@@ -284,27 +292,5 @@ namespace Regicide.Unity
             return o;
         }
 
-        private VisualElement DebtDialog()
-        {
-            var o = Overlay();
-            var d = Dialog("THE DEBT COMES DUE");
-            var sub = new Label("discard exactly one card");
-            sub.style.color = Theme.ParchmentDim;
-            sub.style.marginBottom = 6;
-            d.Add(sub);
-
-            var row = Row();
-            row.style.justifyContent = Justify.Center;
-            row.style.paddingTop = 14;
-            foreach (int id in S.Deck.Hand.ToList())
-            {
-                int captured = id;
-                row.Add(CardView.Card(S.Cards.Get(captured), CardView.Size.Hand,
-                    onClick: () => Dispatch(new DefendDiscard(captured))));
-            }
-            d.Add(row);
-            o.Add(d);
-            return o;
-        }
     }
 }

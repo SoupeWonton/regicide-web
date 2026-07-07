@@ -36,6 +36,44 @@ namespace Regicide.Unity
             top.Add(DeckCounts());
             screen.Add(top);
 
+            if (enc.IsGate)
+            {
+                // The keep-pyramid ledger, live during the fight that decides it (C6):
+                // grey = still to fight · gold = exact, eligible · red-struck = banished.
+                var ledger = Row();
+                ledger.style.flexWrap = Wrap.NoWrap;
+                ledger.style.justifyContent = Justify.Center;
+                ledger.Add(Theme.Subtle($"keep {GameSession.KeepTarget(enc.GateRank)} of: "));
+                foreach (var royal in enc.Enemies)
+                {
+                    string glyph = PhysicalCard.SuitGlyph(royal.Suit);
+                    if (royal.KillOutcome == KillKind.Exact)
+                        ledger.Add(Theme.Chip($"{glyph} exact", Theme.GoldBright));
+                    else if (royal.KillOutcome == KillKind.Overkill)
+                        ledger.Add(Theme.Chip($"{glyph} banished", Theme.RedBright));
+                    else
+                        ledger.Add(Theme.Chip(glyph, Theme.Grey));
+                }
+                screen.Add(ledger);
+
+                // First-blood banner (J3): the rule that ruins runs, said out loud
+                // before any royal has fallen.
+                if (enc.Enemies.All(e => e.Alive))
+                {
+                    var banner = Theme.Frame();
+                    Theme.SetBorder(banner, Theme.GoldBright, 2);
+                    banner.style.alignSelf = Align.Center;
+                    Theme.SetPadding(banner, 6, 18);
+                    var text = new Label(
+                        $"ROYAL GATE — exact kills stay eligible to keep · overkills are BANISHED forever · you keep {GameSession.KeepTarget(enc.GateRank)}");
+                    text.style.color = Theme.GoldPale;
+                    text.style.fontSize = 12;
+                    text.style.unityFontStyleAndWeight = FontStyle.Bold;
+                    banner.Add(text);
+                    screen.Add(banner);
+                }
+            }
+
             // ── arena ──
             var arena = new VisualElement();
             arena.style.flexDirection = FlexDirection.Row;
@@ -81,7 +119,21 @@ namespace Regicide.Unity
                 payRow.Add(Theme.Bar(covered / (float)pending.RequiredValue,
                     $"pay {covered} / {pending.RequiredValue}",
                     enough ? Theme.Green : Theme.RedBright, 260, 18));
+                if (covered > pending.RequiredValue)
+                {
+                    // Don't burn a King on a 4-counter without noticing (C11).
+                    var over = Theme.Subtle($"overpaying by {covered - pending.RequiredValue}");
+                    over.style.color = Theme.Gold;
+                    over.style.marginLeft = 8;
+                    payRow.Add(over);
+                }
                 center.Add(payRow);
+                if (S.Hero.PathC2 == ClassTables.RungRenewal)
+                {
+                    var renewal = Theme.Subtle("Renewal: paying with 3+ cards recovers your best discard");
+                    renewal.style.alignSelf = Align.Center;
+                    center.Add(renewal);
+                }
 
                 center.Add(HandStrip(true));
 
@@ -95,8 +147,16 @@ namespace Regicide.Unity
                         () => Dispatch(new ActivateStaff(_sel.First())), _sel.Count == 1));
                 if (S.GauntletTiers[(int)Suit.Spades] == SpellTables.TierHalf &&
                     !enc.CastSuits.Contains(Suit.Spades))
-                    payActions.Add(Theme.Button("Cast Brace ♠",
+                {
+                    // Brace auto-spends the HIGHEST card — say which one (C9).
+                    string braceCost = S.Deck.Hand.Count > 0
+                        ? PhysicalCard.Pretty(S.Cards.Get(
+                              S.Deck.Hand.OrderByDescending(id => S.Cards.Get(id).EffectiveValue()).First())
+                          .EffectiveFace())
+                        : "?";
+                    payActions.Add(Theme.Button($"Cast Brace ♠ — spends {braceCost}",
                         () => Dispatch(new CastSpell(Suit.Spades)), Theme.ButtonKind.Danger));
+                }
                 center.Add(payActions);
             }
             else if (pending != null && pending.Kind == PendingChoiceKind.DebtDiscard)
@@ -118,35 +178,114 @@ namespace Regicide.Unity
             }
             else
             {
-                // ── the normal turn: live legality BEFORE the click (ValidatePlay) ──
-                string invalid = _sel.Count > 0 ? _session.ValidatePlay(_sel.ToList()) : null;
+                // ── the normal turn: the TRUTH before the click (PreviewPlay) ──
+                var pv = _sel.Count > 0 ? _session.PreviewPlay(_sel.ToList()) : default(PlayPreview);
+                var yp = _session.YieldPreview();
 
                 var status = Row();
                 status.style.justifyContent = Justify.Center;
-                int selValue = _sel.Sum(id => S.Cards.Get(id).EffectiveValue());
                 if (_sel.Count > 0)
                 {
-                    var line = Theme.Subtle(invalid == null
-                        ? $"value {selValue} — legal play"
-                        : "! " + invalid);
-                    line.style.color = invalid == null ? Theme.Green : Theme.RedBright;
+                    Label line;
+                    if (!pv.Legal)
+                    {
+                        line = Theme.Subtle("! " + pv.Illegal);
+                        line.style.color = Theme.RedBright;
+                    }
+                    else
+                    {
+                        var sb = new System.Text.StringBuilder();
+                        sb.Append($"deals {pv.Damage}");
+                        var mods = new List<string>();
+                        if (pv.Doubled) mods.Add("♣ ×2");
+                        if (enc.FirstAttackDouble) mods.Add("camp ×2");
+                        if (enc.KeenEdgeArmed) mods.Add("keen edge ×2");
+                        if (enc.AttackBank > 0) mods.Add($"+{enc.AttackBank} bank");
+                        if (pv.WhetstoneShaved) mods.Add("whetstone shave");
+                        if (mods.Count > 0) sb.Append(" (").Append(string.Join(", ", mods)).Append(')');
+                        if (pv.ShieldGain > 0) sb.Append($" · shields {pv.ShieldGain}");
+                        if (pv.Draw > 0) sb.Append($" · draws {pv.Draw}");
+                        if (pv.Recover > 0)
+                            sb.Append($" · recovers {pv.Recover}").Append(pv.RecoverIsChoice ? " (your pick)" : "");
+                        if (pv.BlockedSuit is Suit bs)
+                            sb.Append($" · {PhysicalCard.SuitGlyph(bs)} power blocked");
+
+                        Color lineColor;
+                        if (pv.Outcome == KillKind.Exact)
+                        {
+                            sb.Append(" — EXACT KILL");
+                            lineColor = Theme.GoldBright;
+                        }
+                        else if (pv.Outcome == KillKind.Overkill)
+                        {
+                            sb.Append(enc.IsGate ? " — OVERKILL: banished forever" : " — OVERKILL: no reward");
+                            lineColor = Theme.RedBright;
+                        }
+                        else if (pv.LethalCounter)
+                        {
+                            sb.Append($" — COUNTER {pv.NetCounter} KILLS YOU");
+                            lineColor = Theme.RedBright;
+                        }
+                        else
+                        {
+                            sb.Append($" — they survive: counter {pv.NetCounter}");
+                            lineColor = Theme.Green;
+                        }
+                        line = Theme.Subtle(sb.ToString());
+                        line.style.color = lineColor;
+                    }
                     line.style.fontSize = 12;
                     status.Add(line);
                 }
                 else
                 {
-                    status.Add(Theme.Subtle("1 card · an Ace + one card · a same-rank set up to 10 — or yield"));
+                    // The idle hint knows the player's own widened legality (C10).
+                    string hint = "1 card · an Ace + one card · a same-rank set up to 10";
+                    if (S.Hero.StaffId == "reinforce") hint += " · your ♠ may join any set (Reinforce)";
+                    if (S.Hero.StaffId == "dovetail") hint += " · one adjacent card may join (Dovetail)";
+                    if (enc.CommitArmed) hint += " · +1 any card (Commit)";
+                    hint += " — or yield";
+                    status.Add(Theme.Subtle(hint));
                 }
                 center.Add(status);
 
                 center.Add(HandStrip(true));
+                ScheduleKillGlow(center); // the exact-kill invitation on the fan
+
+                bool playLethal = _sel.Count > 0 && pv.Legal && pv.LethalCounter;
+                if (!playLethal && !yp.lethal) _confirmLethal = false; // danger passed — disarm
 
                 var actions = Row();
                 actions.style.justifyContent = Justify.Center;
                 actions.style.marginTop = 4;
-                actions.Add(BtnPrimary($"Play selected ({_sel.Count})",
-                    () => Dispatch(new PlayCards(_sel.ToList())), _sel.Count > 0 && invalid == null));
-                actions.Add(Btn("Yield", () => Dispatch(new Yield())));
+
+                // The number that decides survival, always on the table (C1).
+                if (yp.net > 0)
+                    actions.Add(Theme.Chip($"hand {S.HandTotalValue()} vs counter {yp.net}",
+                        S.HandTotalValue() < yp.net ? Theme.RedBright : Theme.Grey));
+
+                if (playLethal)
+                    actions.Add(Theme.Button(
+                        _confirmLethal ? "Yes — take the hit and die" : "Play — the counter KILLS YOU",
+                        () =>
+                        {
+                            if (_confirmLethal) { _confirmLethal = false; Dispatch(new PlayCards(_sel.ToList())); }
+                            else { _confirmLethal = true; Render(); }
+                        }, Theme.ButtonKind.Danger));
+                else
+                    actions.Add(BtnPrimary($"Play selected ({_sel.Count})",
+                        () => Dispatch(new PlayCards(_sel.ToList())), _sel.Count > 0 && pv.Legal));
+
+                if (yp.lethal)
+                    actions.Add(Theme.Button(
+                        _confirmLethal ? "Yes — die on your feet" : "Yield — THIS KILLS YOU",
+                        () =>
+                        {
+                            if (_confirmLethal) { _confirmLethal = false; Dispatch(new Yield()); }
+                            else { _confirmLethal = true; Render(); }
+                        }, Theme.ButtonKind.Danger));
+                else
+                    actions.Add(Btn("Yield", () => Dispatch(new Yield())));
                 center.Add(actions);
             }
 
@@ -232,6 +371,55 @@ namespace Regicide.Unity
             return left;
         }
 
+        /// <summary>Two-step arm for suicidal plays/yields (C1). Disarmed whenever the danger passes.</summary>
+        private bool _confirmLethal;
+
+        /// <summary>
+        /// The exact-kill invitation (user-ordered): after layout, probe each hand
+        /// card with PreviewPlay — nothing selected probes singles; one selected Ace
+        /// probes its pairings (and one selected non-Ace probes the Aces) — and set
+        /// the breathing gold glow on every card whose play lands EXACTLY on 0.
+        /// </summary>
+        private void ScheduleKillGlow(VisualElement host)
+        {
+            if (S.Encounter?.Current == null || S.Deck.Hand.Count == 0 || S.Deck.Hand.Count > 9) return;
+            var hand = S.Deck.Hand.ToList();
+            host.schedule.Execute(() =>
+            {
+                if (S?.Encounter?.Current == null) return;
+                foreach (int id in hand)
+                {
+                    if (!S.Deck.Hand.Contains(id)) continue;
+                    List<int> probe = null;
+                    if (_sel.Count == 0)
+                    {
+                        probe = new List<int> { id };
+                    }
+                    else if (_sel.Count == 1)
+                    {
+                        int selId = _sel.First();
+                        if (selId == id) continue;
+                        bool selAce = S.Cards.Get(selId).EffectiveFace().Rank == Rank.Ace;
+                        bool idAce = S.Cards.Get(id).EffectiveFace().Rank == Rank.Ace;
+                        if (selAce && !idAce) probe = new List<int> { selId, id };
+                        else if (!selAce && idAce) probe = new List<int> { id, selId };
+                        else continue;
+                    }
+                    else
+                    {
+                        break; // multi-card selections are judged by the status line
+                    }
+
+                    var p = _session.PreviewPlay(probe);
+                    if (p.Legal && p.Outcome == KillKind.Exact)
+                    {
+                        var el = _root.Q<VisualElement>("card-" + id);
+                        if (el != null && el.panel != null) CardView.MarkKillGlow(el, true);
+                    }
+                }
+            }).ExecuteLater(25);
+        }
+
         // Large-card footprint (CardView.Size.Large) and the queue fan step.
         private const float EnemyCardW = 150f;
         private const float EnemyCardH = 210f;
@@ -276,9 +464,30 @@ namespace Regicide.Unity
 
             for (int j = upcoming.Count - 1; j >= 0; j--)
             {
-                var waiting = scouted
-                    ? CardView.Face(upcoming[j].Face, CardView.Size.Large)
-                    : CardView.Back(CardView.Size.Large);
+                VisualElement waiting;
+                if (scouted)
+                {
+                    waiting = CardView.Face(upcoming[j].Face, CardView.Size.Large);
+                }
+                else if (enc.IsGate)
+                {
+                    // The gate roster is public knowledge (all four royals of the
+                    // rank) — show WHO waits, in suit, without the full face (C12).
+                    waiting = CardView.Back(CardView.Size.Large);
+                    var suitPeek = new Label(PhysicalCard.SuitGlyph(upcoming[j].Suit));
+                    suitPeek.pickingMode = PickingMode.Ignore;
+                    suitPeek.style.position = Position.Absolute;
+                    suitPeek.style.left = 0; suitPeek.style.right = 0;
+                    suitPeek.style.top = 0; suitPeek.style.bottom = 0;
+                    suitPeek.style.unityTextAlign = TextAnchor.MiddleCenter;
+                    suitPeek.style.fontSize = 44 * CardView.GlyphScale(upcoming[j].Suit);
+                    suitPeek.style.color = Color.Lerp(CardView.SuitColor(upcoming[j].Suit), Color.white, 0.35f);
+                    waiting.Add(suitPeek);
+                }
+                else
+                {
+                    waiting = CardView.Back(CardView.Size.Large);
+                }
                 waiting.pickingMode = PickingMode.Ignore;
                 waiting.style.position = Position.Absolute;
                 waiting.style.left = (j + 1) * QueueStep;
@@ -314,6 +523,10 @@ namespace Regicide.Unity
             hp.style.marginTop = 6;
             // Centre it under the current card, not under the whole stack.
             hp.style.translate = new Translate(-(upcoming.Count * QueueStep) / 2f, 0);
+            Tips.Attach(hp, "the stakes",
+                "land damage EXACTLY on 0 → recruit the card (or stay keep-eligible at a gate). " +
+                "Take it below 0 → overkill: the reward is lost" +
+                (enc.IsGate ? " and the royal is BANISHED." : "."));
             zone.Add(hp);
 
             return zone;
@@ -470,6 +683,26 @@ namespace Regicide.Unity
             rules.style.color = Theme.ParchmentDim;
             panel.Add(rules);
 
+            // Once-per charges made visible (C7): these passives SPEND per enemy.
+            var oncePerEnemy = new[] { "whetstone", "field_dressing", "last_rites", "hold_the_line", "stockpile", "transfuse" };
+            if (System.Array.IndexOf(oncePerEnemy, staff) >= 0)
+            {
+                bool spent = S.Encounter.UsedThisEnemy.Contains(staff);
+                var pip = Row();
+                pip.style.flexWrap = Wrap.NoWrap;
+                var dot = new VisualElement();
+                dot.style.width = 8; dot.style.height = 8;
+                Theme.SetRadius(dot, 4);
+                dot.style.backgroundColor = spent ? Theme.Grey : Theme.GoldBright;
+                dot.style.marginRight = 5;
+                dot.style.marginTop = 3;
+                pip.Add(dot);
+                var pipText = Theme.Subtle(spent ? "spent vs this enemy" : "charge ready");
+                pipText.style.color = spent ? Theme.Grey : Theme.GoldBright;
+                pip.Add(pipText);
+                panel.Add(pip);
+            }
+
             if (ContentText.StaffPassive.Contains(staff))
             {
                 var passive = Text("(passive — always working)");
@@ -483,10 +716,23 @@ namespace Regicide.Unity
             string label = needsTarget
                 ? $"Use on selected card{(_sel.Count == 1 ? $" ({PhysicalCard.Pretty(S.Cards.Get(_sel.First()).EffectiveFace())})" : "")}"
                 : "Activate";
-            panel.Add(Theme.Button(label,
+            // Truthful button (C3): the same query the dispatcher checks.
+            string blockedWhy = needsTarget && _sel.Count != 1
+                ? "select exactly one hand card"
+                : _session.CanActivateStaff(needsTarget ? _sel.First() : 0);
+            var activate = Theme.Button(label,
                 () => Dispatch(new ActivateStaff(needsTarget ? _sel.First() : 0)),
                 Theme.ButtonKind.Primary,
-                !needsTarget || _sel.Count == 1));
+                blockedWhy == null);
+            Tips.Attach(activate, ContentText.StaffName(staff), ContentText.Staffs[staff].Rules);
+            panel.Add(activate);
+            if (blockedWhy != null)
+            {
+                var why = Theme.Subtle(blockedWhy);
+                why.style.color = Theme.Grey;
+                why.style.fontSize = 10;
+                panel.Add(why);
+            }
             return panel;
         }
 
@@ -501,7 +747,7 @@ namespace Regicide.Unity
                 int tier = S.GauntletTiers[(int)suit];
                 bool spent = S.Encounter.CastSuits.Contains(suit);
                 row.Add(Widgets.Crystal(suit, tier,
-                    castable: tier != SpellTables.TierEmpty && !spent,
+                    castable: _session.CanCastSpell(suit) == null, // truthful socket (C3)
                     spent: spent,
                     onCast: () => Dispatch(new CastSpell(captured))));
             }
@@ -531,34 +777,52 @@ namespace Regicide.Unity
             {
                 string captured = id;
                 var target = ContentText.RelicActives[id];
+                // Truthful buttons (C3): a relic Core would reject greys out with why.
+                string blockedWhy = _session.CanUseRelic(captured);
+                bool usable = blockedWhy == null;
                 Button button = null;
                 switch (target)
                 {
                     case ContentText.RelicTarget.None:
-                        button = Btn(RelicTables.Get(id).Name, () => Dispatch(new UseRelic(captured)));
+                        button = Btn(RelicTables.Get(id).Name, () => Dispatch(new UseRelic(captured)), usable);
                         break;
                     case ContentText.RelicTarget.OneHandCard:
                         button = Btn($"{RelicTables.Get(id).Name} (selected card)",
-                            () => Dispatch(new UseRelic(captured, _sel.First())), _sel.Count == 1);
+                            () => Dispatch(new UseRelic(captured, _sel.First())), usable && _sel.Count == 1);
+                        if (usable && _sel.Count != 1) blockedWhy = "select exactly one hand card";
                         break;
                     case ContentText.RelicTarget.HandCards:
                         button = Btn($"{RelicTables.Get(id).Name} (selected cards)",
-                            () => Dispatch(new UseRelic(captured, _sel.ToArray())), _sel.Count > 0);
+                            () => Dispatch(new UseRelic(captured, _sel.ToArray())), usable && _sel.Count > 0);
+                        if (usable && _sel.Count == 0) blockedWhy = "select the cards to spend";
                         break;
                     case ContentText.RelicTarget.DiscardCard:
                         button = Btn($"{RelicTables.Get(id).Name}…",
                             () => OpenPicker("Replay which discard?", S.Deck.Discard.ToList(), CardLabel,
                                 pick => Dispatch(new UseRelic(captured, pick))),
-                            S.Deck.Discard.Count > 0);
+                            usable && S.Deck.Discard.Count > 0);
+                        if (usable && S.Deck.Discard.Count == 0) blockedWhy = "the discard is empty";
                         break;
                     case ContentText.RelicTarget.TavernCard:
                         button = Btn($"{RelicTables.Get(id).Name}…",
                             () => OpenPicker("Pull which Tavern card?", S.Deck.Tavern.ToList(), CardLabel,
                                 pick => Dispatch(new UseRelic(captured, pick))),
-                            S.Deck.Tavern.Count > 0);
+                            usable && S.Deck.Tavern.Count > 0);
+                        if (usable && S.Deck.Tavern.Count == 0) blockedWhy = "the deck is empty";
                         break;
                 }
-                if (button != null) panel.Add(button);
+                if (button != null)
+                {
+                    Tips.Attach(button, RelicTables.Get(id).Name, ContentText.RelicRules[id]);
+                    panel.Add(button);
+                }
+                if (blockedWhy != null)
+                {
+                    var why = Theme.Subtle(blockedWhy);
+                    why.style.color = Theme.Grey;
+                    why.style.fontSize = 10;
+                    panel.Add(why);
+                }
                 var rules = Text(ContentText.RelicRules[id]);
                 rules.style.fontSize = 10;
                 rules.style.color = Theme.ParchmentDim;
