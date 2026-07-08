@@ -107,6 +107,38 @@ async function del(folder,n,sz){
 </script></body></html>`)
 })
 
+// POST /data/runs → one anonymous Kingfall run report (the desktop client's
+// opt-out telemetry). Appended as day-sharded JSONL under runs/ so the ops
+// page above lists/zips/clears it like any other folder. Every field is
+// clamped — the payload is untrusted input from arbitrary clients.
+app.post('/data/runs', express.json({ limit: '4kb' }), (req, res) => {
+  const b = req.body
+  if (!b || typeof b !== 'object' || typeof b.installId !== 'string' || typeof b.version !== 'string') {
+    res.status(400).json({ error: 'bad payload' }); return
+  }
+  const rec = {
+    installId: b.installId.slice(0, 64),
+    version: b.version.slice(0, 32),
+    runN: Number.isFinite(b.runN) ? Number(b.runN) : 0,
+    classId: String(b.classId ?? '').slice(0, 32),
+    staffId: String(b.staffId ?? '').slice(0, 32),
+    seed: String(b.seed ?? '').slice(0, 64),
+    outcome: String(b.outcome ?? '').slice(0, 16),
+    chapter: Number.isFinite(b.chapter) ? Number(b.chapter) : 0,
+    endedAt: String(b.endedAt ?? '').slice(0, 40),
+    receivedAt: new Date().toISOString(),
+  }
+  try {
+    const dir = path.join(DATA_DIR, 'runs')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.appendFileSync(path.join(dir, `runs-${rec.receivedAt.slice(0, 10)}.jsonl`), JSON.stringify(rec) + '\n')
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('[data] runs append failed:', (err as Error).message)
+    res.status(500).json({ error: 'store failed' })
+  }
+})
+
 app.get('/data/all.zip', (req, res) => {
   const folder = typeof req.query.folder === 'string' ? req.query.folder : ''
   if (folder && !VALID_FOLDER.test(folder)) { res.status(400).send('bad folder'); return }
