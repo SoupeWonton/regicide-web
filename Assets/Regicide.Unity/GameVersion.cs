@@ -7,7 +7,7 @@ namespace Regicide.Unity
     /// </summary>
     public static class GameVersion
     {
-        public const string Current = "0.1.8-alpha";
+        public const string Current = "0.1.9-alpha";
 
         /// <summary>
         /// True when <paramref name="remote"/> is strictly newer than the running
