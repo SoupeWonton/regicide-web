@@ -7,8 +7,9 @@ namespace Regicide.Core
     /// </summary>
     public static class Tuning
     {
-        /// <summary>Campaign max hand size (§3). Relics/staffs may raise it later.</summary>
-        public const int BaseMaxHandSize = 5;
+        /// <summary>Campaign max hand size (§3). Relics/staffs may raise it later.
+        /// 5 → 7 by playtest call (2026-07-07).</summary>
+        public const int BaseMaxHandSize = 7;
 
         /// <summary>Highest starting-deck rank: the run begins with A–5 × 4 suits (§4).</summary>
         public const int StartingDeckTopRank = 5;

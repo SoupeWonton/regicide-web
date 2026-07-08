@@ -225,8 +225,8 @@ namespace Regicide.Headless
             var s = NewRun("deckbuild");
             Check(s.State.Phase == CampaignPhase.Road, "phase should be Road after class select");
             Check(s.State.OwnedCards.Count == 20, $"expected 20 owned, got {s.State.OwnedCards.Count}");
-            Check(s.State.Deck.Hand.Count == 5, $"expected hand 5, got {s.State.Deck.Hand.Count}");
-            Check(s.State.Deck.Tavern.Count == 15, $"expected tavern 15, got {s.State.Deck.Tavern.Count}");
+            Check(s.State.Deck.Hand.Count == Tuning.BaseMaxHandSize, $"expected a full opening hand, got {s.State.Deck.Hand.Count}");
+            Check(s.State.Deck.Tavern.Count == 20 - Tuning.BaseMaxHandSize, $"expected the rest of the 20 in the tavern, got {s.State.Deck.Tavern.Count}");
 
             foreach (Suit suit in Enum.GetValues(typeof(Suit)))
             {
@@ -274,6 +274,7 @@ namespace Regicide.Headless
             // Three 3s = 9 ≤ 10: legal. King survives → counterattack → defend with the rest.
             var r = Must(s.Dispatch(new PlayCards(c3a.PhysicalId, c3b.PhysicalId, c3c.PhysicalId)));
             Check(Get<CardsPlayed>(r).BaseAttack == 9, "three 3s should total 9");
+            ResolveOverdraw(s); // the ♦3's draws hit the 7-cap — pick precedes the pay
             Check(s.State.PendingChoice?.Kind == PendingChoiceKind.Defend, "King should counterattack");
             // The 3♠ in the play built shield 9 → net 20−9 = 11. Pay with the non-aces (4+6+6 = 16).
             Must(s.Dispatch(new DefendDiscard(c4.PhysicalId, c6a.PhysicalId, c6b.PhysicalId)));
@@ -674,7 +675,7 @@ namespace Regicide.Headless
             var r = Must(s.Dispatch(new MoveToNode(campId)));
             Check(Has<CampRested>(r), "camp fires");
             Check(s.State.Deck.Discard.Count == 0, "camp reshuffles discard into the Tavern");
-            Check(s.State.Deck.Hand.Count == 5, "camp draws the hand to full");
+            Check(s.State.Deck.Hand.Count == s.State.MaxHandSize, "camp draws the hand to full");
             Check(s.State.NextFightFirstAttackDouble && s.State.NextFightStartShield == 10,
                 "double-first-attack and 10 block armed");
 
@@ -725,7 +726,7 @@ namespace Regicide.Headless
             WalkChapter(s);
             Check(s.State.Phase == CampaignPhase.ChapterComplete, "boss kill completes the chapter");
             Check(s.State.Deck.Discard.Count == 0, "seam rest reshuffled the discard");
-            Check(s.State.Deck.Hand.Count == 5, "seam rest drew the hand to full");
+            Check(s.State.Deck.Hand.Count == s.State.MaxHandSize, "seam rest drew the hand to full");
 
             MustFail(s.Dispatch(new MoveToNode(0)), "cannot walk during the recap");
             var r = Must(s.Dispatch(new ContinueRun()));
@@ -1250,19 +1251,19 @@ namespace Regicide.Headless
         {
             var s = NewRunAs("quartermaster", "stockpile", "stockpile");
             Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
-            Check(s.State.Deck.Hand.Count == 5, "hand full at the base cap");
+            Check(s.State.Deck.Hand.Count == Tuning.BaseMaxHandSize, "hand full at the base cap");
             Must(s.Dispatch(new ActivateStaff()));
             Check(s.State.MaxHandSize == Tuning.BaseMaxHandSize + 1, "cap raised by 1 vs this enemy");
             MustFail(s.Dispatch(new ActivateStaff()), "once per enemy");
 
             ClearHand(s);
             var d5 = Give(s, Suit.Diamonds, Rank.Five);
-            for (int i = 0; i < 5; i++) Give(s, Suit.Clubs, Rank.Two); // hand of 6 incl. the ♦
-            var r = Must(s.Dispatch(new PlayCards(d5.PhysicalId)));    // hand 5 → draw up to 6
+            for (int i = 0; i < s.State.MaxHandSize - 1; i++) Give(s, Suit.Clubs, Rank.Two); // at the raised cap
+            var r = Must(s.Dispatch(new PlayCards(d5.PhysicalId)));    // one below cap → draw up to it
             Check(s.State.PendingChoice?.Kind == PendingChoiceKind.OverdrawPick,
                 "the last raised-cap slot becomes an overdraw pick");
             Must(s.Dispatch(new ChooseOverdraw(s.State.PendingChoice.OverdrawIds[0])));
-            Check(s.State.Deck.Hand.Count == 6, "hand filled to the raised cap");
+            Check(s.State.Deck.Hand.Count == Tuning.BaseMaxHandSize + 1, "hand filled to the raised cap");
         }
 
         private static void TestOverdrawPick()
@@ -1273,7 +1274,7 @@ namespace Regicide.Headless
             Fight(s, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
             ClearHand(s);
             var d9 = Give(s, Suit.Diamonds, Rank.Nine);
-            for (int i = 0; i < 3; i++) Give(s, Suit.Clubs, Rank.Two); // hand 4 → play leaves 3, space 2
+            for (int i = 0; i < s.State.MaxHandSize - 2; i++) Give(s, Suit.Clubs, Rank.Two); // play leaves space 2
             int tavernBefore = s.State.Deck.Tavern.Count;
             int expectedBlind = s.State.Deck.Tavern[0];
 
@@ -1307,7 +1308,7 @@ namespace Regicide.Headless
             Fight(s2, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
             ClearHand(s2);
             var dA = Give(s2, Suit.Diamonds, Rank.Ace);
-            for (int i = 0; i < 4; i++) Give(s2, Suit.Clubs, Rank.Two); // hand 5 (cap)
+            for (int i = 0; i < s2.State.MaxHandSize - 1; i++) Give(s2, Suit.Clubs, Rank.Two); // hand at cap
             var rA = Must(s2.Dispatch(new PlayCards(dA.PhysicalId))); // ♦A: 1 draw, space 1
             Check(Has<CardsDrawn>(rA) && Get<CardsDrawn>(rA).PhysicalIds.Count == 1 &&
                   s2.State.PendingChoice?.Kind != PendingChoiceKind.OverdrawPick,
@@ -1318,7 +1319,7 @@ namespace Regicide.Headless
             Fight(s3, EnemyState.Royal(Suit.Hearts, Rank.King, EnemyTier.Boss));
             ClearHand(s3);
             var d9b = Give(s3, Suit.Diamonds, Rank.Nine);
-            for (int i = 0; i < 4; i++) Give(s3, Suit.Clubs, Rank.Two); // hand 5 (cap)
+            for (int i = 0; i < s3.State.MaxHandSize - 1; i++) Give(s3, Suit.Clubs, Rank.Two); // hand at cap
             while (s3.State.Deck.Tavern.Count > 1)
             {
                 int id = s3.State.Deck.Tavern[0];
@@ -1778,9 +1779,9 @@ namespace Regicide.Headless
         private static void TestHoardInterest()
         {
             var s = NewRun("hoard");
-            Check(s.State.MaxHandSize == 5, "base cap");
+            Check(s.State.MaxHandSize == Tuning.BaseMaxHandSize, "base cap");
             Wear(s, "hoard");
-            Check(s.State.MaxHandSize == 7, "hoard raises the cap by 2");
+            Check(s.State.MaxHandSize == Tuning.BaseMaxHandSize + 2, "hoard raises the cap by 2");
 
             var s2 = NewRun("interest");
             Wear(s2, "interest");
@@ -1838,7 +1839,7 @@ namespace Regicide.Headless
             Wear(s, "requisition_writ");
             int owned = s.State.OwnedCards.Count, frags = s.State.TokenFragments;
             Must(s.Dispatch(new UseRelic("requisition_writ")));
-            Check(s.State.Deck.Hand.Count == 3 && s.State.OwnedCards.Count == owned - 2,
+            Check(s.State.Deck.Hand.Count == Tuning.BaseMaxHandSize - 2 && s.State.OwnedCards.Count == owned - 2,
                 "two lowest hand cards left the run");
             Check(s.State.TokenFragments == frags + 1, "one fragment banked");
             MustFail(s.Dispatch(new UseRelic("requisition_writ")), "once per province");
@@ -1855,8 +1856,8 @@ namespace Regicide.Headless
                   s2.State.PendingChoice.OverdrawIds.Count == 2,
                 "liquidate's second draw becomes a pick of 2");
             Must(s2.Dispatch(new ChooseOverdraw(s2.State.PendingChoice.OverdrawIds[1])));
-            Check(s2.State.Deck.Discard.Contains(target) && s2.State.Deck.Hand.Count == 5,
-                "discarded 1, ended at the 5-cap");
+            Check(s2.State.Deck.Discard.Contains(target) && s2.State.Deck.Hand.Count == s2.State.MaxHandSize,
+                "discarded 1, ended at the cap");
             MustFail(s2.Dispatch(new UseRelic("liquidate", s2.State.Deck.Hand[0])), "once per fight");
 
             var s3 = NewRun("doubleornothing");
@@ -2359,8 +2360,16 @@ namespace Regicide.Headless
                 Must(s3.Dispatch(new PlayCards(c9.PhysicalId)));
             }
             s3.State.Encounter.Current.Hp = 5;
+            if (s3.State.Encounter.Current.Suit == Suit.Diamonds)
+                s3.State.Encounter.Current.Suit = Suit.Hearts; // a ♦ boss would block the very power under test
             ClearHand(s3);
             var d5b = Give(s3, Suit.Diamonds, Rank.Five);
+            while (s3.State.Deck.Tavern.Count < 2) // 7-card hands drain the 20 fast — refuel the draw
+            {
+                int mv = s3.State.Deck.Discard[0];
+                s3.State.Deck.Discard.RemoveAt(0);
+                s3.State.Deck.Tavern.Add(mv);
+            }
             var r3 = Must(s3.Dispatch(new PlayCards(d5b.PhysicalId)));
             Check(Has<CardsDrawn>(r3), "♦ draws on the boss killing blow too");
             // The draw refilled the hand, so a redundant kill may offer a graft
