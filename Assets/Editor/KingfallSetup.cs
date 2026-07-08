@@ -106,5 +106,35 @@ namespace Kingfall.EditorTools
                 throw new System.Exception($"[Kingfall] Build failed: {report.summary.result}");
             Debug.Log($"[Kingfall] Build OK → {report.summary.outputPath}");
         }
+
+        /// <summary>
+        /// The alpha web build (hosted at llgames.ca/play). Gzip WITH the JS
+        /// decompression fallback so any static host serves it without
+        /// Content-Encoding header configuration.
+        /// </summary>
+        [MenuItem("Kingfall/Build Web Player")]
+        public static void BuildWeb()
+        {
+            CreateRunScene();
+
+            PlayerSettings.runInBackground = true;
+            PlayerSettings.WebGL.template = "PROJECT:Kingfall"; // fullscreen canvas, night bg
+            PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Gzip;
+            PlayerSettings.WebGL.decompressionFallback = true;
+            // Persist lineage.json across sessions (IndexedDB auto-sync) when this
+            // editor exposes the flag — reflection keeps older editors compiling.
+            var sync = typeof(PlayerSettings.WebGL).GetProperty("autoSyncPersistentDataPath",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public);
+            if (sync != null) sync.SetValue(null, true);
+
+            var report = BuildPipeline.BuildPlayer(
+                new[] { ScenePath },
+                "Builds/Web",
+                BuildTarget.WebGL,
+                BuildOptions.None);
+            if (report.summary.result != UnityEditor.Build.Reporting.BuildResult.Succeeded)
+                throw new System.Exception($"[Kingfall] Web build failed: {report.summary.result}");
+            Debug.Log($"[Kingfall] Web build OK → {report.summary.outputPath}");
+        }
     }
 }

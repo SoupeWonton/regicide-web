@@ -81,8 +81,10 @@ namespace Regicide.Unity
             Render();
 
             // One quiet update check per launch; the menu re-renders its banner
-            // in only when (and if) a newer build answers.
-            UpdateCheck.Run(() => Render());
+            // in only when (and if) a newer build answers. A browser tab IS the
+            // latest build and can't relaunch an installer — skip it on web.
+            if (Application.platform != RuntimePlatform.WebGLPlayer)
+                UpdateCheck.Run(() => Render());
         }
 
         // ── the one door into Core ──────────────────────────────────────────────
@@ -923,7 +925,8 @@ namespace Regicide.Unity
                 }
             }
 
-            d.Add(Theme.Button("Quit to desktop", () => Application.Quit(), Theme.ButtonKind.Ghost));
+            if (Application.platform != RuntimePlatform.WebGLPlayer) // a tab has its own close button
+                d.Add(Theme.Button("Quit to desktop", () => Application.Quit(), Theme.ButtonKind.Ghost));
             d.Add(BtnPrimary("Resume", Close));
 
             o.RegisterCallback<ClickEvent>(evt => { if (evt.target == o) Close(); });

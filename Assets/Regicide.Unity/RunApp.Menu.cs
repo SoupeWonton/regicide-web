@@ -147,7 +147,8 @@ namespace Regicide.Unity
             note.style.marginTop = 6;
             box.Add(note);
 
-            box.Add(Theme.Button("Quit", Application.Quit, Theme.ButtonKind.Ghost));
+            if (Application.platform != RuntimePlatform.WebGLPlayer) // a tab has its own close button
+                box.Add(Theme.Button("Quit", Application.Quit, Theme.ButtonKind.Ghost));
             v.Add(box);
             return v;
         }
