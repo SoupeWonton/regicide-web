@@ -990,16 +990,18 @@ namespace Regicide.Core
                 var node = nodeId != null && State.Map != null ? State.Map.Get(nodeId.Value) : null;
                 if (node != null && node.Kind == RoadNodeKind.Boss)
                 {
-                    // Province cleared → recap with the automatic seam reset (§9).
+                    // Province cleared → recap with the automatic seam reset (§9),
+                    // plus a free 1-of-2 relic pick (playtest call).
                     State.Phase = CampaignPhase.ChapterComplete;
                     SeamRest(events);
                     events.Add(new ChapterCompleted { Chapter = State.Chapter });
+                    OfferRelicPick(events, "chapter clear");
                 }
                 else if (node != null && node.Kind == RoadNodeKind.Lair)
                 {
                     // The raid pays off (§8): pick 1 of 2 unowned relics.
                     State.Phase = CampaignPhase.Road;
-                    OfferLairRelics(events);
+                    OfferRelicPick(events, "lair raid");
                 }
                 else
                 {
@@ -1020,8 +1022,9 @@ namespace Regicide.Core
             }
         }
 
-        /// <summary>Offer 1-of-2 unowned relics after a Lair raid (§8). Seeded, blocking.</summary>
-        private void OfferLairRelics(List<GameEvent> events)
+        /// <summary>Offer 1-of-2 unowned relics — after a Lair raid (§8) or a chapter
+        /// clear (playtest call: every province pays out). Seeded, blocking.</summary>
+        private void OfferRelicPick(List<GameEvent> events, string source)
         {
             var owned = new HashSet<string>(State.RelicBag);
             foreach (var e in State.EquippedRelics) if (e != null) owned.Add(e);
@@ -1037,12 +1040,13 @@ namespace Regicide.Core
                 pool.Remove(pick);
                 options.Add(pick);
             }
-            if (options.Count == 0) return; // every relic owned — nothing left to raid
+            if (options.Count == 0) return; // every relic owned — nothing left to offer
 
             State.PendingChoices.Add(new PendingChoice
             {
                 Kind = PendingChoiceKind.RelicSelect,
                 RelicOptions = options,
+                RelicSource = source,
             });
             events.Add(new RelicOffered { Options = new List<string>(options) });
         }
@@ -1205,6 +1209,7 @@ namespace Regicide.Core
             State.Phase = CampaignPhase.ChapterComplete;
             SeamRest(events);
             events.Add(new ChapterCompleted { Chapter = State.Chapter });
+            OfferRelicPick(events, "chapter clear"); // gates end chapters too
         }
 
         // ── road navigation & run flow (§4, §12) ────────────────────────────────
@@ -1793,11 +1798,31 @@ namespace Regicide.Core
 
             // ── validated; mutate ──
             State.RelicBag.Add(a.RelicId);
+            string source = pending.RelicSource ?? "lair raid";
             State.PendingChoices.RemoveAt(0);
-            return Result.Success(new List<GameEvent>
+            var events = new List<GameEvent>
             {
-                new RelicGained { RelicId = a.RelicId, Source = "lair raid" },
-            });
+                new RelicGained { RelicId = a.RelicId, Source = source },
+            };
+            TryAutoEquip(a.RelicId, events);
+            return Result.Success(events);
+        }
+
+        /// <summary>
+        /// Auto-equip a just-gained relic when its slot is free (playtest call —
+        /// bag relics are inert and people forgot to equip). Never swaps an
+        /// occupied slot and never fires mid-combat; those stay manual.
+        /// </summary>
+        private void TryAutoEquip(string relicId, List<GameEvent> events)
+        {
+            if (State.Phase == CampaignPhase.Encounter) return;
+            if (!State.RelicBag.Contains(relicId)) return;
+            int slot = (int)RelicTables.Get(relicId).Slot;
+            if (State.EquippedRelics[slot] != null) return;
+
+            State.RelicBag.Remove(relicId);
+            State.EquippedRelics[slot] = relicId;
+            events.Add(new RelicEquipped { RelicId = relicId, SwappedOut = null });
         }
 
         private Result HandleEquipRelic(EquipRelic a)
@@ -1840,10 +1865,12 @@ namespace Regicide.Core
             string relic = State.CaravanOffer;
             State.CaravanOffer = null;
             State.RelicBag.Add(relic);
-            return Result.Success(new List<GameEvent>
+            var events = new List<GameEvent>
             {
                 new RelicGained { RelicId = relic, Source = $"caravan, {paid} card-value" },
-            });
+            };
+            TryAutoEquip(relic, events);
+            return Result.Success(events);
         }
 
         /// <summary>

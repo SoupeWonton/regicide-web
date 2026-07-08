@@ -188,8 +188,11 @@ namespace Regicide.Core
         public List<int> RecoverIds;
         /// <summary>RecoverSelect: max cards the player may pick (the recovered amount).</summary>
         public int RecoverMax;
-        /// <summary>RelicSelect: the relic ids on offer (§8 Lair).</summary>
+        /// <summary>RelicSelect: the relic ids on offer (§8 Lair, chapter clear).</summary>
         public List<string> RelicOptions;
+        /// <summary>RelicSelect: where the offer came from ("lair raid", "chapter clear") —
+        /// reported on the resulting RelicGained.</summary>
+        public string RelicSource;
         /// <summary>OverdrawPick: the owed Tavern cards revealed for the last hand slot.
         /// They stay on top of the Tavern until the pick resolves.</summary>
         public List<int> OverdrawIds;

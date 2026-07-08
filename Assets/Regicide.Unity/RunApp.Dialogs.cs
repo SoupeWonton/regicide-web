@@ -288,7 +288,8 @@ namespace Regicide.Unity
         private VisualElement RelicSelectDialog(PendingChoice pending)
         {
             var o = Overlay();
-            var d = Dialog("THE RAID PAYS OFF");
+            bool chapter = pending.RelicSource == "chapter clear";
+            var d = Dialog(chapter ? "SPOILS OF CONQUEST" : "THE RAID PAYS OFF");
             var sub = new Label("claim one relic — the other is lost to the hoard");
             sub.style.color = Theme.ParchmentDim;
             sub.style.marginBottom = 8;

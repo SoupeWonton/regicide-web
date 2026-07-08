@@ -58,6 +58,11 @@
       <HintPath>$(UnityManaged)\UnityEngine.InputLegacyModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- Net.cs (run reporter / update check) binds UnityWebRequest. -->
+    <Reference Include="UnityEngine.UnityWebRequestModule">
+      <HintPath>$(UnityManaged)\UnityEngine.UnityWebRequestModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
 </Project>

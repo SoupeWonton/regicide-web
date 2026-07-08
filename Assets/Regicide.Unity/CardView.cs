@@ -86,20 +86,18 @@ namespace Regicide.Unity
             var card = Blank(size, onClick);
             bool rewritten = !eff.Equals(c.Printed) || c.Grafts.Count > 0 || c.ValueModifier != 0;
 
-            PaintFace(card, eff.Suit, PhysicalCard.RankGlyph(eff.Rank), size);
-
-            // Suit-add badges: every extra suit this card fires (§5).
+            // Grafted suits render as real pips beside the printed one (user call —
+            // the badge treatment read as clutter). The centred row IS the suit line.
             var extraSuits = c.EffectiveSuits().Where(s => s != eff.Suit).ToList();
-            if (extraSuits.Count > 0 || c.ValueModifier != 0)
+            PaintFace(card, eff.Suit, PhysicalCard.RankGlyph(eff.Rank), size, extraSuits);
+
+            if (c.ValueModifier != 0)
             {
                 var row = new VisualElement();
                 row.style.position = Position.Absolute;
                 row.style.left = 4; row.style.bottom = size == Size.Small ? 3 : 20;
                 row.style.flexDirection = FlexDirection.Row;
-                foreach (var s in extraSuits)
-                    row.Add(Badge("+" + PhysicalCard.SuitGlyph(s), SuitColor(s)));
-                if (c.ValueModifier != 0)
-                    row.Add(Badge(c.ValueModifier > 0 ? "+" + c.ValueModifier : c.ValueModifier.ToString(), Theme.RedDeep));
+                row.Add(Badge(c.ValueModifier > 0 ? "+" + c.ValueModifier : c.ValueModifier.ToString(), Theme.RedDeep));
                 card.Add(row);
             }
 
@@ -202,9 +200,12 @@ namespace Regicide.Unity
 
         /// <summary>
         /// The face reads from the centre only (user call — no corner indices):
-        /// the rank big, the suit pip right under it, both in the suit's colour.
+        /// the rank big, the suit pip(s) right under it, both in the suit's colour.
+        /// Grafted suits join the pip row to the right of the printed one; the row
+        /// stays centred as a group so multi-suit faces read clean, not bolted-on.
         /// </summary>
-        private static void PaintFace(VisualElement card, Suit suit, string rank, Size size)
+        private static void PaintFace(VisualElement card, Suit suit, string rank, Size size,
+                                      System.Collections.Generic.List<Suit> extraSuits = null)
         {
             var (w, h, pipSize, _) = Dim(size);
             var color = SuitColor(suit);
@@ -223,14 +224,33 @@ namespace Regicide.Unity
             r.style.unityTextAlign = TextAnchor.MiddleCenter;
             col.Add(r);
 
+            var pipRow = new VisualElement();
+            pipRow.style.flexDirection = FlexDirection.Row;
+            pipRow.style.alignItems = Align.Center;
+            pipRow.style.justifyContent = Justify.Center;
+            pipRow.style.marginTop = -pipSize * 0.10f;
+
+            pipRow.Add(Pip(suit, pipSize));
+            if (extraSuits != null)
+                foreach (var s in extraSuits)
+                {
+                    var extra = Pip(s, pipSize);
+                    extra.style.marginLeft = pipSize * 0.10f;
+                    pipRow.Add(extra);
+                }
+
+            col.Add(pipRow);
+            card.Add(col);
+        }
+
+        private static Label Pip(Suit suit, float pipSize)
+        {
+            var color = SuitColor(suit);
             var pip = new Label(PhysicalCard.SuitGlyph(suit));
             pip.style.fontSize = pipSize * 0.55f * GlyphScale(suit);
             pip.style.color = new Color(color.r, color.g, color.b, 0.9f);
             pip.style.unityTextAlign = TextAnchor.MiddleCenter;
-            pip.style.marginTop = -pipSize * 0.10f;
-            col.Add(pip);
-
-            card.Add(col);
+            return pip;
         }
 
         private static VisualElement Badge(string text, Color tint)
