@@ -8,11 +8,11 @@ namespace Regicide.Unity
     /// Anonymous end-of-run telemetry (opt-OUT via the settings toggle —
     /// <see cref="MetaState.ShareRunData"/>). Fires once per run end, right after
     /// RecordOutcome stamps the lineage, and rides Net's fire-and-forget POST:
-    /// a dead llgame.ca can never surface to the player.
+    /// a dead llgames.ca can never surface to the player.
     /// </summary>
     public static class Reporter
     {
-        private const string Url = "https://llgame.ca/data/runs";
+        private const string Url = "https://llgames.ca/data/runs";
 
         [Serializable]
         private class Payload
