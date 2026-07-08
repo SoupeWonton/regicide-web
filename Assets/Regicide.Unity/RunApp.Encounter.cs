@@ -80,9 +80,13 @@ namespace Regicide.Unity
             arena.style.flexGrow = 1;
             arena.style.marginTop = 6;
 
+            // The rail may give ground on narrow windows (playtest: scrollbars) —
+            // it starts at 300, shrinks to 220, and scrolls internally past that.
             var leftRail = new ScrollView();
             leftRail.style.width = 300;
-            leftRail.style.flexShrink = 0;
+            leftRail.style.maxWidth = 300;
+            leftRail.style.minWidth = 220;
+            leftRail.style.flexShrink = 1;
             leftRail.Add(GauntletCombatPanel());
             leftRail.Add(StaffCombatPanel());
             leftRail.Add(RelicCombatPanel());
@@ -300,7 +304,9 @@ namespace Regicide.Unity
             // RIGHT flank: the piles live beside the fan (not the far corner) + the pool.
             var rightFlank = new VisualElement();
             rightFlank.style.width = 130;
-            rightFlank.style.flexShrink = 0;
+            rightFlank.style.maxWidth = 130;
+            rightFlank.style.minWidth = 100;
+            rightFlank.style.flexShrink = 1;
             rightFlank.style.alignItems = Align.Center;
             rightFlank.style.paddingBottom = 6;
             rightFlank.Add(PileIcons());

@@ -46,6 +46,23 @@ namespace Kingfall.EditorTools
                 EditorUtility.SetDirty(ps);
             }
 
+            // Scale the whole panel with the window (playtest: fixed-pixel rails
+            // overflowed into scrollbars on other resolutions/DPIs). Reference
+            // 1600×900 = the default window, so at that size the scale is exactly
+            // 1.0 and nothing changes. Enforced every run — the asset may predate this.
+            var referenceResolution = new Vector2Int(1600, 900);
+            if (ps.scaleMode != PanelScaleMode.ScaleWithScreenSize ||
+                ps.referenceResolution != referenceResolution ||
+                ps.screenMatchMode != PanelScreenMatchMode.MatchWidthOrHeight ||
+                !Mathf.Approximately(ps.match, 0.5f))
+            {
+                ps.scaleMode = PanelScaleMode.ScaleWithScreenSize;
+                ps.referenceResolution = referenceResolution;
+                ps.screenMatchMode = PanelScreenMatchMode.MatchWidthOrHeight;
+                ps.match = 0.5f;
+                EditorUtility.SetDirty(ps);
+            }
+
             // 3. The one Run scene: a camera (keeps the player renderer happy) and
             //    an empty GameObject carrying RunApp — the whole game drives itself.
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);

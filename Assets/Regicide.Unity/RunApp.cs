@@ -61,6 +61,12 @@ namespace Regicide.Unity
         {
             _metaPath = System.IO.Path.Combine(Application.persistentDataPath, "lineage.json");
             _meta = MetaState.LoadFrom(_metaPath);
+            if (string.IsNullOrEmpty(_meta.InstallId))
+            {
+                // Anonymous install id for run reports — minted once, kept forever.
+                _meta.InstallId = System.Guid.NewGuid().ToString("N");
+                _meta.SaveTo(_metaPath);
+            }
             Sfx.Init(gameObject);
             Sfx.Muted = PlayerPrefs.GetInt("kingfall-muted", 0) == 1;
 
@@ -73,6 +79,10 @@ namespace Regicide.Unity
             }
             _root = doc.rootVisualElement;
             Render();
+
+            // One quiet update check per launch; the menu re-renders its banner
+            // in only when (and if) a newer build answers.
+            UpdateCheck.Run(() => Render());
         }
 
         // ── the one door into Core ──────────────────────────────────────────────
@@ -104,6 +114,7 @@ namespace Regicide.Unity
                 _outcomeRecorded = true;
                 _meta.RecordOutcome(S);
                 _meta.SaveTo(_metaPath);
+                Reporter.ReportRunEnd(_meta, S); // opt-out telemetry, after the save
             }
             Render();
             // The FX pass reads element positions — wait one layout tick.
@@ -874,6 +885,15 @@ namespace Regicide.Unity
                 Sfx.Muted = !Sfx.Muted;
                 PlayerPrefs.SetInt("kingfall-muted", Sfx.Muted ? 1 : 0);
                 PlayerPrefs.Save();
+                Render();
+            }));
+
+            d.Add(Btn(_meta.ShareRunData
+                ? "Share anonymous run data: ON"
+                : "Share anonymous run data: OFF", () =>
+            {
+                _meta.ShareRunData = !_meta.ShareRunData;
+                _meta.SaveTo(_metaPath);
                 Render();
             }));
 

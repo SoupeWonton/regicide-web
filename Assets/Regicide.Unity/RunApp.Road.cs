@@ -12,21 +12,14 @@ namespace Regicide.Unity
 
         /// <summary>Caravan overlay dismissed by "Walk away" — resets when the offer clears.</summary>
         private bool _caravanDismissed;
-        /// <summary>Leave-confirm (audit J10): the node awaiting a second click, -1 = none.</summary>
-        private int _confirmLeaveNodeId = -1;
         /// <summary>Sanctum rearrange dialog state (audit J11).</summary>
         private bool _sanctumOpen;
         private int _sanctumFrom = -1;
         private int _sanctumSeq = -1;
 
-        /// <summary>An unresolved one-way offer stands here (leaving forfeits it).</summary>
-        private bool OpenOfferHere =>
-            S.CaravanOffer != null || S.StaffOffer != null || S.SanctumCharge;
-
         private VisualElement BuildRoad()
         {
             if (S.CaravanOffer == null) _caravanDismissed = false;
-            if (!OpenOfferHere) _confirmLeaveNodeId = -1;
             if (!S.SanctumCharge) { _sanctumOpen = false; _sanctumFrom = -1; _sanctumSeq = -1; }
             bool caravanOpen = S.CaravanOffer != null && !_caravanDismissed;
 
@@ -117,22 +110,6 @@ namespace Regicide.Unity
             header.Add(toggle);
             frame.Add(header);
 
-            // Leave-confirm warning (audit J10): a second click commits.
-            if (_confirmLeaveNodeId != -1 && OpenOfferHere)
-            {
-                var forfeits = new List<string>();
-                if (S.CaravanOffer != null)
-                    forfeits.Add($"the caravan's {RelicTables.Get(S.CaravanOffer).Name}");
-                if (S.StaffOffer != null) forfeits.Add("the staff swap");
-                if (S.SanctumCharge) forfeits.Add("the sanctum rearrange");
-                var warn = Theme.Subtle(
-                    $"leaving forfeits {string.Join(" · ", forfeits)} — click the node again to go");
-                warn.style.color = Theme.RedBright;
-                warn.style.fontSize = 11;
-                warn.style.marginBottom = 4;
-                frame.Add(warn);
-            }
-
             // The body holds the layer columns AND the edge canvas drawn over them.
             // No scroll view: the columns spread across whatever width the window
             // gives, so the map fills the screen and scales with resizes.
@@ -164,18 +141,8 @@ namespace Regicide.Unity
                     int captured = node.Id;
                     bool isCurrent = node.Id == current.Id;
                     bool reachable = current.Next.Contains(node.Id);
-                    var disc = Widgets.NodeDisc(node, isCurrent, reachable, () =>
-                    {
-                        // Leaving an unresolved offer takes a second click (audit J10).
-                        if (OpenOfferHere && _confirmLeaveNodeId != captured)
-                        {
-                            _confirmLeaveNodeId = captured;
-                            Render();
-                            return;
-                        }
-                        _confirmLeaveNodeId = -1;
-                        Dispatch(new MoveToNode(captured));
-                    });
+                    var disc = Widgets.NodeDisc(node, isCurrent, reachable,
+                        () => Dispatch(new MoveToNode(captured)));
                     // Show-paths: stops your lane can no longer reach fade out.
                     if (_showPaths && !open.Contains(node.Id) && !node.Visited)
                         disc.style.opacity = 0.3f;

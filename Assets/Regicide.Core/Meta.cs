@@ -36,6 +36,11 @@ namespace Regicide.Core
         public int Wins;
         /// <summary>True once any run has been crowned at the King Gate (§14).</summary>
         public bool C2Cleared;
+        /// <summary>Opt-OUT anonymous run reporting (settings toggle). Default ON.</summary>
+        public bool ShareRunData = true;
+        /// <summary>Anonymous install id for run reports — a GUID the app layer
+        /// generates once (when empty) and persists via the normal meta save.</summary>
+        public string InstallId = "";
         /// <summary>Most recent last. Playtest evidence: which run had which class/staff/seed.</summary>
         public System.Collections.Generic.List<RunRecord> History =
             new System.Collections.Generic.List<RunRecord>();
@@ -79,7 +84,9 @@ namespace Regicide.Core
         /// Stored strings are sanitized on WRITE (no quotes/braces/backslashes, capped)
         /// so the tiny hand-rolled parser below never meets an escape sequence.
         /// </summary>
-        private static string Clean(string s)
+        private static string Clean(string s) => Clean(s, 24);
+
+        private static string Clean(string s, int max)
         {
             if (string.IsNullOrEmpty(s)) return "";
             var sb = new StringBuilder();
@@ -87,7 +94,7 @@ namespace Regicide.Core
             {
                 if (c == '"' || c == '\\' || c == '{' || c == '}' || c == '[' || c == ']' || c == ',') continue;
                 sb.Append(c);
-                if (sb.Length >= 24) break;
+                if (sb.Length >= max) break;
             }
             return sb.ToString();
         }
@@ -99,6 +106,9 @@ namespace Regicide.Core
             sb.Append(",\"runs\":").Append(Runs.ToString(CultureInfo.InvariantCulture));
             sb.Append(",\"wins\":").Append(Wins.ToString(CultureInfo.InvariantCulture));
             sb.Append(",\"c2Cleared\":").Append(C2Cleared ? "true" : "false");
+            sb.Append(",\"shareRunData\":").Append(ShareRunData ? "true" : "false");
+            // The GUID (32 hex chars) outgrows the default 24-char cap.
+            sb.Append(",\"installId\":\"").Append(Clean(InstallId, 40)).Append('"');
             sb.Append(",\"history\":[");
             for (int i = 0; i < History.Count; i++)
             {
@@ -125,6 +135,9 @@ namespace Regicide.Core
             meta.Runs = ReadInt(json, "runs", 0);
             meta.Wins = ReadInt(json, "wins", 0);
             meta.C2Cleared = ReadBool(json, "c2Cleared");
+            // Missing on pre-v2 files → the opt-OUT default (true), not false.
+            meta.ShareRunData = ReadBool(json, "shareRunData", true);
+            meta.InstallId = ReadStr(json, "installId");
 
             // History: cleaned strings guarantee no nested braces — object splitting
             // on '}' is safe. A v1 file simply has no history (empty list).
@@ -191,6 +204,14 @@ namespace Regicide.Core
         }
 
         private static bool ReadBool(string json, string field) => ReadRaw(json, field) == "true";
+
+        private static bool ReadBool(string json, string field, bool fallback)
+        {
+            string raw = ReadRaw(json, field);
+            if (raw == "true") return true;
+            if (raw == "false") return false;
+            return fallback;
+        }
 
         private static string ReadRaw(string json, string field)
         {

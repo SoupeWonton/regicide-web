@@ -116,10 +116,39 @@ namespace Regicide.Unity
             return o;
         }
 
+        // Playtest: the blocking overlay hides the hand and board mid-pick, so the
+        // dialog can fold away into a floating chip. The flag is tracked against
+        // the choice INSTANCE so it can never leak into a later overdraw. (Fields
+        // live in THIS partial — RunApp.cs is owned elsewhere.)
+        private bool _hideOverdraw;
+        private PendingChoice _hideOverdrawFor;
+
         private VisualElement OverdrawDialog(PendingChoice pending)
         {
+            // A hide left over from an EARLIER pick must not swallow this one.
+            if (_hideOverdrawFor != pending)
+            {
+                _hideOverdraw = false;
+                _hideOverdrawFor = null;
+            }
+            if (_hideOverdraw) return OverdrawHiddenChip();
+
             var o = Overlay();
             var d = Dialog("OVERDRAW — THE LAST SLOT");
+
+            // Peek-at-the-board escape hatch — input stays gated by the pending
+            // choice in Core, so view-only is safe.
+            var hide = Theme.Button("HIDE", () =>
+            {
+                _hideOverdraw = true;
+                _hideOverdrawFor = pending;
+                Render();
+            }, Theme.ButtonKind.Ghost);
+            hide.style.position = Position.Absolute;
+            hide.style.top = 10;
+            hide.style.right = 10;
+            d.Add(hide);
+
             var sub = new Label("your hand holds ONE more — take your pick; the rest shuffle back into the deck");
             sub.style.color = Theme.ParchmentDim;
             sub.style.marginBottom = 8;
@@ -151,6 +180,33 @@ namespace Regicide.Unity
             d.Add(scroll);
             o.Add(d);
             return o;
+        }
+
+        /// <summary>The folded overdraw: a top-center chip over a fully live board.</summary>
+        private VisualElement OverdrawHiddenChip()
+        {
+            // NOT an overlay — the board and hand stay visible and readable beneath.
+            var wrap = new VisualElement();
+            wrap.style.position = Position.Absolute;
+            wrap.style.top = 8;
+            wrap.style.left = 0; wrap.style.right = 0;
+            wrap.style.alignItems = Align.Center;
+            wrap.pickingMode = PickingMode.Ignore; // only the chip itself eats clicks
+
+            var chip = new Label("SHOW OVERDRAW");
+            chip.style.backgroundColor = Theme.Night;
+            Theme.SetBorder(chip, Theme.Gold, 1.5f);
+            Theme.SetRadius(chip, 6);
+            Theme.SetPadding(chip, 6, 14);
+            chip.style.color = Theme.GoldBright;
+            chip.style.fontSize = 12;
+            chip.style.letterSpacing = 2;
+            chip.style.unityFontStyleAndWeight = FontStyle.Bold;
+            chip.RegisterCallback<ClickEvent>(_ => { _hideOverdraw = false; Render(); });
+            chip.RegisterCallback<MouseEnterEvent>(_ => Theme.SetBorder(chip, Theme.GoldBright, 1.5f));
+            chip.RegisterCallback<MouseLeaveEvent>(_ => Theme.SetBorder(chip, Theme.Gold, 1.5f));
+            wrap.Add(chip);
+            return wrap;
         }
 
         private VisualElement RoyalKeepDialog(PendingChoice pending)

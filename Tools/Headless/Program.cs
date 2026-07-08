@@ -889,9 +889,10 @@ namespace Regicide.Headless
                 killed++;
             }
 
-            Check(s.State.PendingChoice == null, "eligible 2 ≤ keep 2 → no pick needed");
+            Check(s.State.PendingChoice?.Kind == PendingChoiceKind.RelicSelect,
+                "eligible 2 ≤ keep 2 → no keep pick, straight to the chapter relic offer");
             Check(last.Events.OfType<RoyalKept>().Count() == 2, "both exact-killed queens auto-kept");
-            Check(s.State.Phase == CampaignPhase.ChapterComplete, "gate chapter completes without a dialog");
+            Check(s.State.Phase == CampaignPhase.ChapterComplete, "gate chapter completes without a keep dialog");
             Check(!s.State.OwnsFace(new CardFace(Suit.Clubs, Rank.Queen)) &&
                   !s.State.OwnsFace(new CardFace(Suit.Diamonds, Rank.Queen)),
                 "overkilled queens are banished — never kept");
@@ -931,7 +932,8 @@ namespace Regicide.Headless
             Check(Has<GraftApplied>(r4), "graft resolved");
             Check(Has<EncounterWon>(r4), "then the gate clears");
             Check(r4.Events.OfType<RoyalKept>().Count() == 2, "then both jacks auto-keep");
-            Check(s.State.PendingChoice == null, "queue drained");
+            Check(s.State.PendingChoice?.Kind == PendingChoiceKind.RelicSelect,
+                "keep queue drained — only the chapter relic offer remains");
             Check(s.State.OwnsFace(new CardFace(Suit.Hearts, Rank.Jack)) &&
                   s.State.OwnsFace(new CardFace(Suit.Spades, Rank.Jack)), "both gate jacks owned");
         }
@@ -1038,6 +1040,8 @@ namespace Regicide.Headless
                 WinFight(s);
                 while (s.State.PendingChoice?.Kind == PendingChoiceKind.RoyalKeep)
                     Must(s.Dispatch(new ChooseRoyal(s.State.PendingChoice.Eligible[0])));
+                if (s.State.PendingChoice?.Kind == PendingChoiceKind.RelicSelect) // chapter-clear offer
+                    Must(s.Dispatch(new ChooseRelic(s.State.PendingChoice.RelicOptions[0])));
 
                 if (ch < Tuning.FinalChapter)
                 {
@@ -1727,15 +1731,15 @@ namespace Regicide.Headless
             MustFail(s.Dispatch(new ChooseRelic("crown_of_ages")), "not on offer");
             string picked = pending.RelicOptions[0];
             var r = Must(s.Dispatch(new ChooseRelic(picked)));
-            Check(s.State.RelicBag.Contains(picked), "claimed relic lands in the bag");
+            int slot = (int)RelicTables.Get(picked).Slot;
+            Check(Has<RelicEquipped>(r), "gained relic auto-equips (empty slot)");
+            Check(s.State.EquippedRelics[slot] == picked && !s.State.RelicBag.Contains(picked),
+                "claimed relic lands straight in its slot, not the bag");
 
             MustFail(s.Dispatch(new EquipRelic("no_such")), "unknown relic");
             string notOffered = RelicTables.All.Select(x => x.Id).First(id => !pending.RelicOptions.Contains(id));
             MustFail(s.Dispatch(new EquipRelic(notOffered)), "an unowned relic is not in the bag");
-            Must(s.Dispatch(new EquipRelic(picked)));
-            int slot = (int)RelicTables.Get(picked).Slot;
-            Check(s.State.EquippedRelics[slot] == picked && !s.State.RelicBag.Contains(picked),
-                "equipped into its own slot, out of the bag");
+            MustFail(s.Dispatch(new EquipRelic(picked)), "auto-equipped relic is no longer in the bag");
 
             // A second relic of the same slot swaps freely.
             string other = RelicTables.All.First(x => x.Slot == RelicTables.Get(picked).Slot && x.Id != picked).Id;
@@ -1761,7 +1765,8 @@ namespace Regicide.Headless
             var h9 = Give(s, Suit.Hearts, Rank.Nine);
             MustFail(s.Dispatch(new BuyRelic(c2.PhysicalId)), "2 is short of 8");
             Must(s.Dispatch(new BuyRelic(h9.PhysicalId)));
-            Check(s.State.RelicBag.Contains(offer), "bought relic in the bag");
+            Check(s.State.EquippedRelics[(int)RelicTables.Get(offer).Slot] == offer,
+                "bought relic auto-equips into its empty slot");
             Check(s.State.CaravanOffer == null, "the stall closes after the sale");
             Check(s.State.Deck.Discard.Contains(h9.PhysicalId), "payment went to the discard");
             MustFail(s.Dispatch(new BuyRelic(c2.PhysicalId)), "nothing left to buy");
@@ -1773,7 +1778,8 @@ namespace Regicide.Headless
             ClearHand(s2);
             var d6 = Give(s2, Suit.Diamonds, Rank.Six);
             Must(s2.Dispatch(new BuyRelic(d6.PhysicalId)));
-            Check(s2.State.RelicBag.Count == 1, "6 pays the discounted price");
+            Check(s2.State.RelicBag.Count + s2.State.EquippedRelics.Count(e => e != null) == 2,
+                "6 pays the discounted price — relic gained (auto-equips when its slot is free)");
         }
 
         private static void TestHoardInterest()

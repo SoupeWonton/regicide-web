@@ -7,6 +7,11 @@ namespace Regicide.Unity
 {
     public partial class RunApp
     {
+        // Update banner state (menu-only): a click flips to DOWNLOADING…; a failed
+        // download resets to the offer so it can be retried, with a note under it.
+        private bool _updateDownloading;
+        private bool _updateFailed;
+
         // ── main menu (§16): new run + seed, lineage summary, quit ──────────────
 
         private VisualElement BuildMainMenu()
@@ -40,6 +45,44 @@ namespace Regicide.Unity
                 suitsRow.Add(g);
             }
             v.Add(suitsRow);
+
+            // Update banner: exists ONLY when the boot check found a newer build.
+            if (UpdateCheck.UpdateReady)
+            {
+                var banner = BtnPrimary(
+                    _updateDownloading
+                        ? "DOWNLOADING..."
+                        : $"UPDATE v{UpdateCheck.AvailableVersion} AVAILABLE - UPDATE NOW",
+                    () =>
+                    {
+                        if (_updateDownloading) return;
+                        _updateDownloading = true;
+                        _updateFailed = false;
+                        Render();
+                        // Success quits into the installer; only failure returns.
+                        UpdateCheck.DownloadAndInstall(_ =>
+                        {
+                            _updateDownloading = false;
+                            _updateFailed = true;
+                            Render();
+                        });
+                    },
+                    enabled: !_updateDownloading);
+                banner.style.fontSize = 15;
+                banner.style.letterSpacing = 1;
+                Theme.SetBorder(banner, Theme.GoldBright, 2);
+                Theme.SetPadding(banner, 8, 24);
+                banner.style.marginBottom = _updateFailed ? 2 : 14;
+                v.Add(banner);
+
+                if (_updateFailed)
+                {
+                    var failNote = Theme.Subtle("UPDATE FAILED - TRY AGAIN LATER");
+                    failNote.style.color = Theme.RedBright;
+                    failNote.style.marginBottom = 12;
+                    v.Add(failNote);
+                }
+            }
 
             var box = Theme.Frame();
             Theme.SetBorder(box, Theme.Gold, 2);
