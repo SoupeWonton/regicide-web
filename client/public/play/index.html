@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Kingfall — alpha</title>
+  <link rel="icon" href="data:,">
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #171228; overflow: hidden; }
+    #unity-canvas { width: 100%; height: 100%; display: block; background: #171228; }
+    #loading {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      color: #c9a227; font: 15px system-ui, sans-serif; letter-spacing: 4px;
+    }
+    #bar { width: 220px; height: 8px; border: 1px solid rgba(201,162,39,.7); border-radius: 4px; margin-top: 14px; }
+    #fill { height: 100%; width: 0; background: #c9a227; border-radius: 3px; transition: width .15s ease; }
+  </style>
+</head>
+<body>
+  <canvas id="unity-canvas" tabindex="-1"></canvas>
+  <div id="loading">
+    <div>KINGFALL</div>
+    <div id="bar"><div id="fill"></div></div>
+  </div>
+  <script src="Build/Web.loader.js"></script>
+  <script>
+    createUnityInstance(document.querySelector("#unity-canvas"), {
+      arguments: [],
+      dataUrl: "Build/Web.data.unityweb",
+      frameworkUrl: "Build/Web.framework.js.unityweb",
+      codeUrl: "Build/Web.wasm.unityweb",
+      streamingAssetsUrl: "StreamingAssets",
+      companyName: "DefaultCompany",
+      productName: "kingfall",
+      productVersion: "1.0",
+      matchWebGLToCanvasSize: true,
+      devicePixelRatio: window.devicePixelRatio,
+    }, p => { document.getElementById("fill").style.width = (p * 100) + "%"; })
+      .then(() => document.getElementById("loading").remove())
+      .catch(e => { document.getElementById("loading").textContent = "load failed — " + e; });
+  </script>
+</body>
+</html>
