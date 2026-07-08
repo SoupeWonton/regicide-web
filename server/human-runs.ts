@@ -11,6 +11,8 @@ import { dbEnabled, insertRun } from './db'
 //                              so analyze-province.ts can pool it directly:
 //                              npx tsx scripts/analyze-province.ts ../human-runs)
 //   data/human-runs/quick.csv  base quick games
+//   data/human-runs/unity.csv  Kingfall desktop runs (POST /data/runs — its own
+//                              columns; the desktop client reports a thinner row)
 //
 // data/ is gitignored; telemetry must never break the game — every write is
 // wrapped, and a failed append is silently dropped.
@@ -29,7 +31,7 @@ const esc = (v: unknown) => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
-export function appendHumanRun(file: 'runs' | 'quick', row: Record<string, unknown>) {
+export function appendHumanRun(file: 'runs' | 'quick' | 'unity', row: Record<string, unknown>) {
   try {
     fs.mkdirSync(DIR, { recursive: true })
     const target = path.join(DIR, `${file}.csv`)

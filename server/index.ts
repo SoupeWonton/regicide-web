@@ -15,6 +15,7 @@ import path from 'path'
 import fs from 'fs'
 import archiver from 'archiver'
 import { fileURLToPath } from 'url'
+import { appendHumanRun } from './human-runs'
 
 const app = express()
 const http = createServer(app)
@@ -138,6 +139,36 @@ app.post('/data/delete-all', (req, res) => {
   } catch { /* gone */ }
   console.log(`[data] delete ${folder || 'ALL'}: ${deleted} files (${fmtBytes(freed)})`)
   res.json({ deleted, freed })
+})
+
+// Kingfall desktop clients report finished runs here (opt-out in the game's
+// settings). Field-allowlisted into a stable column order → human-runs/unity.csv
+// (+ Postgres in prod via appendHumanRun), so rows surface on /data like the
+// web runs. Registered before the GET catch-all; POST-only, tiny body cap.
+app.post('/data/runs', express.json({ limit: '8kb' }), (req, res) => {
+  const b = req.body
+  if (!b || typeof b !== 'object') { res.status(400).json({ error: 'json body required' }); return }
+  const str = (v: unknown, max = 64) => (typeof v === 'string' ? v.slice(0, max) : '')
+  const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : '')
+  const row = {
+    receivedAt: new Date().toISOString(),
+    installId: str(b.installId),
+    version: str(b.version, 32),
+    runN: num(b.runN),
+    classId: str(b.classId),
+    staffId: str(b.staffId),
+    seed: str(b.seed),
+    outcome: str(b.outcome, 16),
+    chapter: num(b.chapter),
+    endedAt: str(b.endedAt, 40),
+    // indexed db columns (db.ts insertRun reads these names)
+    runId: `${str(b.installId)}:${num(b.runN)}`,
+    result: str(b.outcome, 16),
+    chapterReached: num(b.chapter),
+    classes: str(b.classId),
+  }
+  appendHumanRun('unity', row)
+  res.json({ ok: true })
 })
 
 app.get(/^\/data\/(.+)/, (req, res) => {
