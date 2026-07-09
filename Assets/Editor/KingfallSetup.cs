@@ -18,6 +18,9 @@ namespace Kingfall.EditorTools
         private const string ThemePath = "Assets/UI/UnityDefaultRuntimeTheme.tss";
         private const string PanelPath = "Assets/UI/KingfallPanelSettings.asset";
         private const string ScenePath = "Assets/Scenes/Run.unity";
+        private const string SuitFontPath = "Assets/UI/Fonts/DejaVuSans.ttf";
+        private const string SuitFontAssetPath = "Assets/UI/Fonts/DejaVuSans FontAsset.asset";
+        private const string TextSettingsPath = "Assets/UI/KingfallTextSettings.asset";
 
         [MenuItem("Kingfall/Create Run Scene")]
         public static void CreateRunScene()
@@ -44,6 +47,41 @@ namespace Kingfall.EditorTools
             {
                 ps.themeStyleSheet = theme;
                 EditorUtility.SetDirty(ps);
+            }
+
+            // Suit pips ♠♦♣ are NOT in the default runtime font — desktop silently
+            // fell back to OS fonts (Segoe UI Symbol), but a web build has no OS
+            // fonts and lost every suit except ♥ (which Inter happens to carry).
+            // DejaVu Sans (free, redistributable) rides along as the panel-wide
+            // fallback so glyph coverage never depends on the player's machine.
+            var suitFont = AssetDatabase.LoadAssetAtPath<Font>(SuitFontPath);
+            if (suitFont != null)
+            {
+                var fa = AssetDatabase.LoadAssetAtPath<UnityEngine.TextCore.Text.FontAsset>(SuitFontAssetPath);
+                if (fa == null)
+                {
+                    fa = UnityEngine.TextCore.Text.FontAsset.CreateFontAsset(
+                        suitFont, 90, 9, UnityEngine.TextCore.LowLevel.GlyphRenderMode.SDFAA_HINTED,
+                        512, 512, UnityEngine.TextCore.Text.AtlasPopulationMode.Dynamic);
+                    fa.name = "DejaVuSans FontAsset";
+                    AssetDatabase.CreateAsset(fa, SuitFontAssetPath);
+                    if (fa.material != null) { fa.material.name = fa.name + " Material"; AssetDatabase.AddObjectToAsset(fa.material, fa); }
+                    if (fa.atlasTextures != null)
+                        foreach (var tex in fa.atlasTextures)
+                            if (tex != null) { tex.name = fa.name + " Atlas"; AssetDatabase.AddObjectToAsset(tex, fa); }
+                }
+                var pts = AssetDatabase.LoadAssetAtPath<PanelTextSettings>(TextSettingsPath);
+                if (pts == null)
+                {
+                    pts = ScriptableObject.CreateInstance<PanelTextSettings>();
+                    AssetDatabase.CreateAsset(pts, TextSettingsPath);
+                }
+                if (pts.fallbackFontAssets == null || !pts.fallbackFontAssets.Contains(fa))
+                {
+                    (pts.fallbackFontAssets ?? (pts.fallbackFontAssets = new System.Collections.Generic.List<UnityEngine.TextCore.Text.FontAsset>())).Add(fa);
+                    EditorUtility.SetDirty(pts);
+                }
+                if (ps.textSettings != pts) { ps.textSettings = pts; EditorUtility.SetDirty(ps); }
             }
 
             // Scale the whole panel with the window (playtest: fixed-pixel rails
